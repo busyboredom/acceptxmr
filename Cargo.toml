@@ -3,6 +3,14 @@ name = "xmr-checkout"
 version = "0.1.0"
 edition = "2018"
 
+[lib]
+name = "xmr_checkout"
+path = "src/lib.rs"
+
+[[bin]]
+name = "checkout_demo"
+path = "src/bin/checkout_demo.rs"
+
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
@@ -11,3 +19,4 @@ reqwest = { version = "0", features = ["json"] }
 serde_json = "1"
 monero = "0"
 hex = "0"
+qrcode = "0"

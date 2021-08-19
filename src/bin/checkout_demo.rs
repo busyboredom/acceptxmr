@@ -1,27 +1,55 @@
 use std::str::FromStr;
 
-use monero::util::{key, address};
 use monero::blockdata::transaction;
 use monero::consensus::encode;
+use monero::util::{address, key};
 use tokio::time;
+use tokio::fs;
+use qrcode::QrCode;
+use qrcode::render::svg;
+
+
+use xmr_checkout::{BlockScanner, BlockScannerBuilder};
 
 #[tokio::main]
 async fn main() {
-    println!("Hello, world!");
-
     // Prepare Viewkey.
-    let mut viewkey_string = include_str!("../../secrets/xmr_private_viewkey.txt").to_string();
+    let mut viewkey_string = include_str!("../../../secrets/xmr_private_viewkey.txt").to_string();
     viewkey_string.pop();
     let private_viewkey = key::PrivateKey::from_str(&viewkey_string).unwrap();
 
     // Prepare Spendkey.
-    let public_spendkey = key::PublicKey::from_str("dd4c491d53ad6b46cda01ed6cb9bac57615d9eac8d5e4dd1c0363ac8dfd420a7").unwrap();
+    let public_spendkey = key::PublicKey::from_str(
+        "dd4c491d53ad6b46cda01ed6cb9bac57615d9eac8d5e4dd1c0363ac8dfd420a7",
+    )
+    .unwrap();
+
+    let block_scanner = BlockScannerBuilder::new()
+        .daemon_url("https://busyboredom.com:18081")
+        .private_viewkey(&viewkey_string)
+        .public_spendkey("dd4c491d53ad6b46cda01ed6cb9bac57615d9eac8d5e4dd1c0363ac8dfd420a7")
+        .scan_rate(1000)
+        .build();
+
+    // Get a new integrated address, and the payment ID contained in it.
+    let (address, payment_id) = block_scanner.new_integrated_address();
+
+    // Render a QR code for the new address.
+    let qr = QrCode::new(address)
+        .unwrap();
+    let image = qr.render::<svg::Color>()
+        .min_dimensions(200, 200)
+        .build();
+
+    // Save the QR code image.
+    fs::write("qrcode.svg", image).await.expect("Unable to wtire QR Code image to file");
+
+    // Below this is old test code --------------------------------------------------------
 
     // Combine into keypair.
-    let view_pair = key::ViewPair {
+    let viewpair = key::ViewPair {
         view: private_viewkey,
-        spend: public_spendkey
-
+        spend: public_spendkey,
     };
 
     let mut blockscan_interval = time::interval(time::Duration::from_secs(1));
@@ -29,7 +57,7 @@ async fn main() {
         blockscan_interval.tick().await;
         let current_height = get_current_height().await.unwrap();
         println!("{:?}", current_height);
-        let amount = scan_block_transactions(2429747, &view_pair).await.unwrap();
+        let amount = scan_block_transactions(current_height, &viewpair).await.unwrap();
         if amount != 0 {
             break;
         }
@@ -46,13 +74,16 @@ async fn get_current_height() -> Result<u64, reqwest::Error> {
         .send()
         .await?;
     let res = res.json::<serde_json::Value>().await?;
-    
+
     let height = res["result"]["count"].as_u64().unwrap() - 1;
 
     Ok(height)
 }
 
-async fn scan_block_transactions(height: u64, view_pair: &key::ViewPair) -> Result<u64, reqwest::Error> {
+async fn scan_block_transactions(
+    height: u64,
+    viewpair: &key::ViewPair,
+) -> Result<u64, reqwest::Error> {
     let client = reqwest::Client::new();
 
     let request_body = r#"{"jsonrpc":"2.0","id":"0","method":"get_block","params":{"height":"#
@@ -67,7 +98,8 @@ async fn scan_block_transactions(height: u64, view_pair: &key::ViewPair) -> Resu
 
     let res = res.json::<serde_json::Value>().await?;
 
-    let request_body = r#"{"txs_hashes":"#.to_owned() + &res["result"]["tx_hashes"].to_string() + "}";
+    let request_body =
+        r#"{"txs_hashes":"#.to_owned() + &res["result"]["tx_hashes"].to_string() + "}";
     let res = client
         .post("http://busyboredom.com:18081/get_transactions")
         .body(request_body)
@@ -86,22 +118,20 @@ async fn scan_block_transactions(height: u64, view_pair: &key::ViewPair) -> Resu
         let tx_hex_str = tx_hex_json.as_str().unwrap();
         let tx_hex = hex::decode(tx_hex_str).unwrap();
         let tx: transaction::Transaction = encode::deserialize(&tx_hex).unwrap();
-        let owned_outputs = tx.check_outputs(&view_pair, 0..2, 0..3).unwrap();
+        let owned_outputs = tx.check_outputs(&viewpair, 0..2, 0..3).unwrap();
         for output in owned_outputs {
-            total_amount += output.amount().expect("Failed to read amount from owned output");
+            
+            total_amount += output
+                .amount()
+                .expect("Failed to read amount from owned output");
         }
     }
 
-    println!("{}.{:012}", total_amount/1_000_000_000_000, total_amount%1_000_000_000_000);
+    println!(
+        "{}.{:012}",
+        total_amount / 1_000_000_000_000,
+        total_amount % 1_000_000_000_000
+    );
 
     Ok(total_amount)
-}
-
-struct Payment {
-    payment_id: address::PaymentId,
-    expected_amount: u64,
-    paid_amount: u64,
-    confirmations_required: u64,
-    confirmations_recieved: u64,
-    expiration_block: u64
 }
