@@ -14,7 +14,7 @@ impl BlockScanner {
         BlockScannerBuilder::default()
     }
 
-    pub fn new_integrated_address(&self) -> (Vec<u8>, [u8; 8]) {
+    pub fn new_integrated_address(&self) -> (String, [u8; 8]) {
         let standard_address = address::Address::from_viewpair(Network::Mainnet, &self.viewpair);
 
         let integrated_address = address::Address::integrated(
@@ -28,7 +28,7 @@ impl BlockScanner {
             _ => panic!("Integrated address malformed (no payment ID)"),
         };
 
-        (integrated_address.as_bytes(), payment_id.to_fixed_bytes())
+        (format!("{}", integrated_address), payment_id.to_fixed_bytes())
     }
 }
 
