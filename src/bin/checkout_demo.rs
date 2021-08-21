@@ -1,12 +1,11 @@
-use std::collections::HashMap;
+use std::thread;
 
-use monero::util::address::PaymentId;
 use qrcode::render::svg;
 use qrcode::QrCode;
 use tokio::fs;
 use tokio::time;
 
-use xmr_checkout::{BlockScanner, BlockScannerBuilder, Payment};
+use xmr_checkout::BlockScannerBuilder;
 
 #[tokio::main]
 async fn main() {
@@ -34,62 +33,10 @@ async fn main() {
         .await
         .expect("Unable to wtire QR Code image to file");
 
-    // Below this is old test code --------------------------------------------------------
+    block_scanner.run();
 
-    let mut blockscan_interval = time::interval(time::Duration::from_secs(1));
     loop {
-        blockscan_interval.tick().await;
-        let current_height = get_current_height().await.unwrap();
-        let current_height = 2431442;
-        println!("Current Block: {}", current_height);
-        let amount = scan_block_transactions(current_height, &mut block_scanner)
-            .await
-            .unwrap();
-        if amount != 0 {
-            break;
-        }
+        thread::sleep(time::Duration::from_millis(5000));
+        block_scanner.track_payment("Can you read this? ---------------------------------------");
     }
-}
-
-async fn get_current_height() -> Result<u64, reqwest::Error> {
-    let client = reqwest::Client::new();
-
-    let request_body = r#"{"jsonrpc":"2.0","id":"0","method":"get_block_count"}"#;
-    let res = client
-        .post("http://busyboredom.com:18081/json_rpc")
-        .body(request_body)
-        .send()
-        .await?;
-    let res = res.json::<serde_json::Value>().await?;
-
-    let height = res["result"]["count"].as_u64().unwrap() - 1;
-
-    Ok(height)
-}
-
-async fn scan_block_transactions(
-    height: u64,
-    block_scanner: &mut BlockScanner,
-) -> Result<u64, reqwest::Error> {
-    let block = block_scanner.get_block(height).await?;
-    let transactions = block_scanner.get_block_transactions(block).await?;
-    println!("Transactions: {}", transactions.len());
-
-    // TODO: write a function for blockscanner that lets me insert this payment.
-    let payment_id = PaymentId::from_slice(&hex::decode("33d2a0f45130c85b").unwrap());
-    let payment = Payment {
-        payment_id: payment_id,
-        expected_amount: 1,
-        paid_amount: 0,
-        confirmations_required: 1,
-        confirmations_recieved: 0,
-        expiration_block: 10,
-    };
-    block_scanner.scan_transactions(transactions).await;
-
-    let amount = payment.paid_amount;
-
-    println!("Amount: {}", monero::Amount::from_pico(amount).as_xmr());
-
-    Ok(amount)
 }
