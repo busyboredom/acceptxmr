@@ -2,7 +2,7 @@ mod util;
 
 use std::collections::HashMap;
 use std::str::FromStr;
-use std::sync::mpsc::{channel, Sender};
+use std::sync::mpsc::{channel, Receiver, Sender};
 use std::thread;
 
 use monero::util::address::PaymentId;
@@ -16,7 +16,8 @@ pub struct BlockScanner {
     viewpair: monero::ViewPair,
     payments: HashMap<PaymentId, Payment>,
     scan_rate: u64,
-    scanthread_tx: Option<Sender<String>>,
+    scanthread_tx: Option<Sender<Payment>>,
+    scanthread_rx: Option<Receiver<Receiver<Payment>>>,
 }
 
 impl BlockScanner {
@@ -32,8 +33,12 @@ impl BlockScanner {
             spend: self.viewpair.spend.clone(),
         };
         let scan_rate = self.scan_rate;
-        let (tx, rx) = channel();
-        self.scanthread_tx = Some(tx);
+
+        // Set up communication with the scanning thread.
+        let (main_tx, thread_rx) = channel();
+        let (thread_tx, main_rx) = channel();
+        self.scanthread_tx = Some(main_tx);
+        self.scanthread_rx = Some(main_rx);
 
         // Spawn the scanning thread.
         thread::spawn(move || {
@@ -43,14 +48,24 @@ impl BlockScanner {
                 // Initially, there are no payments to track.
                 let mut payments = HashMap::new();
 
+                // For each payment, we need a channel to send updates back to the initiating thread.
+                let mut channels = HashMap::new();
+
                 // Scan for transactions once every scan_rate.
                 let mut blockscan_interval = time::interval(time::Duration::from_millis(scan_rate));
                 loop {
                     blockscan_interval.tick().await;
 
-                    // Check for new messages.
-                    for message in rx.try_iter() {
-                        println!("{}", message);
+                    // Check for new payments to track.
+                    for payment in thread_rx.try_iter() {
+                        // Add the payment to the hashmap for tracking.
+                        println!("{:?}", payment);
+                        payments.insert(payment.payment_id, payment);
+
+                        // Set up communication for sending updates on this payment.
+                        let (payment_tx, payment_rx) = channel();
+                        channels.insert(payment.payment_id, payment_tx);
+                        thread_tx.send(payment_rx).unwrap();
                     }
 
                     // Get transactions to scan.
@@ -60,19 +75,42 @@ impl BlockScanner {
                     let transactions = util::get_block_transactions(&url, block).await.unwrap();
 
                     // Scan the transactions.
-                    util::scan_transactions(&viewpair, &mut payments, transactions);
+                    let amounts_recieved =
+                        util::scan_transactions(&viewpair, &payments, transactions);
+
+                    // Send transaction updates, and mark completed/expired payments for removal.
+                    let mut completed = Vec::new();
+                    for payment in payments.values_mut() {
+                        // If anything was recieved, send an update.
+                        if let Some(amount) = amounts_recieved.get(&payment.payment_id) {
+                            payment.paid_amount += amount;
+                            channels.get(&payment.payment_id).unwrap().send(*payment).unwrap();
+                        }
+                        // If the payment is paid in full, mark it as complete.
+                        if payment.paid_amount >= payment.expected_amount {
+                            completed.push(payment.payment_id);
+                        }
+                    }
+                    // Stop tracking completed/expired transactions.
+                    for payment_id in completed {
+                        payments.remove(&payment_id).unwrap();
+                        channels.remove(&payment_id).unwrap();
+                    }
                 }
             })
         });
     }
 
-    pub fn track_payment(&self, payment: &str) {
-        match &self.scanthread_tx {
-            Some(tx) => tx.send(payment.to_string()).unwrap(),
-            None => panic!(
-                "Can't communicate with scan thread; did you remember to run this blockscanner?"
-            ),
+    pub fn track_payment(&self, payment: Payment) -> Receiver<Payment> {
+        if self.scanthread_rx.is_none() || self.scanthread_tx.is_none() {
+            panic!("Can't communicate with scan thread; did you remember to run this blockscanner?")
         }
+
+        // Send the payment to the scanning thread.
+        self.scanthread_tx.as_ref().unwrap().send(payment).unwrap();
+
+        // Return a reciever so the caller can get updates on payment status.
+        self.scanthread_rx.as_ref().unwrap().recv().unwrap()
     }
 
     pub fn new_integrated_address(&self) -> (String, String) {
@@ -89,6 +127,7 @@ impl BlockScanner {
             _ => panic!("Integrated address malformed (no payment ID)"),
         };
 
+        // Return address in base58, and payment ID in hex.
         (format!("{}", integrated_address), hex::encode(&payment_id))
     }
 
@@ -104,7 +143,7 @@ impl BlockScanner {
     }
 
     pub fn scan_transactions(&mut self, transactions: Vec<monero::Transaction>) {
-        util::scan_transactions(&self.viewpair, &mut self.payments, transactions)
+        util::scan_transactions(&self.viewpair, &mut self.payments, transactions);
     }
 }
 
@@ -162,10 +201,12 @@ impl BlockScannerBuilder {
             payments: HashMap::new(),
             scan_rate: scan_rate,
             scanthread_tx: None,
+            scanthread_rx: None,
         }
     }
 }
 
+#[derive(Debug, Copy, Clone)]
 pub struct Payment {
     pub payment_id: PaymentId,
     pub expected_amount: u64,
@@ -176,9 +217,16 @@ pub struct Payment {
 }
 
 impl Payment {
-    pub fn new(amount: u64, confirmations: u64, expiration_block: u64) -> Payment {
+    pub fn new(
+        payment_id: &str,
+        amount: u64,
+        confirmations: u64,
+        expiration_block: u64,
+    ) -> Payment {
+        let payment_id =
+            PaymentId::from_slice(&hex::decode(payment_id).expect("Invalid payment ID"));
         Payment {
-            payment_id: PaymentId::random(),
+            payment_id: payment_id,
             expected_amount: amount,
             paid_amount: 0,
             confirmations_required: confirmations,

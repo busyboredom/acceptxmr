@@ -5,7 +5,7 @@ use qrcode::QrCode;
 use tokio::fs;
 use tokio::time;
 
-use xmr_checkout::BlockScannerBuilder;
+use xmr_checkout::{BlockScannerBuilder, Payment};
 
 #[tokio::main]
 async fn main() {
@@ -35,8 +35,15 @@ async fn main() {
 
     block_scanner.run();
 
-    loop {
+    let payment = Payment::new(&payment_id, 1, 1, 99999999);
+    let payment_updates = block_scanner.track_payment(payment);
+    let mut paid = false;
+    while paid == false {
         thread::sleep(time::Duration::from_millis(5000));
-        block_scanner.track_payment("Can you read this? ---------------------------------------");
+        for updated_payment in payment_updates.try_iter() {
+            if updated_payment.paid_amount >= updated_payment.expected_amount {
+                paid = true;
+            }
+        }
     }
 }

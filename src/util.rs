@@ -9,9 +9,10 @@ use crate::Payment;
 
 pub fn scan_transactions(
     viewpair: &monero::ViewPair,
-    payments: &mut HashMap<PaymentId, Payment>,
+    payments: &HashMap<PaymentId, Payment>,
     transactions: Vec<monero::Transaction>,
-) {
+) -> HashMap<PaymentId, u64> {
+    let mut amounts_recieved = HashMap::new();
     for tx in transactions {
         let mut payment_id = PaymentId::zero();
 
@@ -48,18 +49,22 @@ pub fn scan_transactions(
                         .for_each(|(x1, x2)| *x1 ^= *x2);
 
                     payment_id = PaymentId::from_slice(&id_bytes);
-                    println!("Payment ID: {}", hex::encode(&payment_id.as_bytes()))
+                    println!("Payment ID Spotted: {}", hex::encode(&payment_id.as_bytes()))
                 }
             }
         }
 
-        // If this payment is being tracked, update the amount paid.
-        if let Some(payment) = payments.get_mut(&payment_id) {
-            payment.paid_amount += owned_outputs[0]
+        // If this payment is being tracked, add the amount and payment ID to the result set.
+        if let Some(payment) = payments.get(&payment_id) {
+            let amount = owned_outputs[0]
                 .amount()
                 .expect("Failed to unblind transaction amount");
+            *amounts_recieved.entry(payment_id).or_insert(0) += amount;
+            println!("Payment of {} recieved for {}.", monero::Amount::from_pico(amount).as_xmr(), payment.payment_id);
         }
     }
+
+    amounts_recieved
 }
 
 pub async fn get_block(url: &str, height: u64) -> Result<monero::Block, reqwest::Error> {
