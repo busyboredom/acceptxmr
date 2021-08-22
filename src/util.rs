@@ -2,7 +2,6 @@ use std::collections::HashMap;
 
 use monero::blockdata::transaction::{ExtraField, SubField};
 use monero::consensus::deserialize;
-use monero::cryptonote::hash::keccak_256;
 use monero::util::address::PaymentId;
 
 use crate::Payment;
@@ -37,7 +36,7 @@ pub fn scan_transactions(
                     // The payment ID decryption key is a hash of the shared secret.
                     let mut key_bytes = shared_secret.as_bytes().to_vec();
                     key_bytes.append(&mut hex::decode("8d").unwrap());
-                    let key = keccak_256(&key_bytes);
+                    let key = monero::Hash::hash(&key_bytes);
 
                     // The first byte of the nonce is not part of the encrypted payment ID.
                     let mut id_bytes = nonce_bytes.clone()[1..9].to_vec();
@@ -45,11 +44,14 @@ pub fn scan_transactions(
                     // Decrypt the payment ID by XORing it with the key.
                     id_bytes
                         .iter_mut()
-                        .zip(key.iter())
+                        .zip(key.as_bytes().iter())
                         .for_each(|(x1, x2)| *x1 ^= *x2);
 
                     payment_id = PaymentId::from_slice(&id_bytes);
-                    println!("Payment ID Spotted: {}", hex::encode(&payment_id.as_bytes()))
+                    println!(
+                        "Payment ID Spotted: {}",
+                        hex::encode(&payment_id.as_bytes())
+                    )
                 }
             }
         }
@@ -60,16 +62,24 @@ pub fn scan_transactions(
                 .amount()
                 .expect("Failed to unblind transaction amount");
             *amounts_recieved.entry(payment_id).or_insert(0) += amount;
-            println!("Payment of {} recieved for {}.", monero::Amount::from_pico(amount).as_xmr(), payment.payment_id);
+            println!(
+                "Payment of {} recieved for {}.",
+                monero::Amount::from_pico(amount).as_xmr(),
+                payment.payment_id
+            );
         }
     }
 
     amounts_recieved
 }
 
-pub async fn get_block(url: &str, height: u64) -> Result<monero::Block, reqwest::Error> {
+pub async fn get_block(
+    url: &str,
+    height: u64,
+) -> Result<(monero::Hash, monero::Block), reqwest::Error> {
     let client = reqwest::Client::new();
 
+    println!("Block being requested: {}", height);
     let request_body = r#"{"jsonrpc":"2.0","id":"0","method":"get_block","params":{"height":"#
         .to_owned()
         + &height.to_string()
@@ -86,6 +96,11 @@ pub async fn get_block(url: &str, height: u64) -> Result<monero::Block, reqwest:
         block_json["result"]["status"].as_str().unwrap()
     );
 
+    let block_id_hex = block_json["result"]["block_header"]["hash"]
+        .as_str()
+        .unwrap();
+    let block_id = monero::Hash::from_slice(&hex::decode(block_id_hex).unwrap());
+
     let block_blob = block_json["result"]["blob"]
         .as_str()
         .expect("Failed to read block blob from json_rpc");
@@ -95,23 +110,21 @@ pub async fn get_block(url: &str, height: u64) -> Result<monero::Block, reqwest:
 
     let block = deserialize(&block_bytes).expect("Failed to deserialize block blob");
 
-    Ok(block)
+    Ok((block_id, block))
 }
 
 pub async fn get_block_transactions(
     url: &str,
-    block: monero::Block,
+    block: &monero::Block,
 ) -> Result<Vec<monero::Transaction>, reqwest::Error> {
     // Get block transactions in sets of 100 or less (the restriced RPC maximum).
     let client = reqwest::Client::new();
     let mut transactions = vec![];
-    let transaction_hashes = block.tx_hashes;
-    println!("Transactions to fetch: {}", transaction_hashes.len());
+    let transaction_hashes = &block.tx_hashes;
     for i in 0..(transaction_hashes.len() / 100 + 1) {
         // Start and end indexes of the hashes we're grabbing for now.
         let starting_index: usize = i * 100;
         let ending_index: usize = std::cmp::min(100 * (i + 1), transaction_hashes.len());
-        println!("Transactions requested: {}", ending_index - starting_index);
 
         // Build a json containing the hashes of the transactions we want.
         let request_body = r#"{"txs_hashes":"#.to_owned()
@@ -150,6 +163,26 @@ pub async fn get_block_transactions(
     }
 
     println!("Transactions fetched: {}", transactions.len());
+
+    Ok(transactions)
+}
+
+pub async fn get_txpool(url: &str) -> Result<Vec<monero::Transaction>, reqwest::Error> {
+    let client = reqwest::Client::new();
+
+    println!("Getting txpool");
+    let res = client
+        .post(url.to_owned() + "/get_transaction_pool")
+        .body("")
+        .send()
+        .await?;
+    let res = res.json::<serde_json::Value>().await?;
+
+    let transaction_blobs = res["transactions"].as_array().unwrap();
+    let transactions = transaction_blobs
+        .iter()
+        .map(|x| deserialize(&hex::decode(x["tx_blob"].as_str().unwrap()).unwrap()).unwrap())
+        .collect();
 
     Ok(transactions)
 }

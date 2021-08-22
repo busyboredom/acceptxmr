@@ -1,15 +1,19 @@
+mod block_cache;
 mod util;
 
 use std::collections::HashMap;
+use std::convert::TryInto;
 use std::str::FromStr;
 use std::sync::mpsc::{channel, Receiver, Sender};
-use std::thread;
+use std::thread::{self, current};
 
 use monero::util::address::PaymentId;
 use monero::Network::Mainnet;
 use reqwest;
 use tokio::runtime::Runtime;
 use tokio::time;
+
+use block_cache::BlockCache;
 
 pub struct BlockScanner {
     daemon_url: String,
@@ -25,7 +29,7 @@ impl BlockScanner {
         BlockScannerBuilder::default()
     }
 
-    pub fn run(&mut self) {
+    pub fn run(&mut self, cache_size: u64, initial_height: u64) {
         // Gather info needed by the scanning thread.
         let url = self.daemon_url.to_owned();
         let viewpair = monero::ViewPair {
@@ -51,6 +55,11 @@ impl BlockScanner {
                 // For each payment, we need a channel to send updates back to the initiating thread.
                 let mut channels = HashMap::new();
 
+                // Keep a cache of blocks.
+                let mut block_cache = BlockCache::init(&url, cache_size, initial_height)
+                    .await
+                    .unwrap();
+
                 // Scan for transactions once every scan_rate.
                 let mut blockscan_interval = time::interval(time::Duration::from_millis(scan_rate));
                 loop {
@@ -68,26 +77,85 @@ impl BlockScanner {
                         thread_tx.send(payment_rx).unwrap();
                     }
 
-                    // Get transactions to scan.
+                    // Update block cache and txpool.
+                    block_cache.update(&url).await.unwrap();
+                    let txpool = util::get_txpool(&url).await.unwrap();
+
                     let current_height = util::get_current_height(&url).await.unwrap();
-                    println!("Current Block: {}", current_height);
-                    let block = util::get_block(&url, current_height).await.unwrap();
-                    let transactions = util::get_block_transactions(&url, block).await.unwrap();
+                    println!(
+                        "Cache height: {} Blockchain height: {}",
+                        block_cache.height, current_height
+                    );
 
-                    // Scan the transactions.
-                    let amounts_recieved =
-                        util::scan_transactions(&viewpair, &payments, transactions);
+                    // Set up temporary payments hashmap so we'll know which ones are updated.
+                    let mut updated_payments = payments.clone();
+                    for payment in updated_payments.values_mut() {
+                        payment.paid_amount = 0;
+                        payment.paid_at = None;
+                    }
 
-                    // Send transaction updates, and mark completed/expired payments for removal.
-                    let mut completed = Vec::new();
-                    for payment in payments.values_mut() {
-                        // If anything was recieved, send an update.
-                        if let Some(amount) = amounts_recieved.get(&payment.payment_id) {
+                    // Scan blocks.
+                    for i in block_cache.blocks.len()..0 {
+                        let transactions = &block_cache.blocks[i].2;
+                        let amounts_received =
+                            util::scan_transactions(&viewpair, &payments, transactions.to_vec());
+
+                        // Update payment amounts.
+                        for (&payment_id, amount) in amounts_received.iter() {
+                            let payment = updated_payments.get_mut(&payment_id).unwrap();
                             payment.paid_amount += amount;
-                            channels.get(&payment.payment_id).unwrap().send(*payment).unwrap();
+
+                            if payment.paid_amount >= payment.expected_amount
+                                && payment.paid_at.is_none()
+                            {
+                                let pos_in_cache: u64 = i.try_into().unwrap();
+                                let height = block_cache.height - pos_in_cache;
+                                payment.paid_at = Some(height);
+                            }
                         }
-                        // If the payment is paid in full, mark it as complete.
-                        if payment.paid_amount >= payment.expected_amount {
+                    }
+
+                    // Scan txpool.
+                    let amounts_received =
+                        util::scan_transactions(&viewpair, &payments, txpool.to_vec());
+                    // Update payment amounts.
+                    for (&payment_id, amount) in amounts_received.iter() {
+                        let payment = updated_payments.get_mut(&payment_id).unwrap();
+                        payment.paid_amount += amount;
+
+                        if payment.paid_amount >= payment.expected_amount
+                            && payment.paid_at.is_none()
+                        {
+                            payment.paid_at = Some(current_height + 1);
+                        }
+                    }
+
+                    // Send updates and mark completed/expired payments for removal,.
+                    let mut completed = Vec::new();
+                    for payment in updated_payments.values_mut() {
+                        // Update payment's current_block.
+                        if block_cache.height != payment.current_block {
+                            payment.current_block = block_cache.height;
+                        }
+                        // If payment was updated, send an update.
+                        if payment != payments.get(&payment.payment_id).unwrap() {
+                            channels
+                                .get(&payment.payment_id)
+                                .unwrap()
+                                .send(*payment)
+                                .unwrap();
+                            // Copy the updated payment parameters to the main one.
+                            payments.insert(payment.payment_id, *payment);
+                        }
+                        // If the payment is fully confirmed, mark it as complete.
+                        if let Some(paid_at) = payment.paid_at {
+                            if payment.current_block >= paid_at + payment.confirmations_required - 1
+                            {
+                                completed.push(payment.payment_id);
+                            }
+                        }
+                        // If the payment has expired, mark it as complete.
+                        if payment.current_block >= payment.expiration_block {
                             completed.push(payment.payment_id);
                         }
                     }
@@ -131,7 +199,10 @@ impl BlockScanner {
         (format!("{}", integrated_address), hex::encode(&payment_id))
     }
 
-    pub async fn get_block(&self, height: u64) -> Result<monero::Block, reqwest::Error> {
+    pub async fn get_block(
+        &self,
+        height: u64,
+    ) -> Result<(monero::Hash, monero::Block), reqwest::Error> {
         util::get_block(&self.daemon_url, height).await
     }
 
@@ -139,7 +210,7 @@ impl BlockScanner {
         &self,
         block: monero::Block,
     ) -> Result<Vec<monero::Transaction>, reqwest::Error> {
-        util::get_block_transactions(&self.daemon_url, block).await
+        util::get_block_transactions(&self.daemon_url, &block).await
     }
 
     pub fn scan_transactions(&mut self, transactions: Vec<monero::Transaction>) {
@@ -206,13 +277,14 @@ impl BlockScannerBuilder {
     }
 }
 
-#[derive(Debug, Copy, Clone)]
+#[derive(Debug, Copy, Clone, PartialEq)]
 pub struct Payment {
     pub payment_id: PaymentId,
     pub expected_amount: u64,
     pub paid_amount: u64,
+    pub paid_at: Option<u64>,
     pub confirmations_required: u64,
-    pub confirmations_recieved: u64,
+    pub current_block: u64,
     pub expiration_block: u64,
 }
 
@@ -226,12 +298,13 @@ impl Payment {
         let payment_id =
             PaymentId::from_slice(&hex::decode(payment_id).expect("Invalid payment ID"));
         Payment {
-            payment_id: payment_id,
+            payment_id,
             expected_amount: amount,
             paid_amount: 0,
+            paid_at: None,
             confirmations_required: confirmations,
-            confirmations_recieved: 0,
-            expiration_block: expiration_block,
+            current_block: 0,
+            expiration_block,
         }
     }
 }

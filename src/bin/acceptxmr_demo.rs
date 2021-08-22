@@ -5,7 +5,7 @@ use qrcode::QrCode;
 use tokio::fs;
 use tokio::time;
 
-use xmr_checkout::{BlockScannerBuilder, Payment};
+use acceptxmr::{BlockScannerBuilder, Payment};
 
 #[tokio::main]
 async fn main() {
@@ -31,9 +31,9 @@ async fn main() {
     // Save the QR code image.
     fs::write("qrcode.svg", image)
         .await
-        .expect("Unable to wtire QR Code image to file");
+        .expect("Unable to write QR Code image to file");
 
-    block_scanner.run();
+    block_scanner.run(10, 2_432_900);
 
     let payment = Payment::new(&payment_id, 1, 1, 99999999);
     let payment_updates = block_scanner.track_payment(payment);
@@ -41,8 +41,13 @@ async fn main() {
     while paid == false {
         thread::sleep(time::Duration::from_millis(5000));
         for updated_payment in payment_updates.try_iter() {
-            if updated_payment.paid_amount >= updated_payment.expected_amount {
-                paid = true;
+            if let Some(paid_at) = updated_payment.paid_at {
+                println!("{:?}", updated_payment);
+                if updated_payment.current_block
+                    >= paid_at + updated_payment.confirmations_required - 1
+                {
+                    paid = true;
+                }
             }
         }
     }

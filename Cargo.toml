@@ -1,15 +1,15 @@
 [package]
-name = "xmr-checkout"
+name = "acceptxmr"
 version = "0.1.0"
 edition = "2018"
 
 [lib]
-name = "xmr_checkout"
+name = "acceptxmr"
 path = "src/lib.rs"
 
 [[bin]]
-name = "checkout_demo"
-path = "src/bin/checkout_demo.rs"
+name = "acceptxmr_demo"
+path = "src/bin/acceptxmr_demo.rs"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
