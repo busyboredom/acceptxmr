@@ -1,5 +1,6 @@
 use std::convert::TryInto;
 
+use log::{debug, trace, warn};
 use monero;
 
 use crate::util;
@@ -31,22 +32,24 @@ impl BlockCache {
 
     pub async fn update(&mut self, url: &str) -> Result<(), reqwest::Error> {
         // If the cache is behind, get a new block and drop the oldest.
-        println!("Checking for block cache updates.");
-        if self.height < util::get_current_height(url).await? {
+        trace!("Checking for block cache updates.");
+        let blockchain_height = util::get_current_height(url).await?;
+        if self.height < blockchain_height {
             let (block_id, block) = util::get_block(url, self.height + 1).await?;
             let transactions = util::get_block_transactions(url, &block).await?;
             self.blocks.insert(0, (block_id, block, transactions));
             self.blocks.remove(self.blocks.len() - 1);
             self.height += 1;
-            println!("Cache height updated, new height is: {}", self.height);
+            debug!(
+                "Cache height updated to {}, blockchain height is {}",
+                self.height, blockchain_height
+            );
         }
 
         // Check for reorgs, and update blocks if one has occurred.
         for i in 0..(self.blocks.len() - 1) {
             if self.blocks[i].1.header.prev_id != self.blocks[i + 1].0 {
-                println!(
-                    "Blocks in cache not consecutive! A reorg may have occurd; repairing now."
-                );
+                warn!("Blocks in cache not consecutive! A reorg may have occurd; repairing now.");
                 let (block_id, block) = util::get_block(url, self.height + 1).await?;
                 let transactions = util::get_block_transactions(url, &block).await?;
                 self.blocks[i + 1] = (block_id, block, transactions);

@@ -5,8 +5,9 @@ use std::collections::HashMap;
 use std::convert::TryInto;
 use std::str::FromStr;
 use std::sync::mpsc::{channel, Receiver, Sender};
-use std::thread::{self, current};
+use std::thread;
 
+use log::{debug, info, trace};
 use monero::util::address::PaymentId;
 use monero::Network::Mainnet;
 use reqwest;
@@ -45,6 +46,7 @@ impl BlockScanner {
         self.scanthread_rx = Some(main_rx);
 
         // Spawn the scanning thread.
+        info!("Starting blockchain scanner now.");
         thread::spawn(move || {
             // The thread needs a tokio runtime to process async functions.
             let tokio_runtime = Runtime::new().unwrap();
@@ -68,13 +70,14 @@ impl BlockScanner {
                     // Check for new payments to track.
                     for payment in thread_rx.try_iter() {
                         // Add the payment to the hashmap for tracking.
-                        println!("{:?}", payment);
                         payments.insert(payment.payment_id, payment);
 
                         // Set up communication for sending updates on this payment.
                         let (payment_tx, payment_rx) = channel();
                         channels.insert(payment.payment_id, payment_tx);
                         thread_tx.send(payment_rx).unwrap();
+
+                        debug!("Now tracking payment ID \"{}\"", payment.payment_id);
                     }
 
                     // Update block cache and txpool.
@@ -82,9 +85,10 @@ impl BlockScanner {
                     let txpool = util::get_txpool(&url).await.unwrap();
 
                     let current_height = util::get_current_height(&url).await.unwrap();
-                    println!(
-                        "Cache height: {} Blockchain height: {}",
-                        block_cache.height, current_height
+                    trace!(
+                        "Cache height: {}, Blockchain height: {}",
+                        block_cache.height,
+                        current_height
                     );
 
                     // Set up temporary payments hashmap so we'll know which ones are updated.
@@ -163,6 +167,7 @@ impl BlockScanner {
                     for payment_id in completed {
                         payments.remove(&payment_id).unwrap();
                         channels.remove(&payment_id).unwrap();
+                        debug!("No longer tracking payment ID \"{}\"", payment_id);
                     }
                 }
             })

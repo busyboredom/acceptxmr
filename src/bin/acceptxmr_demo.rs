@@ -1,5 +1,7 @@
+use std::env;
 use std::thread;
 
+use log::info;
 use qrcode::render::svg;
 use qrcode::QrCode;
 use tokio::fs;
@@ -9,6 +11,9 @@ use acceptxmr::{BlockScannerBuilder, Payment};
 
 #[tokio::main]
 async fn main() {
+    env::set_var("RUST_LOG", "debug,mio=debug,want=debug,reqwest=info");
+    env_logger::init();
+
     // Prepare Viewkey.
     let mut viewkey_string = include_str!("../../../secrets/xmr_private_viewkey.txt").to_string();
     viewkey_string.pop();
@@ -22,7 +27,7 @@ async fn main() {
 
     // Get a new integrated address, and the payment ID contained in it.
     let (address, payment_id) = block_scanner.new_integrated_address();
-    println!("Payment ID: {}", payment_id);
+    info!("Payment ID generated: {}", payment_id);
 
     // Render a QR code for the new address.
     let qr = QrCode::new(address).unwrap();
@@ -33,22 +38,26 @@ async fn main() {
         .await
         .expect("Unable to write QR Code image to file");
 
-    block_scanner.run(10, 2_432_900);
+    block_scanner.run(10, 2_432_980);
 
     let payment = Payment::new(&payment_id, 1, 1, 99999999);
     let payment_updates = block_scanner.track_payment(payment);
-    let mut paid = false;
-    while paid == false {
+    let mut complete = false;
+    while !complete {
         thread::sleep(time::Duration::from_millis(5000));
         for updated_payment in payment_updates.try_iter() {
+            let mut confirmations_str = "N/A".to_string();
             if let Some(paid_at) = updated_payment.paid_at {
-                println!("{:?}", updated_payment);
-                if updated_payment.current_block
-                    >= paid_at + updated_payment.confirmations_required - 1
-                {
-                    paid = true;
+                let confirmations = updated_payment.current_block + 1 - paid_at;
+                confirmations_str = confirmations.to_string();
+                if confirmations >= updated_payment.confirmations_required {
+                    complete = true;
                 }
             }
+            let paid = monero::Amount::from_pico(updated_payment.paid_amount).as_xmr();
+            let owed = monero::Amount::from_pico(updated_payment.expected_amount).as_xmr();
+            info!("Update for payment ID \"{}\"\nAmount Paid: {}/{}\nConfirmations: {}\nCurrent Height: {}", 
+            updated_payment.payment_id, paid, owed, confirmations_str, updated_payment.current_block);
         }
     }
 }

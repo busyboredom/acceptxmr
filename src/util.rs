@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 
+use log::trace;
 use monero::blockdata::transaction::{ExtraField, SubField};
 use monero::consensus::deserialize;
 use monero::util::address::PaymentId;
@@ -48,25 +49,16 @@ pub fn scan_transactions(
                         .for_each(|(x1, x2)| *x1 ^= *x2);
 
                     payment_id = PaymentId::from_slice(&id_bytes);
-                    println!(
-                        "Payment ID Spotted: {}",
-                        hex::encode(&payment_id.as_bytes())
-                    )
                 }
             }
         }
 
         // If this payment is being tracked, add the amount and payment ID to the result set.
-        if let Some(payment) = payments.get(&payment_id) {
+        if payments.contains_key(&payment_id) {
             let amount = owned_outputs[0]
                 .amount()
                 .expect("Failed to unblind transaction amount");
             *amounts_recieved.entry(payment_id).or_insert(0) += amount;
-            println!(
-                "Payment of {} recieved for {}.",
-                monero::Amount::from_pico(amount).as_xmr(),
-                payment.payment_id
-            );
         }
     }
 
@@ -79,7 +71,7 @@ pub async fn get_block(
 ) -> Result<(monero::Hash, monero::Block), reqwest::Error> {
     let client = reqwest::Client::new();
 
-    println!("Block being requested: {}", height);
+    trace!("Requesting block {}", height);
     let request_body = r#"{"jsonrpc":"2.0","id":"0","method":"get_block","params":{"height":"#
         .to_owned()
         + &height.to_string()
@@ -91,10 +83,6 @@ pub async fn get_block(
         .await?;
 
     let block_json = res.json::<serde_json::Value>().await?;
-    println!(
-        "Block request status: {}",
-        block_json["result"]["status"].as_str().unwrap()
-    );
 
     let block_id_hex = block_json["result"]["block_header"]["hash"]
         .as_str()
@@ -127,6 +115,7 @@ pub async fn get_block_transactions(
         let ending_index: usize = std::cmp::min(100 * (i + 1), transaction_hashes.len());
 
         // Build a json containing the hashes of the transactions we want.
+        trace!("Requesting {} transactions.", transaction_hashes.len());
         let request_body = r#"{"txs_hashes":"#.to_owned()
             + &serde_json::json!(transaction_hashes[starting_index..ending_index]
                 .iter()
@@ -141,12 +130,6 @@ pub async fn get_block_transactions(
             .await?;
 
         let res = res.json::<serde_json::Value>().await?;
-        println!(
-            "Transaction request status: {}",
-            res["status"]
-                .as_str()
-                .expect("Failed to read status from json request")
-        );
 
         // Add these transactions to the total list.
         if let Some(hexes) = res["txs_as_hex"].as_array() {
@@ -162,15 +145,13 @@ pub async fn get_block_transactions(
         }
     }
 
-    println!("Transactions fetched: {}", transactions.len());
-
     Ok(transactions)
 }
 
 pub async fn get_txpool(url: &str) -> Result<Vec<monero::Transaction>, reqwest::Error> {
     let client = reqwest::Client::new();
 
-    println!("Getting txpool");
+    trace!("Requesting txpool");
     let res = client
         .post(url.to_owned() + "/get_transaction_pool")
         .body("")
