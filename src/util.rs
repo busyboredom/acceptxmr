@@ -5,7 +5,7 @@ use monero::blockdata::transaction::{ExtraField, SubField};
 use monero::consensus::deserialize;
 use monero::util::address::PaymentId;
 
-use crate::{Payment, Error};
+use crate::{Error, Payment};
 
 pub fn scan_transactions(
     viewpair: &monero::ViewPair,
@@ -65,10 +65,7 @@ pub fn scan_transactions(
     amounts_recieved
 }
 
-pub async fn get_block(
-    url: &str,
-    height: u64,
-) -> Result<(monero::Hash, monero::Block), Error> {
+pub async fn get_block(url: &str, height: u64) -> Result<(monero::Hash, monero::Block), Error> {
     let client = reqwest::Client::new();
 
     trace!("Requesting block {}", height);
@@ -168,7 +165,6 @@ pub async fn get_txpool(url: &str) -> Result<Vec<monero::Transaction>, Error> {
             transactions.push(tx);
         }
     };
-
 
     Ok(transactions)
 }

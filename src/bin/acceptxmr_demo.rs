@@ -38,7 +38,7 @@ async fn main() {
         .await
         .expect("Unable to write QR Code image to file");
 
-    block_scanner.run(10, 2_433_050);
+    block_scanner.run(10, 2_433_450);
 
     let payment = Payment::new(&payment_id, 1, 1, 99999999);
     let payment_updates = block_scanner.track_payment(payment);
@@ -47,17 +47,19 @@ async fn main() {
         thread::sleep(time::Duration::from_millis(5000));
         for updated_payment in payment_updates.try_iter() {
             let mut confirmations_str = "N/A".to_string();
+            let mut paid_at_str = "N/A".to_string();
             if let Some(paid_at) = updated_payment.paid_at {
-                let confirmations = updated_payment.current_block + 1 - paid_at;
+                let confirmations = (updated_payment.current_block + 1).saturating_sub(paid_at);
                 confirmations_str = confirmations.to_string();
+                paid_at_str = paid_at.to_string();
                 if confirmations >= updated_payment.confirmations_required {
                     complete = true;
                 }
             }
             let paid = monero::Amount::from_pico(updated_payment.paid_amount).as_xmr();
             let owed = monero::Amount::from_pico(updated_payment.expected_amount).as_xmr();
-            info!("Update for payment ID \"{}\"\nAmount Paid: {}/{}\nConfirmations: {}\nCurrent Height: {}", 
-            updated_payment.payment_id, paid, owed, confirmations_str, updated_payment.current_block);
+            info!("Update for payment ID \"{}\"\nAmount Paid: {}/{}\nPaid At: {}\nConfirmations: {}\nCurrent Height: {}", 
+            updated_payment.payment_id, paid, owed, paid_at_str, confirmations_str, updated_payment.current_block);
         }
     }
 }

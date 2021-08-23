@@ -101,10 +101,16 @@ impl BlockScanner {
                     }
 
                     // Scan blocks.
-                    for i in block_cache.blocks.len()..0 {
-                        let transactions = &block_cache.blocks[i].2;
+                    for i in (0..block_cache.blocks.len()).rev() {
+                        let transactions = &block_cache.blocks[i].3;
                         let amounts_received =
                             util::scan_transactions(&viewpair, &payments, transactions.to_vec());
+                        trace!(
+                            "Scanned {} transactions from block {}, and found {} tracked payments.",
+                            transactions.len(),
+                            block_cache.blocks[i].1,
+                            amounts_received.len()
+                        );
 
                         // Update payment amounts.
                         for (&payment_id, amount) in amounts_received.iter() {
@@ -206,10 +212,7 @@ impl BlockScanner {
         (format!("{}", integrated_address), hex::encode(&payment_id))
     }
 
-    pub async fn get_block(
-        &self,
-        height: u64,
-    ) -> Result<(monero::Hash, monero::Block), Error> {
+    pub async fn get_block(&self, height: u64) -> Result<(monero::Hash, monero::Block), Error> {
         util::get_block(&self.daemon_url, height).await
     }
 
