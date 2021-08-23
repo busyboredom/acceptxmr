@@ -1,4 +1,5 @@
 mod block_cache;
+mod error;
 mod util;
 
 use std::collections::HashMap;
@@ -15,6 +16,7 @@ use tokio::runtime::Runtime;
 use tokio::time;
 
 use block_cache::BlockCache;
+use error::Error;
 
 pub struct BlockScanner {
     daemon_url: String,
@@ -207,14 +209,14 @@ impl BlockScanner {
     pub async fn get_block(
         &self,
         height: u64,
-    ) -> Result<(monero::Hash, monero::Block), reqwest::Error> {
+    ) -> Result<(monero::Hash, monero::Block), Error> {
         util::get_block(&self.daemon_url, height).await
     }
 
     pub async fn get_block_transactions(
         &self,
         block: monero::Block,
-    ) -> Result<Vec<monero::Transaction>, reqwest::Error> {
+    ) -> Result<Vec<monero::Transaction>, Error> {
         util::get_block_transactions(&self.daemon_url, &block).await
     }
 

@@ -3,7 +3,7 @@ use std::convert::TryInto;
 use log::{debug, trace, warn};
 use monero;
 
-use crate::util;
+use crate::{util, Error};
 
 pub struct BlockCache {
     pub height: u64,
@@ -15,7 +15,7 @@ impl BlockCache {
         url: &str,
         cache_size: u64,
         initial_height: u64,
-    ) -> Result<BlockCache, reqwest::Error> {
+    ) -> Result<BlockCache, Error> {
         let mut blocks = Vec::with_capacity(cache_size.try_into().unwrap());
         for i in 0..cache_size {
             let height = initial_height - i;
@@ -30,7 +30,7 @@ impl BlockCache {
         })
     }
 
-    pub async fn update(&mut self, url: &str) -> Result<(), reqwest::Error> {
+    pub async fn update(&mut self, url: &str) -> Result<(), Error> {
         // If the cache is behind, get a new block and drop the oldest.
         trace!("Checking for block cache updates.");
         let blockchain_height = util::get_current_height(url).await?;

@@ -38,7 +38,7 @@ async fn main() {
         .await
         .expect("Unable to write QR Code image to file");
 
-    block_scanner.run(10, 2_432_980);
+    block_scanner.run(10, 2_433_050);
 
     let payment = Payment::new(&payment_id, 1, 1, 99999999);
     let payment_updates = block_scanner.track_payment(payment);

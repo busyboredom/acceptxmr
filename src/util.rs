@@ -5,7 +5,7 @@ use monero::blockdata::transaction::{ExtraField, SubField};
 use monero::consensus::deserialize;
 use monero::util::address::PaymentId;
 
-use crate::Payment;
+use crate::{Payment, Error};
 
 pub fn scan_transactions(
     viewpair: &monero::ViewPair,
@@ -68,7 +68,7 @@ pub fn scan_transactions(
 pub async fn get_block(
     url: &str,
     height: u64,
-) -> Result<(monero::Hash, monero::Block), reqwest::Error> {
+) -> Result<(monero::Hash, monero::Block), Error> {
     let client = reqwest::Client::new();
 
     trace!("Requesting block {}", height);
@@ -104,7 +104,7 @@ pub async fn get_block(
 pub async fn get_block_transactions(
     url: &str,
     block: &monero::Block,
-) -> Result<Vec<monero::Transaction>, reqwest::Error> {
+) -> Result<Vec<monero::Transaction>, Error> {
     // Get block transactions in sets of 100 or less (the restriced RPC maximum).
     let client = reqwest::Client::new();
     let mut transactions = vec![];
@@ -148,7 +148,7 @@ pub async fn get_block_transactions(
     Ok(transactions)
 }
 
-pub async fn get_txpool(url: &str) -> Result<Vec<monero::Transaction>, reqwest::Error> {
+pub async fn get_txpool(url: &str) -> Result<Vec<monero::Transaction>, Error> {
     let client = reqwest::Client::new();
 
     trace!("Requesting txpool");
@@ -159,16 +159,21 @@ pub async fn get_txpool(url: &str) -> Result<Vec<monero::Transaction>, reqwest::
         .await?;
     let res = res.json::<serde_json::Value>().await?;
 
-    let transaction_blobs = res["transactions"].as_array().unwrap();
-    let transactions = transaction_blobs
-        .iter()
-        .map(|x| deserialize(&hex::decode(x["tx_blob"].as_str().unwrap()).unwrap()).unwrap())
-        .collect();
+    let transaction_blobs = res["transactions"].as_array();
+    let mut transactions = Vec::new();
+    if let Some(blobs) = transaction_blobs {
+        for blob in blobs {
+            let tx_hex = hex::decode(blob["tx_blob"].as_str().unwrap()).unwrap();
+            let tx = deserialize(&tx_hex).unwrap();
+            transactions.push(tx);
+        }
+    };
+
 
     Ok(transactions)
 }
 
-pub async fn get_current_height(url: &str) -> Result<u64, reqwest::Error> {
+pub async fn get_current_height(url: &str) -> Result<u64, Error> {
     let client = reqwest::Client::new();
 
     let request_body = r#"{"jsonrpc":"2.0","id":"0","method":"get_block_count"}"#;
