@@ -6,7 +6,7 @@ use std::collections::HashMap;
 use std::convert::TryInto;
 use std::str::FromStr;
 use std::sync::mpsc::{channel, Receiver, Sender};
-use std::thread;
+use std::{thread, u64};
 
 use log::{debug, info, trace};
 use monero::util::address::PaymentId;
@@ -51,7 +51,7 @@ impl BlockScanner {
         info!("Starting blockchain scanner now.");
         thread::spawn(move || {
             // The thread needs a tokio runtime to process async functions.
-            let tokio_runtime = Runtime::new().unwrap();
+            let mut tokio_runtime = Runtime::new().unwrap();
             tokio_runtime.block_on(async move {
                 // Initially, there are no payments to track.
                 let mut payments = HashMap::new();
@@ -225,6 +225,10 @@ impl BlockScanner {
 
     pub fn scan_transactions(&mut self, transactions: Vec<monero::Transaction>) {
         util::scan_transactions(&self.viewpair, &mut self.payments, transactions);
+    }
+
+    pub async fn get_current_height(&mut self) -> Result<u64, Error> {
+        util::get_current_height(&self.daemon_url).await
     }
 }
 

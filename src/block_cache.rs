@@ -26,7 +26,6 @@ impl BlockCache {
 
         let mut block_cache_summary = "".to_string();
         for i in 0..blocks.len() {
-            println!("{}", i);
             block_cache_summary += &format!(
                 "Index in cache: {}\nHeight: {}\nNumber of transactions: {}\nID: {}\n\n",
                 i,
@@ -35,7 +34,7 @@ impl BlockCache {
                 blocks[i].0
             );
         }
-        debug!("Block cache initialized. Summary:\n{}", block_cache_summary);
+        trace!("Block cache initialized. Summary:\n{}", block_cache_summary);
 
         Ok(BlockCache {
             height: initial_height,
@@ -68,7 +67,7 @@ impl BlockCache {
                     self.blocks[i].0
                 );
             }
-            debug!("Block cache summary:\n{}", block_cache_summary);
+            trace!("Block cache summary:\n{}", block_cache_summary);
         }
 
         // Check for reorgs, and update blocks if one has occurred.
