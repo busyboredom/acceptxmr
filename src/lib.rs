@@ -51,7 +51,7 @@ impl BlockScanner {
         info!("Starting blockchain scanner now.");
         thread::spawn(move || {
             // The thread needs a tokio runtime to process async functions.
-            let mut tokio_runtime = Runtime::new().unwrap();
+            let tokio_runtime = Runtime::new().unwrap();
             tokio_runtime.block_on(async move {
                 // Initially, there are no payments to track.
                 let mut payments = HashMap::new();
