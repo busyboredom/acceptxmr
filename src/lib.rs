@@ -8,7 +8,8 @@ use std::str::FromStr;
 use std::sync::mpsc::{channel, Receiver, Sender};
 use std::{thread, u64};
 
-use log::{debug, info, trace};
+use log::{debug, info, trace, warn};
+use monero::ViewPair;
 use monero::util::address::PaymentId;
 use monero::Network::Mainnet;
 use reqwest;
@@ -18,6 +19,7 @@ use tokio::time;
 use block_cache::BlockCache;
 use error::Error;
 
+//#[derive(Debug, Clone)]
 pub struct BlockScanner {
     daemon_url: String,
     viewpair: monero::ViewPair,
@@ -151,11 +153,13 @@ impl BlockScanner {
                         }
                         // If payment was updated, send an update.
                         if payment != payments.get(&payment.payment_id).unwrap() {
-                            channels
+                            if let Err(_) = channels
                                 .get(&payment.payment_id)
                                 .unwrap()
-                                .send(*payment)
-                                .unwrap();
+                                .send(*payment) {
+                                    warn!("Websocket receiver disconnected before payment completed.");
+                                    completed.push(payment.payment_id);
+                                }  
                             // Copy the updated payment parameters to the main one.
                             payments.insert(payment.payment_id, *payment);
                         }

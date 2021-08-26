@@ -1,24 +1,23 @@
 use std::env;
 use std::time::{Duration, Instant};
-use std::sync::mpsc::Receiver;
+use std::sync::mpsc::{Receiver, TryRecvError};
+use std::sync::Mutex;
 
 use actix::{Actor, StreamHandler, ActorContext, AsyncContext};
 use actix_files;
+use actix_web::web::Data;
 use actix_web::{get, web, App, HttpRequest, HttpResponse, HttpServer};
 use actix_web_actors::ws;
-use log::{debug, info};
-use qrcode::render::string::Element;
-use qrcode::render::svg;
-use qrcode::QrCode;
-use tokio::fs;
-use bytestring::ByteString;
+use log::{debug, warn};
 
-use acceptxmr::{BlockScannerBuilder, Payment};
+use acceptxmr::{BlockScanner, BlockScannerBuilder, Payment};
 
 /// How often heartbeat pings are sent
 const HEARTBEAT_INTERVAL: Duration = Duration::from_secs(4);
 /// How long before lack of client response causes a timeout
 const CLIENT_TIMEOUT: Duration = Duration::from_secs(10);
+/// Munimunm interval for a websocket to send a payment update.
+const UPDATE_INTERVAL: Duration = Duration::from_secs(1);
 
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
@@ -27,7 +26,7 @@ async fn main() -> std::io::Result<()> {
 
     // Prepare Viewkey.
     let mut viewkey_string = include_str!("../../../secrets/xmr_private_viewkey.txt").to_string();
-    viewkey_string.pop();
+    viewkey_string.pop(); // Remove eof charactar.
 
     let xmr_daemon_url = "http://busyboredom.com:18081";
     let mut block_scanner = BlockScannerBuilder::new()
@@ -37,27 +36,14 @@ async fn main() -> std::io::Result<()> {
         .scan_rate(1000)
         .build();
 
-    // Get a new integrated address, and the payment ID contained in it.
-    let (address, payment_id) = block_scanner.new_integrated_address();
-    info!("Payment ID generated: {}", payment_id);
-
-    // Render a QR code for the new address.
-    let qr = QrCode::new(address).unwrap();
-    let image = qr.render::<svg::Color>().module_dimensions(1, 1).build();
-
-    // Save the QR code image.
-    fs::write("static/qrcode.svg", image)
-        .await
-        .expect("Unable to write QR Code image to file");
-
     let current_height = block_scanner.get_current_height().await.unwrap();
     block_scanner.run(10, current_height - 10);
 
-    let payment = Payment::new(&payment_id, 1, 1, 99999999);
-    let payment_updates = block_scanner.track_payment(payment);
+    let shared_block_scanner = Data::new(Mutex::new(block_scanner));
 
-    HttpServer::new(|| {
+    HttpServer::new(move || {
         App::new()
+            .app_data(shared_block_scanner.clone())
             .service(index)
             .service(actix_files::Files::new("/", "./static"))
     })
@@ -88,7 +74,7 @@ impl WebSocket {
             // check client heartbeats
             if Instant::now().duration_since(act.heartbeat) > CLIENT_TIMEOUT {
                 // heartbeat timed out
-                println!("Websocket Client heartbeat failed, disconnecting!");
+                warn!("Websocket Client heartbeat failed, disconnecting!");
 
                 // stop actor
                 ctx.stop();
@@ -101,11 +87,25 @@ impl WebSocket {
         });
     }
 
-    fn send_update(&self, ctx: &mut <Self as Actor>::Context) {
-        loop {
-            let payment_update = self.update_rx.recv();
-            ctx.text(format!("{:?}", payment_update))
-        }
+    fn check_update(&self, ctx: &mut <Self as Actor>::Context) {
+        ctx.run_interval(UPDATE_INTERVAL, |act, ctx| {
+                match act.update_rx.try_recv() {
+                    // Send an update of we got one.
+                    Ok(payment_update) => ctx.text(format!("{:?}", payment_update)),
+                    // Otherwise, handle the error.
+                    Err(e) => match e {
+                        // Do nothing.
+                        TryRecvError::Empty => return,
+                        // Give up, something went wrong.
+                        _ => {
+                            // heartbeat timed out
+                            warn!("Websocket failed to recieve payment update, disconnecting!");
+                            // stop actor
+                            ctx.stop();
+                        }
+                    }
+                }
+        });
     }
 }
 
@@ -115,6 +115,7 @@ impl Actor for WebSocket {
     /// Method is called on actor start. We start the heartbeat process here.
     fn started(&mut self, ctx: &mut Self::Context) {
         self.hb(ctx);
+        self.check_update(ctx);
     }
 }
 
@@ -144,8 +145,12 @@ impl StreamHandler<Result<ws::Message, ws::ProtocolError>> for WebSocket {
 
 /// WebSocket handler.
 #[get("/ws/")]
-async fn index(req: HttpRequest, stream: web::Payload) -> Result<HttpResponse, actix_web::Error> {
-    let resp = ws::start(WebSocket::new(), &req, stream);
+async fn index(req: HttpRequest, stream: web::Payload, block_scanner: web::Data<Mutex<BlockScanner>>) -> Result<HttpResponse, actix_web::Error> {
+    let block_scanner = block_scanner.lock().unwrap();
+    let (_address, id) = block_scanner.new_integrated_address();
+    let payment = Payment::new(&id, 1, 2, 9999999);
+    let receiver = block_scanner.track_payment(payment);
+    let resp = ws::start(WebSocket::new(receiver), &req, stream);
     println!("{:?}", resp);
     resp
 }
