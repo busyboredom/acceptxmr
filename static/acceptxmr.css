@@ -1,0 +1,80 @@
+body {
+    background-color: #454545;
+}
+
+.acceptxmr-container {
+    max-width: 80ch;
+    margin: auto;
+    background-color: #ff7700;
+    border-radius: 1em;
+    display: flex;
+    flex-flow: row wrap;
+}
+
+.acceptxmr-container .acceptxmr-qrcode-container {
+    flex: 1 1 10ch;
+    margin: 1em;
+    display: flex;
+    justify-content: center;
+}
+
+.acceptxmr-container .acceptxmr-qrcode-container svg {
+    border-radius: 1em;
+    min-width: 28ch;
+    align-self: center;
+    background-color: #dddddd;
+}
+
+.acceptxmr-container textarea {
+    width: 100%;
+    border-radius: 0.5em;
+    border: 0;
+    padding: 0.5em;
+    background-color: #353535;
+    color: #ffffff;
+    resize: vertical;
+}
+
+.acceptxmr-container .acceptxmr-message {
+    margin-bottom: 0.5em;
+}
+
+.acceptxmr-container .acceptxmr-details {
+    flex: 2 2 30ch;
+    margin: 1em;
+    overflow: hidden;
+}
+
+.acceptxmr-container .acceptxmr-address-container {
+    display: flex;        
+    height: 3em;
+    border-radius: 0.5em;
+    margin-bottom: 0.5em;
+    background-color: #ffffff;
+}
+
+.acceptxmr-container .acceptxmr-address-container p {
+    overflow-x: scroll;
+    overflow-y: hidden;
+    margin: 0 0.5em 0 0.5em;
+    height: 100%;
+    display: flex;
+    align-items: center;
+}
+
+.acceptxmr-container .acceptxmr-address-container button {
+    background-color: #1F85DE;
+    border-radius: 0 0.5em 0.5em 0;
+    border: 0;
+    margin: 0;
+    height: 100%;
+    padding: 0 1em;
+    font-size: medium;
+}
+
+.acceptxmr-container .acceptxmr-status {
+    margin: 0;
+    border-radius: 0.5em;
+    padding: 0.5em;
+    background-color: #ffffff;
+}

@@ -1,64 +1,30 @@
 use std::collections::HashMap;
 
 use log::trace;
-use monero::blockdata::transaction::{ExtraField, SubField};
 use monero::consensus::deserialize;
-use monero::util::address::PaymentId;
 
-use crate::{Error, Payment};
+use crate::{Error, Payment, SubIndex};
 
 pub fn scan_transactions(
     viewpair: &monero::ViewPair,
-    payments: &HashMap<PaymentId, Payment>,
+    payments: &HashMap<SubIndex, Payment>,
     transactions: Vec<monero::Transaction>,
-) -> HashMap<PaymentId, u64> {
+) -> HashMap<SubIndex, u64> {
     let mut amounts_recieved = HashMap::new();
     for tx in transactions {
-        let mut payment_id = PaymentId::zero();
-
         // Get owned outputs.
-        let owned_outputs = tx.check_outputs(viewpair, 0..1, 0..1).unwrap();
+        let owned_outputs = tx.check_outputs(viewpair, 0..2, 0..2).unwrap();
 
-        // Generate and display the SubFields (the parsed "extra" section) if applicable.
-        if owned_outputs.len() == 1 {
-            // Payments to integrated addresses only ever have one output.
+        for output in &owned_outputs {
+            let subaddress_index = SubIndex::from(output.sub_index());
 
-            // Get transaction's "extra" section.
-            let tx_extra = &tx.prefix().extra;
-
-            // Get vec of subfields from transaction's "extra" section.
-            let ExtraField(subfields) = tx_extra;
-
-            for subfield in subfields {
-                if let SubField::Nonce(nonce_bytes) = subfield {
-                    // Shared secret can be retrieved as a combination of tx public key and your private view key.
-                    let shared_secret = tx.tx_pubkey().unwrap() * &(viewpair.view * 8u8);
-
-                    // The payment ID decryption key is a hash of the shared secret.
-                    let mut key_bytes = shared_secret.as_bytes().to_vec();
-                    key_bytes.append(&mut hex::decode("8d").unwrap());
-                    let key = monero::Hash::hash(&key_bytes);
-
-                    // The first byte of the nonce is not part of the encrypted payment ID.
-                    let mut id_bytes = nonce_bytes.clone()[1..9].to_vec();
-
-                    // Decrypt the payment ID by XORing it with the key.
-                    id_bytes
-                        .iter_mut()
-                        .zip(key.as_bytes().iter())
-                        .for_each(|(x1, x2)| *x1 ^= *x2);
-
-                    payment_id = PaymentId::from_slice(&id_bytes);
-                }
+            // If this payment is being tracked, add the amount and payment ID to the result set.
+            if payments.contains_key(&subaddress_index) {
+                let amount = owned_outputs[0]
+                    .amount()
+                    .expect("Failed to unblind transaction amount");
+                *amounts_recieved.entry(subaddress_index).or_insert(0) += amount;
             }
-        }
-
-        // If this payment is being tracked, add the amount and payment ID to the result set.
-        if payments.contains_key(&payment_id) {
-            let amount = owned_outputs[0]
-                .amount()
-                .expect("Failed to unblind transaction amount");
-            *amounts_recieved.entry(payment_id).or_insert(0) += amount;
         }
     }
 

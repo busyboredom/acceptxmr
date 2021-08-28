@@ -4,15 +4,15 @@ mod util;
 
 use std::collections::HashMap;
 use std::convert::TryInto;
+use std::fmt;
 use std::str::FromStr;
 use std::sync::mpsc::{channel, Receiver, Sender};
 use std::{thread, u64};
 
-use log::{debug, info, trace, warn};
-use monero::ViewPair;
-use monero::util::address::PaymentId;
-use monero::Network::Mainnet;
+use log::{debug, error, info, trace, warn};
+use monero::cryptonote::subaddress;
 use reqwest;
+use serde::Serialize;
 use tokio::runtime::Runtime;
 use tokio::time;
 
@@ -23,7 +23,7 @@ use error::Error;
 pub struct BlockScanner {
     daemon_url: String,
     viewpair: monero::ViewPair,
-    payments: HashMap<PaymentId, Payment>,
+    payments: HashMap<SubIndex, Payment>,
     scan_rate: u64,
     scanthread_tx: Option<Sender<Payment>>,
     scanthread_rx: Option<Receiver<Receiver<Payment>>>,
@@ -74,26 +74,43 @@ impl BlockScanner {
                     // Check for new payments to track.
                     for payment in thread_rx.try_iter() {
                         // Add the payment to the hashmap for tracking.
-                        payments.insert(payment.payment_id, payment);
+                        payments.insert(payment.index, payment.clone());
 
                         // Set up communication for sending updates on this payment.
                         let (payment_tx, payment_rx) = channel();
-                        channels.insert(payment.payment_id, payment_tx);
+                        channels.insert(payment.index, payment_tx);
                         thread_tx.send(payment_rx).unwrap();
 
-                        debug!("Now tracking payment ID \"{}\"", payment.payment_id);
+                        debug!("Now tracking subaddress index \"{}\"", payment.index);
                     }
 
                     // Update block cache and txpool.
-                    block_cache.update(&url).await.unwrap();
-                    let txpool = util::get_txpool(&url).await.unwrap();
+                    if let Err(e) = block_cache.update(&url).await {
+                        error!("Faled to update block cache: {}", e);
+                    }
 
-                    let current_height = util::get_current_height(&url).await.unwrap();
-                    trace!(
-                        "Cache height: {}, Blockchain height: {}",
-                        block_cache.height,
-                        current_height
-                    );
+                    let txpool = match util::get_txpool(&url).await {
+                        Ok (pool) => pool,
+                        Err(e) => {
+                            error!("Faled to get transaction pool: {}", e);
+                            Vec::new()
+                        }
+                    };
+
+                    let current_height = match util::get_current_height(&url).await {
+                        Ok(height) => {
+                            trace!(
+                                "Cache height: {}, Blockchain height: {}",
+                                block_cache.height,
+                                height
+                            );
+                            height
+                        }
+                        Err(e) => {
+                            error!("Faled to get current height: {}", e);
+                            block_cache.height
+                        }
+                    };
 
                     // Set up temporary payments hashmap so we'll know which ones are updated.
                     let mut updated_payments = payments.clone();
@@ -115,8 +132,8 @@ impl BlockScanner {
                         );
 
                         // Update payment amounts.
-                        for (&payment_id, amount) in amounts_received.iter() {
-                            let payment = updated_payments.get_mut(&payment_id).unwrap();
+                        for (&subindex, amount) in amounts_received.iter() {
+                            let payment = updated_payments.get_mut(&subindex).unwrap();
                             payment.paid_amount += amount;
 
                             if payment.paid_amount >= payment.expected_amount
@@ -132,6 +149,11 @@ impl BlockScanner {
                     // Scan txpool.
                     let amounts_received =
                         util::scan_transactions(&viewpair, &payments, txpool.to_vec());
+                    trace!(
+                        "Scanned {} transactions from txpool, and found {} tracked payments.",
+                        txpool.len(),
+                        amounts_received.len()
+                    );
                     // Update payment amounts.
                     for (&payment_id, amount) in amounts_received.iter() {
                         let payment = updated_payments.get_mut(&payment_id).unwrap();
@@ -152,34 +174,36 @@ impl BlockScanner {
                             payment.current_block = block_cache.height;
                         }
                         // If payment was updated, send an update.
-                        if payment != payments.get(&payment.payment_id).unwrap() {
-                            if let Err(_) = channels
-                                .get(&payment.payment_id)
-                                .unwrap()
-                                .send(*payment) {
-                                    warn!("Websocket receiver disconnected before payment completed.");
-                                    completed.push(payment.payment_id);
-                                }  
+                        if payment != payments.get(&payment.index).unwrap() {
+                            if let Err(_) =
+                                channels.get(&payment.index).unwrap().send(payment.clone())
+                            {
+                                warn!("Receiver disconnected before payment completed.");
+                                completed.push(payment.index);
+                            }
                             // Copy the updated payment parameters to the main one.
-                            payments.insert(payment.payment_id, *payment);
+                            payments.insert(payment.index, payment.clone());
                         }
                         // If the payment is fully confirmed, mark it as complete.
-                        if let Some(paid_at) = payment.paid_at {
-                            if payment.current_block >= paid_at + payment.confirmations_required - 1
-                            {
-                                completed.push(payment.payment_id);
-                            }
+                        if payment.is_confirmed() {
+                            completed.push(payment.index);
                         }
                         // If the payment has expired, mark it as complete.
-                        if payment.current_block >= payment.expiration_block {
-                            completed.push(payment.payment_id);
+                        if payment.is_expired() {
+                            completed.push(payment.index);
                         }
                     }
                     // Stop tracking completed/expired transactions.
-                    for payment_id in completed {
-                        payments.remove(&payment_id).unwrap();
-                        channels.remove(&payment_id).unwrap();
-                        debug!("No longer tracking payment ID \"{}\"", payment_id);
+                    for index in completed {
+                        if payments.remove(&index).is_none() {
+                            warn!("Attempted to remove subaddress index {} from tracked payments, but it didn't exist.", index);
+                            continue;
+                        }
+                        if channels.remove(&index).is_none() {
+                            warn!("Attempted to remove subaddress index {} from payment update channels, but it didn't exist.", index);
+                            continue;
+                        }
+                        debug!("No longer tracking subaddress index \"{:?}\"", index);
                     }
                 }
             })
@@ -198,22 +222,11 @@ impl BlockScanner {
         self.scanthread_rx.as_ref().unwrap().recv().unwrap()
     }
 
-    pub fn new_integrated_address(&self) -> (String, String) {
-        let standard_address = monero::Address::from_viewpair(Mainnet, &self.viewpair);
-
-        let integrated_address = monero::Address::integrated(
-            Mainnet,
-            standard_address.public_spend,
-            standard_address.public_view,
-            PaymentId::random(),
-        );
-        let payment_id = match integrated_address.addr_type {
-            monero::AddressType::Integrated(id) => id,
-            _ => panic!("Integrated address malformed (no payment ID)"),
-        };
-
+    pub fn new_subaddress(&self) -> (String, SubIndex) {
+        let subindex = SubIndex::new(0, 1);
+        let subaddress = subaddress::get_subaddress(&self.viewpair, subindex.into(), None);
         // Return address in base58, and payment ID in hex.
-        (format!("{}", integrated_address), hex::encode(&payment_id))
+        (format!("{}", subaddress), subindex)
     }
 
     pub async fn get_block(&self, height: u64) -> Result<(monero::Hash, monero::Block), Error> {
@@ -295,9 +308,10 @@ impl BlockScannerBuilder {
     }
 }
 
-#[derive(Debug, Copy, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct Payment {
-    pub payment_id: PaymentId,
+    pub address: String,
+    pub index: SubIndex,
     pub expected_amount: u64,
     pub paid_amount: u64,
     pub paid_at: Option<u64>,
@@ -308,21 +322,71 @@ pub struct Payment {
 
 impl Payment {
     pub fn new(
-        payment_id: &str,
+        address: &str,
+        index: SubIndex,
         amount: u64,
         confirmations: u64,
         expiration_block: u64,
     ) -> Payment {
-        let payment_id =
-            PaymentId::from_slice(&hex::decode(payment_id).expect("Invalid payment ID"));
         Payment {
-            payment_id,
+            address: address.to_string(),
+            index,
             expected_amount: amount,
             paid_amount: 0,
             paid_at: None,
             confirmations_required: confirmations,
             current_block: 0,
             expiration_block,
+        }
+    }
+
+    pub fn is_confirmed(&self) -> bool {
+        match self.paid_at {
+            Some(height) => {
+                let confirmations = self.current_block.saturating_sub(height);
+                return confirmations >= self.confirmations_required;
+            }
+            None => return false,
+        }
+    }
+
+    pub fn is_expired(&self) -> bool {
+        return self.current_block >= self.expiration_block;
+    }
+}
+
+#[derive(Debug, Copy, Clone, Hash, Serialize, PartialEq, Eq)]
+pub struct SubIndex {
+    pub major: u32,
+    pub minor: u32,
+}
+
+impl SubIndex {
+    pub fn new(major: u32, minor: u32) -> SubIndex {
+        SubIndex { major, minor }
+    }
+}
+
+impl fmt::Display for SubIndex {
+    fn fmt(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+        write!(formatter, "{}/{}", self.major, self.minor)
+    }
+}
+
+impl From<subaddress::Index> for SubIndex {
+    fn from(index: subaddress::Index) -> SubIndex {
+        SubIndex {
+            major: index.major,
+            minor: index.minor,
+        }
+    }
+}
+
+impl Into<subaddress::Index> for SubIndex {
+    fn into(self) -> subaddress::Index {
+        subaddress::Index {
+            major: self.major,
+            minor: self.minor,
         }
     }
 }

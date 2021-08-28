@@ -17,6 +17,7 @@ dependencies = [
  "monero",
  "qrcode",
  "reqwest",
+ "serde",
  "serde_json",
  "tokio",
 ]
