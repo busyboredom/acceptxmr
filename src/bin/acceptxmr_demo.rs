@@ -39,7 +39,7 @@ async fn main() -> std::io::Result<()> {
         .build();
 
     let current_height = block_scanner.get_current_height().await.unwrap();
-    block_scanner.run(20, current_height - 10);
+    block_scanner.run(10, current_height - 10);
 
     let shared_block_scanner = Data::new(Mutex::new(block_scanner));
 

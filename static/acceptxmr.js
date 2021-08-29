@@ -37,7 +37,7 @@ socket.onmessage = function(event) {
 
     var confirmations = 0
     if (message.paid_at != null) {
-        confirmations = Math.max(message.current_block - message.paid_at, 0);
+        confirmations = Math.max(message.current_block - message.paid_at + 1, 0);
     }
     document.getElementById("acceptxmr-confirmations").innerHTML = confirmations;
 

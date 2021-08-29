@@ -343,7 +343,7 @@ impl Payment {
     pub fn is_confirmed(&self) -> bool {
         match self.paid_at {
             Some(height) => {
-                let confirmations = self.current_block.saturating_sub(height);
+                let confirmations = self.current_block.saturating_sub(height) + 1;
                 return confirmations >= self.confirmations_required;
             }
             None => return false,
