@@ -2,6 +2,7 @@ use std::env;
 use std::sync::mpsc::{Receiver, TryRecvError};
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
+use std::path::Path;
 
 use actix::{Actor, ActorContext, AsyncContext, StreamHandler};
 use actix_files;
@@ -26,8 +27,8 @@ async fn main() -> std::io::Result<()> {
     env_logger::init();
 
     // Prepare Viewkey.
-    let mut viewkey_string = include_str!("../../../secrets/xmr_private_viewkey.txt").to_string();
-    viewkey_string.pop(); // Remove eof charactar.
+    let private_viewkey_path = Path::new("../secrets/xmr_private_viewkey.txt");
+    let viewkey_string = std::fs::read_to_string(private_viewkey_path).expect("Failed to read private viewkey from file, are you sure it exists?");
 
     let xmr_daemon_url = "http://busyboredom.com:18081";
     let mut block_scanner = BlockScannerBuilder::new()
