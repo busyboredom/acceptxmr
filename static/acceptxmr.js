@@ -68,10 +68,9 @@ socket.onmessage = function(event) {
         qr.addData(address);
         qr.make();
         document.getElementById('acceptxmr-qrcode-container').innerHTML = qr.createSvgTag({scalable: true});
-        document.getElementById('acceptxmr-qrcode-container').style.opacity = "1";
     } else {
         document.getElementById("acceptxmr-address").innerHTML = "Expiring or expired...";
-        document.getElementById('acceptxmr-qrcode-container').style.opacity = "0";
+        document.getElementById('acceptxmr-qrcode-container').innerHTML = "<svg viewBox=\"0 0 100 100\" src=\"\"></svg>";
     }
 
 };
