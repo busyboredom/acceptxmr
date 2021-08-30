@@ -244,7 +244,7 @@ impl BlockScanner {
         util::scan_transactions(&self.viewpair, &mut self.payments, transactions);
     }
 
-    pub async fn get_current_height(&mut self) -> Result<u64, Error> {
+    pub async fn get_current_height(&self) -> Result<u64, Error> {
         util::get_current_height(&self.daemon_url).await
     }
 }

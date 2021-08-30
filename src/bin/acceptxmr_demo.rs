@@ -1,8 +1,8 @@
 use std::env;
+use std::path::Path;
 use std::sync::mpsc::{Receiver, TryRecvError};
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
-use std::path::Path;
 
 use actix::{Actor, ActorContext, AsyncContext, StreamHandler};
 use actix_files;
@@ -28,7 +28,13 @@ async fn main() -> std::io::Result<()> {
 
     // Prepare Viewkey.
     let private_viewkey_path = Path::new("../secrets/xmr_private_viewkey.txt");
-    let viewkey_string = std::fs::read_to_string(private_viewkey_path).expect("Failed to read private viewkey from file, are you sure it exists?");
+    let mut viewkey_string = std::fs::read_to_string(private_viewkey_path)
+        .expect("Failed to read private viewkey from file, are you sure it exists?");
+    viewkey_string = viewkey_string // Remove line endind in a cross-platform friendly way.
+        .strip_suffix("\r\n")
+        .or(viewkey_string.strip_suffix("\n"))
+        .unwrap_or(&viewkey_string)
+        .to_string();
 
     let xmr_daemon_url = "http://busyboredom.com:18081";
     let mut block_scanner = BlockScannerBuilder::new()
@@ -94,6 +100,7 @@ impl WebSocket {
             match act.update_rx.try_recv() {
                 // Send an update of we got one.
                 Ok(payment_update) => {
+                    // Log the update first.
                     let confirmations = match payment_update.paid_at {
                         Some(height) => payment_update.current_block.saturating_sub(height).to_string(),
                         None => "N/A".to_string(),
@@ -106,16 +113,24 @@ impl WebSocket {
                         confirmations,
                         payment_update.current_block,
                     );
-                    let payment_json = serde_json::to_string(&payment_update)
-                        .expect("Unable to serialize payment update.");
-                    ctx.text(ByteString::from(payment_json));
+
+                    // Serialize the payment object.
+                    let mut payment_json = serde_json::to_value(&payment_update)
+                        .expect("Failed to serialize payment update.");
+                    // User doesn't need the subaddress index, so remove it.
+                    payment_json.as_object_mut().unwrap().remove("index");
+                    // Convert to string.
+                    let payment_string = payment_json.to_string();
+
+                    // Send the update to the user.
+                    ctx.text(ByteString::from(payment_string));
 
                     // if the payment is confirmed or expired, stop checking for updates.
                     if payment_update.is_confirmed() {
                         debug!("Payment to index {} fully confirmed!", payment_update.index);
                         ctx.stop();
                     } else if payment_update.is_expired() {
-                        debug!("Payment to index {} has expired before full confimration.", payment_update.index);
+                        debug!("Payment to index {} expired before full confimration.", payment_update.index);
                         ctx.stop();
                     }
                 }
@@ -177,9 +192,12 @@ async fn index(
 ) -> Result<HttpResponse, actix_web::Error> {
     let block_scanner = block_scanner.lock().unwrap();
     let (address, subindex) = block_scanner.new_subaddress();
-    let payment = Payment::new(&address, subindex, 1, 2, 9999999);
+    let current_block = block_scanner
+        .get_current_height()
+        .await
+        .expect("Failed to get current height");
+    let payment = Payment::new(&address, subindex, 1, 2, current_block + 3);
     let receiver = block_scanner.track_payment(payment);
     let resp = ws::start(WebSocket::new(receiver), &req, stream);
-    println!("{:?}", resp);
     resp
 }

@@ -1,14 +1,73 @@
 body {
-    background-color: #454545;
+    background-color: #4d4d4d;
 }
 
 .acceptxmr-container {
     max-width: 80ch;
     margin: auto;
-    background-color: #ff7700;
+    background-color: #f26822;
     border-radius: 1em;
     display: flex;
+    flex-flow: column wrap;
+    align-items: center;
+}
+
+.acceptxmr-container button {
+    background-color: #0088ff;
+    border-radius: 0.5em;
+    border: 0;
+    margin: 0;
+    font-size: medium;
+}
+
+.acceptxmr-container button:hover {
+    background-color: #005fb3;
+    cursor: pointer;
+}
+
+.acceptxmr-container button:disabled {
+    background-color: #979797;
+}
+
+.acceptxmr-instruction-container {
+    display: flex;
     flex-flow: row wrap;
+    align-items: center;
+    justify-content: center;
+}
+
+.acceptxmr-instruction-container p {
+    margin: 0.1em;
+    font-size: large;
+}
+
+.acceptxmr-instruction-container button {
+    margin: 0.5em;
+    padding: 0.25em 0.5em;
+}
+
+.acceptxmr-container .acceptxmr-warning {
+    animation: acceptxmr-fade 2s linear;
+    animation-iteration-count: infinite;
+}
+
+@keyframes acceptxmr-fade {
+    0%,100% { opacity: 0.2 }
+    50% { opacity: 1 }
+}
+
+.acceptxmr-container hr {
+    width: 90%;
+    border-style: solid;
+    border-color: #000000;
+    margin: 0;
+}
+
+.acceptxmr-content {
+    width: 100%;
+    display: flex;
+    flex-flow: row wrap;
+    align-items: center;
 }
 
 .acceptxmr-container .acceptxmr-qrcode-container {
@@ -30,27 +89,24 @@ body {
     border-radius: 0.5em;
     border: 0;
     padding: 0.5em;
-    background-color: #353535;
+    background-color: #4d4d4d;
     color: #ffffff;
     resize: vertical;
 }
 
-.acceptxmr-container .acceptxmr-message {
-    margin-bottom: 0.5em;
-}
-
 .acceptxmr-container .acceptxmr-details {
     flex: 2 2 30ch;
-    margin: 1em;
+    margin: 0 1em 1em 1em;
     overflow: hidden;
 }
 
 .acceptxmr-container .acceptxmr-address-container {
-    display: flex;        
+    display: flex;       
     height: 3em;
     border-radius: 0.5em;
     margin-bottom: 0.5em;
     background-color: #ffffff;
+    justify-content: space-between;
 }
 
 .acceptxmr-container .acceptxmr-address-container p {
@@ -63,17 +119,13 @@ body {
 }
 
 .acceptxmr-container .acceptxmr-address-container button {
-    background-color: #1F85DE;
     border-radius: 0 0.5em 0.5em 0;
-    border: 0;
-    margin: 0;
     height: 100%;
     padding: 0 1em;
-    font-size: medium;
 }
 
 .acceptxmr-container .acceptxmr-status {
-    margin: 0;
+    margin: 0 0 0.5em 0;
     border-radius: 0.5em;
     padding: 0.5em;
     background-color: #ffffff;

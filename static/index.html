@@ -2,29 +2,32 @@
 <title>AcceptXMR Demo</title>
 
 <div class="acceptxmr-container">
-    <div class="acceptxmr-qrcode-container" id="acceptxmr-qrcode-container">
-        <svg viewBox="0 0 100 100" id="acceptxmr-qrcode" src=""></svg>
+    <div class="acceptxmr-instruction-container">
+        <p id="acceptxmr-instruction">Loading...</p>
+        <button id="acceptxmr-new-address-btn" hidden>New Address</button>
     </div>
-    <div class="acceptxmr-details">
-        <div class="acceptxmr-message">
-            <label for="message">Message (Optional)</label>
-            <textarea type="text" id="message" name="message" rows="1" placeholder="Have anything you'd like to say?"></textarea>
+    <hr/>
+    <div class="acceptxmr-content">
+        <div class="acceptxmr-qrcode-container" id="acceptxmr-qrcode-container">
+            <svg viewBox="0 0 100 100" id="acceptxmr-qrcode" src=""></svg>
         </div>
-        <label>Address</label>
-        <div class="acceptxmr-address-container">
-            <p id="acceptxmr-address"></p>
-            <button id="acceptxmr-address-copy-btn" onclick="copyPaymentAddress()">Copy</button>
+        <div class="acceptxmr-details">
+            <label>Address</label>
+            <div class="acceptxmr-address-container">
+                <p id="acceptxmr-address"></p>
+                <button id="acceptxmr-address-copy-btn" onclick="copyPaymentAddress()">Copy</button>
+            </div>
+            <label>Status</label>
+            <p class="acceptxmr-status">
+                Paid: <span id="acceptxmr-paid">0.00000000</span> / <span id="acceptxmr-due">0.00000000</span> XMR<br/>
+                Confirmations: 
+                <span id="acceptxmr-confirmations">0</span> / <span id="acceptxmr-confirmations-required">0</span><br/>
+            </p>
+            <div class="acceptxmr-message">
+                <label for="message">Message (Optional)</label>
+                <textarea type="text" id="message" name="message" rows="1" placeholder="Have anything you'd like to say?"></textarea>
+            </div>
         </div>
-        <label>Status</label>
-        <p class="acceptxmr-status">
-            Paid: <span id="acceptxmr-paid">0.00000000</span> / <span id="acceptxmr-due">0.00000000</span> XMR<br/>
-            Confirmations: 
-            <span id="acceptxmr-confirmations">0</span> / <span id="acceptxmr-confirmations-required">0</span><br/>
-            Current block: 
-            <span id="acceptxmr-current-block">0000000</span><br/>
-            Expiration in: 
-            <span id="acceptxmr-expiration-in">0 blocks (~0 minutes)</span>
-        </p>
     </div>
 </div>
 <script type="text/javascript" src="qrcode.js"></script>

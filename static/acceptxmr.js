@@ -21,14 +21,7 @@ socket.onopen = function(e) {
 
 socket.onmessage = function(event) {
     var message = JSON.parse(event.data);
-    var address = message.address;
-    document.getElementById("acceptxmr-address").innerHTML = address;
-
-    var qr = qrcode(0, "M");
-    qr.addData(address);
-    qr.make();
-    document.getElementById('acceptxmr-qrcode-container').innerHTML = qr.createSvgTag({scalable: true});
-
+    
     var paid = message.paid_amount;
     document.getElementById("acceptxmr-paid").innerHTML = picoToXMR(paid);
 
@@ -44,28 +37,43 @@ socket.onmessage = function(event) {
     var confirmationsRequired = message.confirmations_required;
     document.getElementById("acceptxmr-confirmations-required").innerHTML = confirmationsRequired;
 
-    var currentBlock = message.current_block;
-    document.getElementById("acceptxmr-current-block").innerHTML = currentBlock;
-
     var expirationBlocks = message.expiration_block - message.current_block;
-    var expirationString = "";
-    if (message.paid_at != null) {
-        expirationString = "N/A"
-    } else if (expirationBlocks >= 0) {
-        var expirationTime = expirationBlocks * BLOCK_TIME;
-        expirationString = expirationBlocks + " blocks (~";
-        if (expirationTime < 60) {
-            expirationString += expirationTime + " minutes)";
-        } else {
-            expirationString += Math.floor(expirationTime/60) + " hours)";
-        }
-        if (expirationBlocks <= message.confirmations_required) {
-            expirationString.fontcolor("red");
-        }
+    var instructionString = "Loading...";
+    var instructionClass = "acceptxmr-instruction";
+    var newAddressBtnHidden = true;
+    if (confirmations >= confirmationsRequired) {
+        instructionString = "Paid! Thank you"
+    } else if (message.paid_at != null) {
+        instructionString = "Paid! Waiting for Confirmation..."
+    } else if (expirationBlocks > 2) {
+        instructionString = "Send Monero to Address Below"
+    } else if (expirationBlocks > 0) {
+        instructionString = "Address Expiring Soon";
+        instructionClass += " acceptxmr-warning";
+        newAddressBtnHidden = false;
     } else {
-        expirationString = "EXPIRED".fontcolor("red");
+        instructionString = "Address Expired!";
+        newAddressBtnHidden = false;
     }
-    document.getElementById("acceptxmr-expiration-in").innerHTML = expirationString;
+    document.getElementById("acceptxmr-instruction").innerHTML = instructionString;
+    document.getElementById("acceptxmr-instruction").classList = instructionClass;
+    document.getElementById("acceptxmr-new-address-btn").hidden = newAddressBtnHidden;
+    document.getElementById("acceptxmr-address-copy-btn").disabled = !newAddressBtnHidden;
+
+    if (newAddressBtnHidden) {
+        var address = message.address;
+        document.getElementById("acceptxmr-address").innerHTML = address;
+    
+        var qr = qrcode(0, "M");
+        qr.addData(address);
+        qr.make();
+        document.getElementById('acceptxmr-qrcode-container').innerHTML = qr.createSvgTag({scalable: true});
+        document.getElementById('acceptxmr-qrcode-container').style.opacity = "1";
+    } else {
+        document.getElementById("acceptxmr-address").innerHTML = "Expiring or expired...";
+        document.getElementById('acceptxmr-qrcode-container').style.opacity = "0";
+    }
+
 };
 
 socket.onclose = function(event) {
