@@ -106,7 +106,7 @@ impl WebSocket {
                         None => "N/A".to_string(),
                     };
                     debug!(
-                        "Payment update for subaddress index {}:\n\tPaid: {}/{}\n\tPaid at: {}\n\tCurrent block: {}", 
+                        "Payment update for subaddress index {}:\n\tPaid: {}/{}\n\tConfirmations: {}\n\tCurrent block: {}", 
                         payment_update.index,
                         monero::Amount::from_pico(payment_update.paid_amount).as_xmr(),
                         monero::Amount::from_pico(payment_update.expected_amount).as_xmr(),

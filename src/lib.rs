@@ -81,7 +81,7 @@ impl BlockScanner {
                         channels.insert(payment.index, payment_tx);
                         thread_tx.send(payment_rx).unwrap();
 
-                        debug!("Now tracking subaddress index \"{}\"", payment.index);
+                        debug!("Now tracking subaddress index {}", payment.index);
                     }
 
                     // Update block cache and txpool.
@@ -203,7 +203,7 @@ impl BlockScanner {
                             warn!("Attempted to remove subaddress index {} from payment update channels, but it didn't exist.", index);
                             continue;
                         }
-                        debug!("No longer tracking subaddress index \"{:?}\"", index);
+                        debug!("No longer tracking subaddress index {}", index);
                     }
                 }
             })
@@ -351,7 +351,8 @@ impl Payment {
     }
 
     pub fn is_expired(&self) -> bool {
-        return self.current_block >= self.expiration_block;
+        // At or passed the expiration block, AND not paid in full.
+        return self.current_block >= self.expiration_block && self.paid_at.is_none();
     }
 }
 
