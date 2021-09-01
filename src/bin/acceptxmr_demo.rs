@@ -12,7 +12,7 @@ use actix_web_actors::ws;
 use bytestring::ByteString;
 use log::{debug, trace, warn};
 
-use acceptxmr::{BlockScanner, BlockScannerBuilder, Payment};
+use acceptxmr::{PaymentProcessor, PaymentProcessorBuilder, Payment};
 
 /// How often heartbeat pings are sent
 const HEARTBEAT_INTERVAL: Duration = Duration::from_secs(4);
@@ -37,21 +37,21 @@ async fn main() -> std::io::Result<()> {
         .to_string();
 
     let xmr_daemon_url = "http://busyboredom.com:18081";
-    let mut block_scanner = BlockScannerBuilder::new()
+    let mut payment_processor = PaymentProcessorBuilder::new()
         .daemon_url(xmr_daemon_url)
         .private_viewkey(&viewkey_string)
         .public_spendkey("dd4c491d53ad6b46cda01ed6cb9bac57615d9eac8d5e4dd1c0363ac8dfd420a7")
         .scan_rate(1000)
         .build();
 
-    let current_height = block_scanner.get_current_height().await.unwrap();
-    block_scanner.run(10, current_height - 10);
+    let current_height = payment_processor.get_current_height().await.unwrap();
+    payment_processor.run(10, current_height - 10);
 
-    let shared_block_scanner = Data::new(Mutex::new(block_scanner));
+    let shared_payment_processor = Data::new(Mutex::new(payment_processor));
 
     HttpServer::new(move || {
         App::new()
-            .app_data(shared_block_scanner.clone())
+            .app_data(shared_payment_processor.clone())
             .service(index)
             .service(actix_files::Files::new("/", "./static"))
     })
@@ -188,16 +188,16 @@ impl StreamHandler<Result<ws::Message, ws::ProtocolError>> for WebSocket {
 async fn index(
     req: HttpRequest,
     stream: web::Payload,
-    block_scanner: web::Data<Mutex<BlockScanner>>,
+    payment_processor: web::Data<Mutex<PaymentProcessor>>,
 ) -> Result<HttpResponse, actix_web::Error> {
-    let block_scanner = block_scanner.lock().unwrap();
-    let (address, subindex) = block_scanner.new_subaddress();
-    let current_block = block_scanner
+    let payment_processor = payment_processor.lock().unwrap();
+    let (address, subindex) = payment_processor.new_subaddress();
+    let current_block = payment_processor
         .get_current_height()
         .await
         .expect("Failed to get current height");
     let payment = Payment::new(&address, subindex, current_block, 1, 2, current_block + 3);
-    let receiver = block_scanner.track_payment(payment);
+    let receiver = payment_processor.track_payment(payment);
     let resp = ws::start(WebSocket::new(receiver), &req, stream);
     resp
 }
