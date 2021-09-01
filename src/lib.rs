@@ -184,8 +184,8 @@ impl BlockScanner {
                             // Copy the updated payment parameters to the main one.
                             payments.insert(payment.index, payment.clone());
                         }
-                        // If the payment is fully confirmed, mark it as complete.
-                        if payment.is_confirmed() {
+                        // If the payment is fully confirmed (and at least a block old), mark it as complete.
+                        if payment.is_confirmed() && payment.starting_block < current_height {
                             completed.push(payment.index);
                         }
                         // If the payment has expired, mark it as complete.
@@ -197,11 +197,9 @@ impl BlockScanner {
                     for index in completed {
                         if payments.remove(&index).is_none() {
                             warn!("Attempted to remove subaddress index {} from tracked payments, but it didn't exist.", index);
-                            continue;
                         }
                         if channels.remove(&index).is_none() {
                             warn!("Attempted to remove subaddress index {} from payment update channels, but it didn't exist.", index);
-                            continue;
                         }
                         debug!("No longer tracking subaddress index {}", index);
                     }
@@ -312,6 +310,7 @@ impl BlockScannerBuilder {
 pub struct Payment {
     pub address: String,
     pub index: SubIndex,
+    pub starting_block: u64,
     pub expected_amount: u64,
     pub paid_amount: u64,
     pub paid_at: Option<u64>,
@@ -324,6 +323,7 @@ impl Payment {
     pub fn new(
         address: &str,
         index: SubIndex,
+        starting_block: u64,
         amount: u64,
         confirmations: u64,
         expiration_block: u64,
@@ -331,6 +331,7 @@ impl Payment {
         Payment {
             address: address.to_string(),
             index,
+            starting_block,
             expected_amount: amount,
             paid_amount: 0,
             paid_at: None,

@@ -196,7 +196,7 @@ async fn index(
         .get_current_height()
         .await
         .expect("Failed to get current height");
-    let payment = Payment::new(&address, subindex, 1, 2, current_block + 3);
+    let payment = Payment::new(&address, subindex, current_block, 1, 2, current_block + 3);
     let receiver = block_scanner.track_payment(payment);
     let resp = ws::start(WebSocket::new(receiver), &req, stream);
     resp
