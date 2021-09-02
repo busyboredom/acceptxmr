@@ -69,6 +69,7 @@ pub async fn get_block_transactions(
     block: &monero::Block,
 ) -> Result<Vec<monero::Transaction>, Error> {
     // Get block transactions in sets of 100 or less (the restriced RPC maximum).
+    // TODO: Get them concurrently.
     let client = reqwest::Client::new();
     let mut transactions = vec![];
     let transaction_hashes = &block.tx_hashes;

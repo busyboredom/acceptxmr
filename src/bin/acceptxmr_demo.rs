@@ -5,14 +5,13 @@ use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
 use actix::{Actor, ActorContext, AsyncContext, StreamHandler};
-use actix_files;
 use actix_web::web::Data;
 use actix_web::{get, web, App, HttpRequest, HttpResponse, HttpServer};
 use actix_web_actors::ws;
 use bytestring::ByteString;
 use log::{debug, trace, warn};
 
-use acceptxmr::{PaymentProcessor, PaymentProcessorBuilder, Payment};
+use acceptxmr::{Payment, PaymentProcessor, PaymentProcessorBuilder};
 
 /// How often heartbeat pings are sent
 const HEARTBEAT_INTERVAL: Duration = Duration::from_secs(4);
@@ -32,7 +31,7 @@ async fn main() -> std::io::Result<()> {
         .expect("Failed to read private viewkey from file, are you sure it exists?");
     viewkey_string = viewkey_string // Remove line endind in a cross-platform friendly way.
         .strip_suffix("\r\n")
-        .or(viewkey_string.strip_suffix("\n"))
+        .or_else(|| viewkey_string.strip_suffix('\n'))
         .unwrap_or(&viewkey_string)
         .to_string();
 
@@ -137,7 +136,7 @@ impl WebSocket {
                 // Otherwise, handle the error.
                 Err(e) => match e {
                     // Do nothing.
-                    TryRecvError::Empty => return,
+                    TryRecvError::Empty => {},
                     // Give up, something went wrong.
                     _ => {
                         warn!("Websocket failed to recieve payment update, disconnecting!");
@@ -198,6 +197,6 @@ async fn index(
         .expect("Failed to get current height");
     let payment = Payment::new(&address, subindex, current_block, 1, 2, current_block + 3);
     let receiver = payment_processor.track_payment(payment);
-    let resp = ws::start(WebSocket::new(receiver), &req, stream);
-    resp
+
+    ws::start(WebSocket::new(receiver), &req, stream)
 }

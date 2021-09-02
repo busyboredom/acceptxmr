@@ -1,7 +1,6 @@
 use std::convert::TryInto;
 
 use log::{debug, trace, warn};
-use monero;
 
 use crate::{util, Error};
 
@@ -17,6 +16,7 @@ impl BlockCache {
         initial_height: u64,
     ) -> Result<BlockCache, Error> {
         let mut blocks = Vec::with_capacity(cache_size.try_into().unwrap());
+        // TODO: Get blocks concurrently.
         for i in 0..cache_size {
             let height = initial_height - i;
             let (block_id, block) = util::get_block(url, height).await?;
@@ -25,13 +25,13 @@ impl BlockCache {
         }
 
         let mut block_cache_summary = "".to_string();
-        for i in 0..blocks.len() {
+        for (i, block) in blocks.iter().enumerate() {
             block_cache_summary += &format!(
                 "Index in cache: {}\nHeight: {}\nNumber of transactions: {}\nID: {}\n\n",
                 i,
-                blocks[i].1,
-                blocks[i].3.len(),
-                blocks[i].0
+                block.1,
+                block.3.len(),
+                block.0
             );
         }
         trace!("Block cache initialized. Summary:\n{}", block_cache_summary);
