@@ -51,8 +51,8 @@ async fn main() -> std::io::Result<()> {
     HttpServer::new(move || {
         App::new()
             .app_data(shared_payment_processor.clone())
-            .service(index)
-            .service(actix_files::Files::new("/", "./static"))
+            .service(websocket)
+            .service(actix_files::Files::new("", "./static").index_file("index.html"))
     })
     .bind("127.0.0.1:8080")?
     .run()
@@ -127,9 +127,11 @@ impl WebSocket {
                     // if the payment is confirmed or expired, stop checking for updates.
                     if payment_update.is_confirmed() {
                         debug!("Payment to index {} fully confirmed!", payment_update.index);
+                        ctx.close(Some(ws::CloseReason::from((ws::CloseCode::Normal, "Payment Complete"))));
                         ctx.stop();
                     } else if payment_update.is_expired() {
                         debug!("Payment to index {} expired before full confimration.", payment_update.index);
+                        ctx.close(Some(ws::CloseReason::from((ws::CloseCode::Normal, "Payment Expired"))));
                         ctx.stop();
                     }
                 }
@@ -184,7 +186,7 @@ impl StreamHandler<Result<ws::Message, ws::ProtocolError>> for WebSocket {
 
 /// WebSocket handler.
 #[get("/ws/")]
-async fn index(
+async fn websocket(
     req: HttpRequest,
     stream: web::Payload,
     payment_processor: web::Data<Mutex<PaymentProcessor>>,

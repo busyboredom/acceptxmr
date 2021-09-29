@@ -43,6 +43,7 @@ socket.onmessage = function(event) {
     var newAddressBtnHidden = true;
     if (confirmations >= confirmationsRequired) {
         instructionString = "Paid! Thank you"
+        socket.close();
     } else if (message.paid_at != null) {
         instructionString = "Paid! Waiting for Confirmation..."
     } else if (expirationBlocks > 2) {
@@ -54,6 +55,7 @@ socket.onmessage = function(event) {
     } else {
         instructionString = "Address Expired!";
         newAddressBtnHidden = false;
+        socket.close();
     }
     document.getElementById("acceptxmr-instruction").innerHTML = instructionString;
     document.getElementById("acceptxmr-instruction").classList = instructionClass;
@@ -76,12 +78,12 @@ socket.onmessage = function(event) {
 };
 
 socket.onclose = function(event) {
-    if (event.wasClean) {
-        alert(`[close] Connection closed cleanly, code=${event.code} reason=${event.reason}`);
+    if (event.code === 1000) {
+        console.log(`[close] Connection closed cleanly, code=${event.code} reason=${event.reason}`);
     } else {
         // Server process killed or network down.
         // Event.code is usually 1006 in this case.
-        alert('[close] Connection died');
+        alert('Connection died.');
     }
 };
 
