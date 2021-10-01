@@ -191,6 +191,7 @@ async fn websocket(
     stream: web::Payload,
     payment_processor: web::Data<Mutex<PaymentProcessor>>,
 ) -> Result<HttpResponse, actix_web::Error> {
+    // TODO: Use cookies to determine if a purchase is already pending, and avoid creating a new one.
     let payment_processor = payment_processor.lock().unwrap();
     let (address, subindex) = payment_processor.new_subaddress();
     let current_block = payment_processor

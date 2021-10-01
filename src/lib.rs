@@ -13,7 +13,7 @@ use log::info;
 use monero::cryptonote::subaddress;
 use serde::Serialize;
 use tokio::runtime::Runtime;
-use tokio::time;
+use tokio::{join, time};
 
 use block_cache::BlockCache;
 use error::Error;
@@ -80,9 +80,8 @@ impl PaymentProcessor {
                 // Scan for transactions once every scan_rate.
                 let mut blockscan_interval = time::interval(time::Duration::from_millis(scan_rate));
                 loop {
-                    blockscan_interval.tick().await;
+                    join!(blockscan_interval.tick(), scanner.scan());
                     scanner.track_new_payments();
-                    scanner.scan().await;
                 }
             })
         });
