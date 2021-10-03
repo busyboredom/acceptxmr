@@ -21,6 +21,7 @@ pub struct Scanner {
     // This is necessary even though txpool scanning doesn't use the block cache,
     // because rust doesn't allow mutably borrowing only part of "self".
     block_cache: Mutex<BlockCache>,
+    first_scan: bool,
 }
 
 impl Scanner {
@@ -43,6 +44,7 @@ impl Scanner {
             payments_db,
             channels,
             block_cache: Mutex::new(block_cache),
+            first_scan: true,
         }
     }
 
@@ -69,11 +71,15 @@ impl Scanner {
     /// Scan for payment updates and send them down their respective channels.
     pub async fn scan(&mut self) {
         // Update block cache, and scan both it and the txpool.
-        let (payment_updates, txpool_amounts) =
+        let (updated_payments, txpool_amounts) =
             join!(self.scan_block_cache(), self.scan_txpool());
+        
+        if self.first_scan {
+            self.first_scan = false;
+        }
 
         // Add txpool amounts to block_cache updates.
-        let mut updates = payment_updates;
+        let mut updates = updated_payments;
         for (&payment_id, amount) in txpool_amounts.iter() {
             let payment = updates.get_mut(&payment_id).unwrap();
             payment.paid_amount += amount;
@@ -91,20 +97,35 @@ impl Scanner {
     /// Update block cache and scan the blocks.
     async fn scan_block_cache(&self) -> HashMap<SubIndex, Payment> {
         let mut block_cache = self.block_cache.lock().unwrap();
+        
         // Update block cache.
-        if let Err(e) = block_cache.update(&self.url).await {
-            error!("Faled to update block cache: {}", e);
+        let mut blocks_updated = match block_cache.update(&self.url).await {
+            Ok(num) => num,
+            Err(e) => {
+                error!("Faled to update block cache: {}", e);
+                0
+            }
+        };
+
+        // If this is the first scan, we want to scan all the blocks in the cache.
+        if self.first_scan {
+            blocks_updated = block_cache.blocks.len().try_into().unwrap();
         }
 
-        // Set up temporary payments hashmap so we'll know which ones are updated.
+        // Set up temporary payments hashmap so we'll know which payments are updated.
         let mut updated_payments = self.payments.clone();
+        let deepest_update = block_cache.height - blocks_updated + 1;
+        // Remove partial payments occuring later then the deepest block cache update.
         for payment in updated_payments.values_mut() {
-            payment.paid_amount = 0;
-            payment.paid_at = None;
+            let index = match payment.partial_payments.binary_search_by_key(&deepest_update, |&(key, _)| key) {
+                Ok(num) => num,
+                Err(num) => num,
+            };
+            payment.partial_payments.truncate(index);
         }
 
-        // Scan blocks.
-        for i in (0..block_cache.blocks.len()).rev() {
+        // Scan updated blocks.
+        for i in (0..blocks_updated.try_into().unwrap()).rev() {
             let transactions = &block_cache.blocks[i].3;
             let amounts_received =
                 scan_transactions(&self.viewpair, &self.payments, transactions.to_vec());
@@ -115,18 +136,33 @@ impl Scanner {
                 amounts_received.len()
             );
 
-            // Update payment amounts.
+            let pos_in_cache: u64 = i.try_into().unwrap();
+            let height = block_cache.height - pos_in_cache;
+
+            // Update partial payment amounts.
             for (&subindex, amount) in amounts_received.iter() {
                 let payment = updated_payments.get_mut(&subindex).unwrap();
-                payment.paid_amount += amount;
+                payment.partial_payments.push((height, *amount));
+            }
+        }
 
-                if payment.paid_amount >= payment.expected_amount && payment.paid_at.is_none() {
-                    let pos_in_cache: u64 = i.try_into().unwrap();
-                    let height = block_cache.height - pos_in_cache;
-                    payment.paid_at = Some(height);
+        // Recalculate total payment amounts.
+        for (subaddress_index, payment) in updated_payments.iter_mut() {
+            // No need recalculate unless something changed.
+            if payment != self.payments.get(&subaddress_index).unwrap() {
+                // Zero it out first.
+                payment.paid_at = None;
+                payment.paid_amount = 0;
+                // Now add up the partial payments.
+                for (height, amount) in &payment.partial_payments {
+                    payment.paid_amount += amount;
+                    if payment.paid_amount >= payment.expected_amount && payment.paid_at.is_none() {
+                        payment.paid_at = Some(*height);
+                    }
                 }
             }
         }
+
         updated_payments
     }
 

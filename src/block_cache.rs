@@ -42,9 +42,11 @@ impl BlockCache {
         })
     }
 
-    pub async fn update(&mut self, url: &str) -> Result<(), Error> {
+    /// Update the block cache with newest blocks from daemon. Returns number of blocks updated.
+    pub async fn update(&mut self, url: &str) -> Result<u64, Error> {
         // If the cache is behind, get a new block and drop the oldest.
         trace!("Checking for block cache updates.");
+        let mut updated = 0;
         let blockchain_height = util::get_current_height(url).await?;
         if self.height < blockchain_height {
             let (block_id, block) = util::get_block(url, self.height + 1).await?;
@@ -68,6 +70,7 @@ impl BlockCache {
                 );
             }
             trace!("Block cache summary:\n{}", block_cache_summary);
+            updated += 1;
         }
 
         // Check for reorgs, and update blocks if one has occurred.
@@ -77,9 +80,10 @@ impl BlockCache {
                 let (block_id, block) = util::get_block(url, self.height - 1).await?;
                 let transactions = util::get_block_transactions(url, &block).await?;
                 self.blocks[i + 1] = (block_id, self.height + 1, block, transactions);
+                updated += 1;
             }
         }
 
-        Ok(())
+        Ok(updated)
     }
 }

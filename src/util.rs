@@ -116,6 +116,7 @@ pub async fn get_txpool(url: &str) -> Result<Vec<monero::Transaction>, Error> {
     let client = reqwest::Client::new();
 
     trace!("Requesting txpool");
+    // TODO: Consider using json_rpc method for this.
     let res = client
         .post(url.to_owned() + "/get_transaction_pool")
         .body("")

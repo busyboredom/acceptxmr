@@ -22,7 +22,7 @@ const UPDATE_INTERVAL: Duration = Duration::from_millis(100);
 
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
-    env::set_var("RUST_LOG", "trace,mio=debug,want=debug,reqwest=info");
+    env::set_var("RUST_LOG", "trace,mio=debug,want=debug,reqwest=info,sled=debug");
     env_logger::init();
 
     // Prepare Viewkey.

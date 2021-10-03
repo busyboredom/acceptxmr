@@ -202,6 +202,8 @@ pub struct Payment {
     pub confirmations_required: u64,
     pub current_block: u64,
     pub expiration_block: u64,
+    // Partial payments take the form (block height, amount).
+    pub partial_payments: Vec<(u64, u64)>
 }
 
 impl Payment {
@@ -223,6 +225,7 @@ impl Payment {
             confirmations_required: confirmations,
             current_block: 0,
             expiration_block,
+            partial_payments: Vec::new(),
         }
     }
 
