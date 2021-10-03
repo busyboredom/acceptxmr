@@ -1,5 +1,6 @@
 mod block_cache;
 mod error;
+mod payments_db;
 mod scanner;
 mod util;
 
@@ -11,13 +12,14 @@ use std::{thread, u64};
 
 use log::info;
 use monero::cryptonote::subaddress;
-use serde::Serialize;
+use serde::{Serialize, Deserialize};
 use tokio::runtime::Runtime;
 use tokio::{join, time};
 
 use block_cache::BlockCache;
 use error::Error;
 use scanner::Scanner;
+use payments_db::PaymentsDb;
 
 //#[derive(Debug, Clone)]
 pub struct PaymentProcessor {
@@ -58,6 +60,9 @@ impl PaymentProcessor {
                 // Initially, there are no payments to track.
                 let payments = HashMap::new();
 
+                // Open (or create) db of pending payments.
+                let pending_payments = PaymentsDb::new(sled::open("PaymentsDb").unwrap());
+
                 // For each payment, we need a channel to send updates back to the initiating thread.
                 let channels = HashMap::new();
 
@@ -73,6 +78,7 @@ impl PaymentProcessor {
                     payment_rx,
                     channel_tx,
                     payments,
+                    pending_payments,
                     channels,
                     block_cache,
                 );
@@ -185,7 +191,7 @@ impl PaymentProcessorBuilder {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Payment {
     pub address: String,
     pub index: SubIndex,
@@ -236,7 +242,7 @@ impl Payment {
     }
 }
 
-#[derive(Debug, Copy, Clone, Hash, Serialize, PartialEq, Eq)]
+#[derive(Debug, Copy, Clone, Hash, Serialize, Deserialize, PartialEq, Eq)]
 pub struct SubIndex {
     pub major: u32,
     pub minor: u32,

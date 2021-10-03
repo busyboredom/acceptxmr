@@ -7,7 +7,7 @@ use log::{debug, error, trace, warn};
 use tokio::join;
 
 use crate::util::{get_txpool, scan_transactions};
-use crate::{BlockCache, Payment, SubIndex};
+use crate::{BlockCache, Payment, SubIndex, PaymentsDb};
 
 pub struct Scanner {
     url: String,
@@ -15,6 +15,7 @@ pub struct Scanner {
     payment_rx: Receiver<Payment>,
     channel_tx: Sender<Receiver<Payment>>,
     payments: HashMap<SubIndex, Payment>,
+    payments_db: PaymentsDb,
     channels: HashMap<SubIndex, Sender<Payment>>,
     // Block cache is mutexed to allow concurrent block & txpool scanning.
     // This is necessary even though txpool scanning doesn't use the block cache,
@@ -29,6 +30,7 @@ impl Scanner {
         payment_rx: Receiver<Payment>,
         channel_tx: Sender<Receiver<Payment>>,
         payments: HashMap<SubIndex, Payment>,
+        payments_db: PaymentsDb,
         channels: HashMap<SubIndex, Sender<Payment>>,
         block_cache: BlockCache,
     ) -> Scanner {
@@ -38,6 +40,7 @@ impl Scanner {
             payment_rx,
             channel_tx,
             payments,
+            payments_db,
             channels,
             block_cache: Mutex::new(block_cache),
         }
@@ -48,6 +51,11 @@ impl Scanner {
         for payment in self.payment_rx.try_iter() {
             // Add the payment to the hashmap for tracking.
             self.payments.insert(payment.index, payment.clone());
+
+            // Add payment to the db for tracking.
+            self.payments_db
+                .insert(&payment)
+                .unwrap();
 
             // Set up communication for sending updates on this payment.
             let (update_tx, update_rx) = channel();
@@ -61,11 +69,11 @@ impl Scanner {
     /// Scan for payment updates and send them down their respective channels.
     pub async fn scan(&mut self) {
         // Update block cache, and scan both it and the txpool.
-        let (block_cache_updates, txpool_amounts) =
+        let (payment_updates, txpool_amounts) =
             join!(self.scan_block_cache(), self.scan_txpool());
 
         // Add txpool amounts to block_cache updates.
-        let mut updates = block_cache_updates;
+        let mut updates = payment_updates;
         for (&payment_id, amount) in txpool_amounts.iter() {
             let payment = updates.get_mut(&payment_id).unwrap();
             payment.paid_amount += amount;
