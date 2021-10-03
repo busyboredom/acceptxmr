@@ -12,14 +12,14 @@ use std::{thread, u64};
 
 use log::info;
 use monero::cryptonote::subaddress;
-use serde::{Serialize, Deserialize};
+use serde::{Deserialize, Serialize};
 use tokio::runtime::Runtime;
 use tokio::{join, time};
 
 use block_cache::BlockCache;
 use error::Error;
-use scanner::Scanner;
 use payments_db::PaymentsDb;
+use scanner::Scanner;
 
 //#[derive(Debug, Clone)]
 pub struct PaymentProcessor {
@@ -61,7 +61,7 @@ impl PaymentProcessor {
                 let payments = HashMap::new();
 
                 // Open (or create) db of pending payments.
-                let pending_payments = PaymentsDb::new(sled::open("PaymentsDb").unwrap());
+                let pending_payments = PaymentsDb::new();
 
                 // For each payment, we need a channel to send updates back to the initiating thread.
                 let channels = HashMap::new();
@@ -203,7 +203,7 @@ pub struct Payment {
     pub current_block: u64,
     pub expiration_block: u64,
     // Partial payments take the form (block height, amount).
-    pub partial_payments: Vec<(u64, u64)>
+    pub partial_payments: Vec<(u64, u64)>,
 }
 
 impl Payment {

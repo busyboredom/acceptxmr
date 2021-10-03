@@ -17,12 +17,15 @@ use acceptxmr::{Payment, PaymentProcessor, PaymentProcessorBuilder};
 const HEARTBEAT_INTERVAL: Duration = Duration::from_secs(4);
 /// How long before lack of client response causes a timeout
 const CLIENT_TIMEOUT: Duration = Duration::from_secs(10);
-/// Munimunm interval for a websocket to send a payment update.
+/// Minimum interval for a websocket to send a payment update.
 const UPDATE_INTERVAL: Duration = Duration::from_millis(100);
 
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
-    env::set_var("RUST_LOG", "trace,mio=debug,want=debug,reqwest=info,sled=debug");
+    env::set_var(
+        "RUST_LOG",
+        "trace,mio=debug,want=debug,reqwest=info,sled=debug",
+    );
     env_logger::init();
 
     // Prepare Viewkey.

@@ -4,7 +4,12 @@ use crate::Payment;
 pub struct PaymentsDb(sled::Db);
 
 impl PaymentsDb {
-    pub fn new(db: sled::Db) -> PaymentsDb {
+    pub fn new() -> PaymentsDb {
+        let db = sled::Config::default()
+            .path("PaymentsDb")
+            .flush_every_ms(None)
+            .open()
+            .unwrap();
         PaymentsDb(db)
     }
 
@@ -16,7 +21,8 @@ impl PaymentsDb {
         let key = [
             payment.index.major.to_be_bytes(),
             payment.index.minor.to_be_bytes(),
-        ].concat();
+        ]
+        .concat();
 
         // Prepare value (payment).
         let value = bincode::serialize(&payment)?;
@@ -29,5 +35,9 @@ impl PaymentsDb {
         } else {
             Ok(None)
         }
+    }
+
+    pub fn flush(&self) {
+        self.0.flush().expect("Failed to flush payment updates to payments database");
     }
 }

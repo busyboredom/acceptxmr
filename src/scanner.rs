@@ -7,7 +7,7 @@ use log::{debug, error, trace, warn};
 use tokio::join;
 
 use crate::util::{get_txpool, scan_transactions};
-use crate::{BlockCache, Payment, SubIndex, PaymentsDb};
+use crate::{BlockCache, Payment, PaymentsDb, SubIndex};
 
 pub struct Scanner {
     url: String,
@@ -55,9 +55,7 @@ impl Scanner {
             self.payments.insert(payment.index, payment.clone());
 
             // Add payment to the db for tracking.
-            self.payments_db
-                .insert(&payment)
-                .unwrap();
+            self.payments_db.insert(&payment).unwrap();
 
             // Set up communication for sending updates on this payment.
             let (update_tx, update_rx) = channel();
@@ -71,33 +69,48 @@ impl Scanner {
     /// Scan for payment updates and send them down their respective channels.
     pub async fn scan(&mut self) {
         // Update block cache, and scan both it and the txpool.
-        let (updated_payments, txpool_amounts) =
-            join!(self.scan_block_cache(), self.scan_txpool());
-        
+        let (mut updated_payments, txpool_amounts) = join!(self.scan_block_cache(), self.scan_txpool());
+
         if self.first_scan {
             self.first_scan = false;
         }
 
-        // Add txpool amounts to block_cache updates.
-        let mut updates = updated_payments;
-        for (&payment_id, amount) in txpool_amounts.iter() {
-            let payment = updates.get_mut(&payment_id).unwrap();
-            payment.paid_amount += amount;
+        let height = self.block_cache.lock().unwrap().height;
 
-            if payment.paid_amount >= payment.expected_amount && payment.paid_at.is_none() {
-                let height = self.block_cache.lock().unwrap().height;
-                payment.paid_at = Some(height + 1);
+        // Add txpool amounts to block_cache updates.
+        for (&subaddress_index, amount) in txpool_amounts.iter() {
+            let payment = updated_payments.get_mut(&subaddress_index).unwrap();
+            payment.partial_payments.push((height + 1, *amount));
+        }
+
+        // Recalculate total payment amounts.
+        for (subaddress_index, payment) in updated_payments.iter_mut() {
+            // No need recalculate unless something changed.
+            if payment != self.payments.get(&subaddress_index).unwrap() {
+                // Zero it out first.
+                payment.paid_at = None;
+                payment.paid_amount = 0;
+                // Now add up the partial payments.
+                for (height, amount) in &payment.partial_payments {
+                    payment.paid_amount += amount;
+                    if payment.paid_amount >= payment.expected_amount && payment.paid_at.is_none() {
+                        payment.paid_at = Some(*height);
+                    }
+                }
             }
         }
 
         // Send updates, and remove completed transactions.
-        self.send_updates(&mut updates);
+        self.send_updates(&mut updated_payments);
+
+        // Flush changes to the database.
+        self.payments_db.flush();
     }
 
     /// Update block cache and scan the blocks.
     async fn scan_block_cache(&self) -> HashMap<SubIndex, Payment> {
         let mut block_cache = self.block_cache.lock().unwrap();
-        
+
         // Update block cache.
         let mut blocks_updated = match block_cache.update(&self.url).await {
             Ok(num) => num,
@@ -117,7 +130,10 @@ impl Scanner {
         let deepest_update = block_cache.height - blocks_updated + 1;
         // Remove partial payments occuring later then the deepest block cache update.
         for payment in updated_payments.values_mut() {
-            let index = match payment.partial_payments.binary_search_by_key(&deepest_update, |&(key, _)| key) {
+            let index = match payment
+                .partial_payments
+                .binary_search_by_key(&deepest_update, |&(key, _)| key)
+            {
                 Ok(num) => num,
                 Err(num) => num,
             };
@@ -146,29 +162,13 @@ impl Scanner {
             }
         }
 
-        // Recalculate total payment amounts.
-        for (subaddress_index, payment) in updated_payments.iter_mut() {
-            // No need recalculate unless something changed.
-            if payment != self.payments.get(&subaddress_index).unwrap() {
-                // Zero it out first.
-                payment.paid_at = None;
-                payment.paid_amount = 0;
-                // Now add up the partial payments.
-                for (height, amount) in &payment.partial_payments {
-                    payment.paid_amount += amount;
-                    if payment.paid_amount >= payment.expected_amount && payment.paid_at.is_none() {
-                        payment.paid_at = Some(*height);
-                    }
-                }
-            }
-        }
-
         updated_payments
     }
 
     /// Retreive and scan transaction pool.
     async fn scan_txpool(&self) -> HashMap<SubIndex, u64> {
         // Retreive txpool.
+        // TODO: Retrieve hashes, and then only retrieve transactions we don't already have.
         let txpool = match get_txpool(&self.url).await {
             Ok(pool) => pool,
             Err(e) => {
