@@ -1,35 +1,7 @@
-use std::collections::HashMap;
-
 use log::trace;
 use monero::consensus::deserialize;
 
-use crate::{Error, Payment, SubIndex};
-
-pub fn scan_transactions(
-    viewpair: &monero::ViewPair,
-    payments: &HashMap<SubIndex, Payment>,
-    transactions: Vec<monero::Transaction>,
-) -> HashMap<SubIndex, u64> {
-    let mut amounts_recieved = HashMap::new();
-    for tx in transactions {
-        // Get owned outputs.
-        let owned_outputs = tx.check_outputs(viewpair, 0..2, 0..2).unwrap();
-
-        for output in &owned_outputs {
-            let subaddress_index = SubIndex::from(output.sub_index());
-
-            // If this payment is being tracked, add the amount and payment ID to the result set.
-            if payments.contains_key(&subaddress_index) {
-                let amount = owned_outputs[0]
-                    .amount()
-                    .expect("Failed to unblind transaction amount");
-                *amounts_recieved.entry(subaddress_index).or_insert(0) += amount;
-            }
-        }
-    }
-
-    amounts_recieved
-}
+use crate::Error;
 
 pub async fn get_block(url: &str, height: u64) -> Result<(monero::Hash, monero::Block), Error> {
     let client = reqwest::Client::new();

@@ -32,7 +32,7 @@ async fn main() -> std::io::Result<()> {
     let private_viewkey_path = Path::new("../secrets/xmr_private_viewkey.txt");
     let mut viewkey_string = std::fs::read_to_string(private_viewkey_path)
         .expect("Failed to read private viewkey from file, are you sure it exists?");
-    viewkey_string = viewkey_string // Remove line endind in a cross-platform friendly way.
+    viewkey_string = viewkey_string // Remove line ending in a cross-platform friendly way.
         .strip_suffix("\r\n")
         .or_else(|| viewkey_string.strip_suffix('\n'))
         .unwrap_or(&viewkey_string)
@@ -102,20 +102,6 @@ impl WebSocket {
             match act.update_rx.try_recv() {
                 // Send an update of we got one.
                 Ok(payment_update) => {
-                    // Log the update first.
-                    let confirmations = match payment_update.paid_at {
-                        Some(height) => payment_update.current_block.saturating_sub(height).to_string(),
-                        None => "N/A".to_string(),
-                    };
-                    debug!(
-                        "Payment update for subaddress index {}:\n\tPaid: {}/{}\n\tConfirmations: {}\n\tCurrent block: {}", 
-                        payment_update.index,
-                        monero::Amount::from_pico(payment_update.paid_amount).as_xmr(),
-                        monero::Amount::from_pico(payment_update.expected_amount).as_xmr(),
-                        confirmations,
-                        payment_update.current_block,
-                    );
-
                     // Serialize the payment object.
                     let mut payment_json = serde_json::to_value(&payment_update)
                         .expect("Failed to serialize payment update.");
@@ -128,23 +114,33 @@ impl WebSocket {
                     ctx.text(ByteString::from(payment_string));
 
                     // if the payment is confirmed or expired, stop checking for updates.
+                    // TODO: Acknowledge the payment completion.
                     if payment_update.is_confirmed() {
                         debug!("Payment to index {} fully confirmed!", payment_update.index);
-                        ctx.close(Some(ws::CloseReason::from((ws::CloseCode::Normal, "Payment Complete"))));
+                        ctx.close(Some(ws::CloseReason::from((
+                            ws::CloseCode::Normal,
+                            "Payment Complete",
+                        ))));
                         ctx.stop();
                     } else if payment_update.is_expired() {
-                        debug!("Payment to index {} expired before full confimration.", payment_update.index);
-                        ctx.close(Some(ws::CloseReason::from((ws::CloseCode::Normal, "Payment Expired"))));
+                        debug!(
+                            "Payment to index {} expired before full confirmation.",
+                            payment_update.index
+                        );
+                        ctx.close(Some(ws::CloseReason::from((
+                            ws::CloseCode::Normal,
+                            "Payment Expired",
+                        ))));
                         ctx.stop();
                     }
                 }
                 // Otherwise, handle the error.
                 Err(e) => match e {
                     // Do nothing.
-                    TryRecvError::Empty => {},
+                    TryRecvError::Empty => {}
                     // Give up, something went wrong.
                     _ => {
-                        warn!("Websocket failed to recieve payment update, disconnecting!");
+                        warn!("Websocket failed to receive payment update, disconnecting!");
                         ctx.stop();
                     }
                 },
@@ -176,8 +172,8 @@ impl StreamHandler<Result<ws::Message, ws::ProtocolError>> for WebSocket {
             Ok(ws::Message::Pong(_)) => {
                 self.heartbeat = Instant::now();
             }
-            Ok(ws::Message::Text(text)) => debug!("Recieved from websocket: {}", text),
-            Ok(ws::Message::Binary(bin)) => debug!("Recieved from websocket: {:?}", bin),
+            Ok(ws::Message::Text(text)) => debug!("Received from websocket: {}", text),
+            Ok(ws::Message::Binary(bin)) => debug!("Received from websocket: {:?}", bin),
             Ok(ws::Message::Close(reason)) => {
                 ctx.close(reason);
                 ctx.stop();

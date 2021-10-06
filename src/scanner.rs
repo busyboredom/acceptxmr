@@ -6,7 +6,7 @@ use std::sync::Mutex;
 use log::{debug, error, trace, warn};
 use tokio::join;
 
-use crate::util::{get_txpool, scan_transactions};
+use crate::util::get_txpool;
 use crate::{BlockCache, Payment, PaymentsDb, SubIndex};
 
 pub struct Scanner {
@@ -14,7 +14,6 @@ pub struct Scanner {
     viewpair: monero::ViewPair,
     payment_rx: Receiver<Payment>,
     channel_tx: Sender<Receiver<Payment>>,
-    payments: HashMap<SubIndex, Payment>,
     payments_db: PaymentsDb,
     channels: HashMap<SubIndex, Sender<Payment>>,
     // Block cache is mutexed to allow concurrent block & txpool scanning.
@@ -30,7 +29,6 @@ impl Scanner {
         viewpair: monero::ViewPair,
         payment_rx: Receiver<Payment>,
         channel_tx: Sender<Receiver<Payment>>,
-        payments: HashMap<SubIndex, Payment>,
         payments_db: PaymentsDb,
         channels: HashMap<SubIndex, Sender<Payment>>,
         block_cache: BlockCache,
@@ -40,7 +38,6 @@ impl Scanner {
             viewpair,
             payment_rx,
             channel_tx,
-            payments,
             payments_db,
             channels,
             block_cache: Mutex::new(block_cache),
@@ -51,9 +48,6 @@ impl Scanner {
     pub fn track_new_payments(&mut self) {
         // Check for new payments to track.
         for payment in self.payment_rx.try_iter() {
-            // Add the payment to the hashmap for tracking.
-            self.payments.insert(payment.index, payment.clone());
-
             // Add payment to the db for tracking.
             self.payments_db.insert(&payment).unwrap();
 
@@ -69,53 +63,122 @@ impl Scanner {
     /// Scan for payment updates and send them down their respective channels.
     pub async fn scan(&mut self) {
         // Update block cache, and scan both it and the txpool.
-        let (mut updated_payments, txpool_amounts) = join!(self.scan_block_cache(), self.scan_txpool());
+        let (mut blocks_amounts, mut txpool_amounts) =
+            join!(self.scan_blocks(), self.scan_txpool());
 
         if self.first_scan {
             self.first_scan = false;
         }
 
         let height = self.block_cache.lock().unwrap().height;
+        let deepest_update = blocks_amounts
+            .iter()
+            .chain(txpool_amounts.iter())
+            .min_by(|(_, _, height_1), (_, _, height_2)| height_1.cmp(height_2))
+            .map_or(height + 1, |(_, _, h)| *h);
 
-        // Add txpool amounts to block_cache updates.
-        for (&subaddress_index, amount) in txpool_amounts.iter() {
-            let payment = updated_payments.get_mut(&subaddress_index).unwrap();
-            payment.partial_payments.push((height + 1, *amount));
-        }
+        // A place to keep track of what payments are changing, so we can send updates later.
+        let mut updated_payments = Vec::new();
 
-        // Recalculate total payment amounts.
-        for (subaddress_index, payment) in updated_payments.iter_mut() {
-            // No need recalculate unless something changed.
-            if payment != self.payments.get(&subaddress_index).unwrap() {
+        // Prepare updated payments.
+        // TODO: Don't add a partial payments from before the payment was created.
+        for payment_or_err in self.payments_db.iter() {
+            // Retrieve old payment object.
+            let old_payment = match payment_or_err {
+                Ok(p) => p,
+                Err(e) => {
+                    error!(
+                        "Failed to retrieve old payment object from database while iterating through database: {}", e
+                    );
+                    continue;
+                }
+            };
+            let mut payment = old_payment.clone();
+
+            // Remove partial payments occurring later than the deepest block update.
+            trace!("Deepest Update: {}", deepest_update);
+            payment
+                .partial_payments
+                .retain(|(height, _)| height < &deepest_update);
+
+            // Add partial payments from blocks.
+            for i in 0..blocks_amounts.len() {
+                if blocks_amounts[i].0 == payment.index {
+                    let (_, partial_amount, partial_height) = blocks_amounts.remove(i);
+                    payment
+                        .partial_payments
+                        .push((partial_height, partial_amount));
+                }
+            }
+
+            // Add partial payments from txpool.
+            for i in 0..txpool_amounts.len() {
+                if txpool_amounts[i].0 == payment.index {
+                    let (_, partial_amount, partial_height) = txpool_amounts.remove(i);
+                    payment
+                        .partial_payments
+                        .push((partial_height, partial_amount));
+                }
+            }
+
+            // Update payment's current_block.
+            if payment.current_block != height {
+                payment.current_block = height;
+            }
+
+            // No need to recalculate total paid_amount or paid_at unless something changed.
+            if payment != old_payment {
                 // Zero it out first.
                 payment.paid_at = None;
                 payment.paid_amount = 0;
                 // Now add up the partial payments.
-                for (height, amount) in &payment.partial_payments {
-                    payment.paid_amount += amount;
+                for (partial_height, partial_amount) in &payment.partial_payments {
+                    payment.paid_amount += partial_amount;
                     if payment.paid_amount >= payment.expected_amount && payment.paid_at.is_none() {
-                        payment.paid_at = Some(*height);
+                        payment.paid_at = Some(*partial_height);
                     }
                 }
+
+                // This payment has been updated. We can now add it in with the other
+                // updated_payments.
+                updated_payments.push(payment);
             }
         }
 
-        // Send updates, and remove completed transactions.
-        self.send_updates(&mut updated_payments);
+        // Send updates.
+        self.send_updates(&updated_payments);
+
+        // Save updates.
+        let mut batch = PaymentsDb::new_batch();
+        for payment in &updated_payments {
+            if let Err(e) = batch.insert(payment) {
+                error!(
+                    "Failed to save update to payment for index {} to database: {}",
+                    payment.index, e
+                );
+            }
+        }
+        if !updated_payments.is_empty() {
+            if let Err(e) = self.payments_db.apply_batch(batch) {
+                error!("Failed to save payment updates to database: {}", e);
+            }
+        }
 
         // Flush changes to the database.
         self.payments_db.flush();
     }
 
     /// Update block cache and scan the blocks.
-    async fn scan_block_cache(&self) -> HashMap<SubIndex, Payment> {
+    ///
+    /// Returns a vector of tuples of the form (subaddress index, amount, height)
+    async fn scan_blocks(&self) -> Vec<(SubIndex, u64, u64)> {
         let mut block_cache = self.block_cache.lock().unwrap();
 
         // Update block cache.
         let mut blocks_updated = match block_cache.update(&self.url).await {
             Ok(num) => num,
             Err(e) => {
-                error!("Faled to update block cache: {}", e);
+                error!("Failed to update block cache: {}", e);
                 0
             }
         };
@@ -125,26 +188,12 @@ impl Scanner {
             blocks_updated = block_cache.blocks.len().try_into().unwrap();
         }
 
-        // Set up temporary payments hashmap so we'll know which payments are updated.
-        let mut updated_payments = self.payments.clone();
-        let deepest_update = block_cache.height - blocks_updated + 1;
-        // Remove partial payments occuring later then the deepest block cache update.
-        for payment in updated_payments.values_mut() {
-            let index = match payment
-                .partial_payments
-                .binary_search_by_key(&deepest_update, |&(key, _)| key)
-            {
-                Ok(num) => num,
-                Err(num) => num,
-            };
-            payment.partial_payments.truncate(index);
-        }
+        let mut partial_payments = Vec::new();
 
         // Scan updated blocks.
         for i in (0..blocks_updated.try_into().unwrap()).rev() {
             let transactions = &block_cache.blocks[i].3;
-            let amounts_received =
-                scan_transactions(&self.viewpair, &self.payments, transactions.to_vec());
+            let amounts_received = self.scan_transactions(transactions.to_vec());
             trace!(
                 "Scanned {} transactions from block {}, and found {} tracked payments.",
                 transactions.len(),
@@ -152,84 +201,128 @@ impl Scanner {
                 amounts_received.len()
             );
 
-            let pos_in_cache: u64 = i.try_into().unwrap();
-            let height = block_cache.height - pos_in_cache;
+            let height: u64 = block_cache.height - i as u64;
 
-            // Update partial payment amounts.
-            for (&subindex, amount) in amounts_received.iter() {
-                let payment = updated_payments.get_mut(&subindex).unwrap();
-                payment.partial_payments.push((height, *amount));
-            }
+            // Add what was found into the list.
+            partial_payments.extend::<Vec<(SubIndex, u64, u64)>>(
+                amounts_received
+                    .into_iter()
+                    .map(|(subaddress_index, amount)| (subaddress_index, amount, height))
+                    .collect(),
+            )
         }
 
-        updated_payments
+        partial_payments
     }
 
-    /// Retreive and scan transaction pool.
-    async fn scan_txpool(&self) -> HashMap<SubIndex, u64> {
-        // Retreive txpool.
+    /// Retrieve and scan transaction pool.
+    ///
+    /// Returns a vector of tuples of the form (subaddress index, amount, height)
+    async fn scan_txpool(&self) -> Vec<(SubIndex, u64, u64)> {
+        // Retrieve txpool.
         // TODO: Retrieve hashes, and then only retrieve transactions we don't already have.
         let txpool = match get_txpool(&self.url).await {
             Ok(pool) => pool,
             Err(e) => {
-                error!("Faled to get transaction pool: {}", e);
+                error!("Failed to get transaction pool: {}", e);
                 Vec::new()
             }
         };
 
         // Scan txpool.
-        let amounts_received = scan_transactions(&self.viewpair, &self.payments, txpool.to_vec());
+        let amounts_received = self.scan_transactions(txpool.to_vec());
         trace!(
             "Scanned {} transactions from txpool, and found {} tracked payments.",
             txpool.len(),
             amounts_received.len()
         );
+
+        // Add current block_cache height to each entry.
         amounts_received
+            .into_iter()
+            .map(|(subaddress_index, amount)| {
+                (
+                    subaddress_index,
+                    amount,
+                    self.block_cache.lock().unwrap().height,
+                )
+            })
+            .collect()
     }
 
-    /// Send updates down their respective channels, and remove completed/expired payments.
-    fn send_updates(&mut self, updated_payments: &mut HashMap<SubIndex, Payment>) {
-        // Send updates and mark completed/expired payments for removal.
-        let mut completed = Vec::new();
-        let block_cache = self.block_cache.lock().unwrap();
-        for payment in updated_payments.values_mut() {
-            // Update payment's current_block.
-            if block_cache.height != payment.current_block {
-                payment.current_block = block_cache.height;
-            }
-            // If payment was updated, send an update.
-            if payment != self.payments.get(&payment.index).unwrap() {
-                if self
-                    .channels
-                    .get(&payment.index)
-                    .unwrap()
-                    .send(payment.clone())
-                    .is_err()
-                {
-                    warn!("Receiver disconnected before payment completed.");
-                    completed.push(payment.index);
+    pub fn scan_transactions(
+        &self,
+        transactions: Vec<monero::Transaction>,
+    ) -> Vec<(SubIndex, u64)> {
+        let mut amounts_received = HashMap::new();
+        for tx in transactions {
+            // Get owned outputs.
+            let owned_outputs = tx.check_outputs(&self.viewpair, 0..2, 0..2).unwrap();
+
+            for output in &owned_outputs {
+                let subaddress_index = SubIndex::from(output.sub_index());
+
+                // If this payment is being tracked, add the amount and payment ID to the result set.
+                match self.payments_db.contains_key(&subaddress_index) {
+                    Ok(true) => {
+                        let amount = match owned_outputs[0].amount() {
+                            Some(a) => a,
+                            None => {
+                                error!("Failed to unblind transaction amount");
+                                continue;
+                            }
+                        };
+                        *amounts_received.entry(subaddress_index).or_insert(0) += amount;
+                    }
+                    Ok(false) => continue,
+                    Err(e) => {
+                        error!("Failed to determine if database contains subaddress of discovered output: {}", e);
+                    }
                 }
-                // Copy the updated payment parameters to the main one.
-                self.payments.insert(payment.index, payment.clone());
-            }
-            // If the payment is fully confirmed (and at least a block old), mark it as complete.
-            if payment.is_confirmed() && payment.starting_block < block_cache.height {
-                completed.push(payment.index);
-            }
-            // If the payment has expired, mark it as complete.
-            if payment.is_expired() {
-                completed.push(payment.index);
             }
         }
-        // Remove completed/expired transactions.
-        for index in completed {
-            if self.payments.remove(&index).is_none() {
-                warn!("Attempted to remove subaddress index {} from tracked payments, but it didn't exist.", index);
+
+        amounts_received
+            .into_iter()
+            .map(|(subaddress_index, amount)| (subaddress_index, amount))
+            .collect()
+    }
+
+    /// Send updates down their respective channels.
+
+    fn send_updates(&mut self, updated_payments: &[Payment]) {
+        for payment in updated_payments {
+            let confirmations = match payment.paid_at {
+                Some(height) => payment.current_block.saturating_sub(height).to_string(),
+                None => "N/A".to_string(),
+            };
+            trace!(
+                "Payment update for subaddress index {}: \
+                \nPaid: {}/{} \
+                \nConfirmations: {} \
+                \nCurrent block: {} \
+                \nExpiration block: {} \
+                \nPartial Payments: \
+                \n{:#?}",
+                payment.index,
+                monero::Amount::from_pico(payment.paid_amount).as_xmr(),
+                monero::Amount::from_pico(payment.expected_amount).as_xmr(),
+                confirmations,
+                payment.current_block,
+                payment.expiration_block,
+                payment.partial_payments,
+            );
+            match self.channels.get(&payment.index) {
+                Some(tx) => {
+                    if tx.send(payment.clone()).is_err() {
+                        warn!("Receiver disconnected before payment completed. Update can not be sent to payment's receiver.");
+                    }
+                }
+                None => {
+                    warn!("Attempted to send payment update for payment to index {}, but the payment's update channel does not exist", payment.index);
+                    continue;
+                }
             }
-            if self.channels.remove(&index).is_none() {
-                warn!("Attempted to remove subaddress index {} from payment update channels, but it didn't exist.", index);
-            }
-            debug!("No longer tracking subaddress index {}", index);
         }
     }
 }

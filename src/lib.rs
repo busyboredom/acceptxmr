@@ -25,7 +25,6 @@ use scanner::Scanner;
 pub struct PaymentProcessor {
     daemon_url: String,
     viewpair: monero::ViewPair,
-    payments: HashMap<SubIndex, Payment>,
     scan_rate: u64,
     scanner_tx: Option<Sender<Payment>>,
     scanner_rx: Option<Receiver<Receiver<Payment>>>,
@@ -57,9 +56,6 @@ impl PaymentProcessor {
             // The thread needs a tokio runtime to process async functions.
             let tokio_runtime = Runtime::new().unwrap();
             tokio_runtime.block_on(async move {
-                // Initially, there are no payments to track.
-                let payments = HashMap::new();
-
                 // Open (or create) db of pending payments.
                 let pending_payments = PaymentsDb::new();
 
@@ -77,7 +73,6 @@ impl PaymentProcessor {
                     viewpair,
                     payment_rx,
                     channel_tx,
-                    payments,
                     pending_payments,
                     channels,
                     block_cache,
@@ -121,10 +116,6 @@ impl PaymentProcessor {
         block: monero::Block,
     ) -> Result<Vec<monero::Transaction>, Error> {
         util::get_block_transactions(&self.daemon_url, &block).await
-    }
-
-    pub fn scan_transactions(&mut self, transactions: Vec<monero::Transaction>) {
-        util::scan_transactions(&self.viewpair, &self.payments, transactions);
     }
 
     pub async fn get_current_height(&self) -> Result<u64, Error> {
@@ -183,7 +174,6 @@ impl PaymentProcessorBuilder {
         PaymentProcessor {
             daemon_url: self.daemon_url,
             viewpair,
-            payments: HashMap::new(),
             scan_rate,
             scanner_tx: None,
             scanner_rx: None,
