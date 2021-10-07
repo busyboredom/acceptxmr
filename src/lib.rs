@@ -21,7 +21,7 @@ use error::Error;
 use payments_db::PaymentsDb;
 use scanner::Scanner;
 
-pub struct PaymentProcessor {
+pub struct PaymentGateway {
     daemon_url: String,
     viewpair: monero::ViewPair,
     scan_rate: u64,
@@ -29,9 +29,9 @@ pub struct PaymentProcessor {
     scanner_rx: Option<Receiver<Receiver<Payment>>>,
 }
 
-impl PaymentProcessor {
-    pub fn builder() -> PaymentProcessorBuilder {
-        PaymentProcessorBuilder::default()
+impl PaymentGateway {
+    pub fn builder() -> PaymentGatewayBuilder {
+        PaymentGatewayBuilder::default()
     }
 
     pub fn run(&mut self, cache_size: u64, initial_height: u64) {
@@ -93,7 +93,7 @@ impl PaymentProcessor {
 
     pub fn track_payment(&self, payment: Payment) -> Receiver<Payment> {
         if self.scanner_rx.is_none() || self.scanner_tx.is_none() {
-            panic!("Can't communicate with scan thread; did you remember to run this PaymentProcessor?")
+            panic!("Can't communicate with scan thread; did you remember to run this PaymentGateway?")
         }
 
         // Send the payment to the scanning thread.
@@ -127,42 +127,42 @@ impl PaymentProcessor {
 }
 
 #[derive(Default)]
-pub struct PaymentProcessorBuilder {
+pub struct PaymentGatewayBuilder {
     daemon_url: String,
     private_viewkey: Option<monero::PrivateKey>,
     public_spendkey: Option<monero::PublicKey>,
     scan_rate: Option<u64>,
 }
 
-impl PaymentProcessorBuilder {
-    pub fn new() -> PaymentProcessorBuilder {
-        PaymentProcessorBuilder::default()
+impl PaymentGatewayBuilder {
+    pub fn new() -> PaymentGatewayBuilder {
+        PaymentGatewayBuilder::default()
     }
 
-    pub fn daemon_url(mut self, url: &str) -> PaymentProcessorBuilder {
+    pub fn daemon_url(mut self, url: &str) -> PaymentGatewayBuilder {
         reqwest::Url::parse(url).expect("Invalid daemon URL");
         self.daemon_url = url.to_string();
         self
     }
 
-    pub fn private_viewkey(mut self, private_viewkey: &str) -> PaymentProcessorBuilder {
+    pub fn private_viewkey(mut self, private_viewkey: &str) -> PaymentGatewayBuilder {
         self.private_viewkey =
             Some(monero::PrivateKey::from_str(private_viewkey).expect("Invalid private viewkey"));
         self
     }
 
-    pub fn public_spendkey(mut self, public_spendkey: &str) -> PaymentProcessorBuilder {
+    pub fn public_spendkey(mut self, public_spendkey: &str) -> PaymentGatewayBuilder {
         self.public_spendkey =
             Some(monero::PublicKey::from_str(public_spendkey).expect("Invalid public spendkey"));
         self
     }
 
-    pub fn scan_rate(mut self, milliseconds: u64) -> PaymentProcessorBuilder {
+    pub fn scan_rate(mut self, milliseconds: u64) -> PaymentGatewayBuilder {
         self.scan_rate = Some(milliseconds);
         self
     }
 
-    pub fn build(self) -> PaymentProcessor {
+    pub fn build(self) -> PaymentGateway {
         let private_viewkey = self
             .private_viewkey
             .expect("Private viewkey must be defined");
@@ -174,7 +174,7 @@ impl PaymentProcessorBuilder {
             view: private_viewkey,
             spend: public_spendkey,
         };
-        PaymentProcessor {
+        PaymentGateway {
             daemon_url: self.daemon_url,
             viewpair,
             scan_rate,
