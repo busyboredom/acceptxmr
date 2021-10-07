@@ -93,6 +93,7 @@ impl Scanner {
         let mut updated_payments = Vec::new();
 
         // Prepare updated payments.
+        // TODO: Break this out into its own function.
         for payment_or_err in self.payments_db.iter() {
             // Retrieve old payment object.
             let old_payment = match payment_or_err {

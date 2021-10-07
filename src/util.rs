@@ -40,7 +40,7 @@ pub async fn get_block_transactions(
     url: &str,
     block: &monero::Block,
 ) -> Result<Vec<monero::Transaction>, Error> {
-    // Get block transactions in sets of 100 or less (the restriced RPC maximum).
+    // Get block transactions in sets of 100 or less (the restricted RPC maximum).
     // TODO: Get them concurrently.
     let client = reqwest::Client::new();
     let mut transactions = vec![];
@@ -74,7 +74,7 @@ pub async fn get_block_transactions(
                     .as_str()
                     .expect("Failed to read transaction hex from json");
                 let tx_hex =
-                    hex::decode(tx_str).expect("Failed to decode transaction fron hex to bytes");
+                    hex::decode(tx_str).expect("Failed to decode transaction from hex to bytes");
                 let tx = deserialize(&tx_hex).expect("Failed to deserialize transaction");
                 transactions.push(tx);
             }
