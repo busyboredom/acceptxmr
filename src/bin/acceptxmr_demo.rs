@@ -54,10 +54,13 @@ async fn main() -> std::io::Result<()> {
     HttpServer::new(move || {
         App::new()
             .app_data(shared_payment_processor.clone())
-            .service(websocket)
-            .service(actix_files::Files::new("", "./static").index_file("index.html"))
+            .service(
+                web::scope("/{base_path}")
+                    .service(websocket)
+                    .service(actix_files::Files::new("", "./static").index_file("index.html")),
+            )
     })
-    .bind("127.0.0.1:8080")?
+    .bind("0.0.0.0:8084")?
     .run()
     .await
 }

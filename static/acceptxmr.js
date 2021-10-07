@@ -14,7 +14,8 @@ function copyPaymentAddress() {
     },1000);
 } 
 
-let socket = new WebSocket("ws://localhost:8080/ws/");
+var host = window.location.host + window.location.pathname;
+let socket = new WebSocket("wss://" + host + "ws/");
 
 socket.onopen = function(e) {
 };
