@@ -4,11 +4,11 @@ mod payments_db;
 mod scanner;
 mod util;
 
+use std::cmp::Ordering;
 use std::collections::HashMap;
-use std::fmt;
 use std::str::FromStr;
 use std::sync::mpsc::{channel, Receiver, Sender};
-use std::{thread, u64};
+use std::{fmt, thread, u64};
 
 use log::info;
 use monero::cryptonote::subaddress;
@@ -21,7 +21,6 @@ use error::Error;
 use payments_db::PaymentsDb;
 use scanner::Scanner;
 
-//#[derive(Debug, Clone)]
 pub struct PaymentProcessor {
     daemon_url: String,
     viewpair: monero::ViewPair,
@@ -52,40 +51,44 @@ impl PaymentProcessor {
 
         // Spawn the scanning thread.
         info!("Starting blockchain scanner now.");
-        thread::spawn(move || {
-            // The thread needs a tokio runtime to process async functions.
-            let tokio_runtime = Runtime::new().unwrap();
-            tokio_runtime.block_on(async move {
-                // Open (or create) db of pending payments.
-                let pending_payments = PaymentsDb::new();
+        thread::Builder::new()
+            .name("Scanning Thread".to_string())
+            .spawn(move || {
+                // The thread needs a tokio runtime to process async functions.
+                let tokio_runtime = Runtime::new().unwrap();
+                tokio_runtime.block_on(async move {
+                    // Open (or create) db of pending payments.
+                    let pending_payments = PaymentsDb::new();
 
-                // For each payment, we need a channel to send updates back to the initiating thread.
-                let channels = HashMap::new();
+                    // For each payment, we need a channel to send updates back to the initiating thread.
+                    let channels = HashMap::new();
 
-                // Keep a cache of blocks.
-                let block_cache = BlockCache::init(&url, cache_size, initial_height)
-                    .await
-                    .unwrap();
+                    // Keep a cache of blocks.
+                    let block_cache = BlockCache::init(&url, cache_size, initial_height)
+                        .await
+                        .unwrap();
 
-                // Create scanner.
-                let mut scanner = Scanner::new(
-                    url,
-                    viewpair,
-                    payment_rx,
-                    channel_tx,
-                    pending_payments,
-                    channels,
-                    block_cache,
-                );
+                    // Create scanner.
+                    let mut scanner = Scanner::new(
+                        url,
+                        viewpair,
+                        payment_rx,
+                        channel_tx,
+                        pending_payments,
+                        channels,
+                        block_cache,
+                    );
 
-                // Scan for transactions once every scan_rate.
-                let mut blockscan_interval = time::interval(time::Duration::from_millis(scan_rate));
-                loop {
-                    join!(blockscan_interval.tick(), scanner.scan());
-                    scanner.track_new_payments();
-                }
+                    // Scan for transactions once every scan_rate.
+                    let mut blockscan_interval =
+                        time::interval(time::Duration::from_millis(scan_rate));
+                    loop {
+                        join!(blockscan_interval.tick(), scanner.scan());
+                        scanner.track_new_payments();
+                    }
+                })
             })
-        });
+            .expect("Error spawning scanning thread.");
     }
 
     pub fn track_payment(&self, payment: Payment) -> Receiver<Payment> {
@@ -192,8 +195,7 @@ pub struct Payment {
     pub confirmations_required: u64,
     pub current_block: u64,
     pub expiration_block: u64,
-    // Partial payments take the form (block height, amount).
-    pub partial_payments: Vec<(u64, u64)>,
+    pub owned_outputs: Vec<OwnedOutput>,
 }
 
 impl Payment {
@@ -215,7 +217,7 @@ impl Payment {
             confirmations_required: confirmations,
             current_block: 0,
             expiration_block,
-            partial_payments: Vec::new(),
+            owned_outputs: Vec::new(),
         }
     }
 
@@ -267,6 +269,45 @@ impl From<SubIndex> for subaddress::Index {
         subaddress::Index {
             major: index.major,
             minor: index.minor,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Copy)]
+pub struct OwnedOutput {
+    amount: u64,
+    height: Option<u64>,
+}
+
+impl OwnedOutput {
+    pub fn new(amount: u64, height: Option<u64>) -> OwnedOutput {
+        OwnedOutput { amount, height }
+    }
+
+    pub fn newer_than(&self, other_height: u64) -> bool {
+        match self.height {
+            Some(h) => h > other_height,
+            None => true,
+        }
+    }
+
+    pub fn older_than(&self, other_height: u64) -> bool {
+        match self.height {
+            Some(h) => h < other_height,
+            None => false,
+        }
+    }
+
+    fn cmp_by_age(&self, other: &Self) -> Ordering {
+        match self.height {
+            Some(height) => match other.height {
+                Some(other_height) => height.cmp(&other_height),
+                None => Ordering::Less,
+            },
+            None => match other.height {
+                Some(_) => Ordering::Greater,
+                None => Ordering::Equal,
+            },
         }
     }
 }

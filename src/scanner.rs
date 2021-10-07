@@ -7,7 +7,7 @@ use log::{debug, error, trace, warn};
 use tokio::join;
 
 use crate::util::get_txpool;
-use crate::{BlockCache, Payment, PaymentsDb, SubIndex};
+use crate::{BlockCache, OwnedOutput, Payment, PaymentsDb, SubIndex};
 
 pub struct Scanner {
     url: String,
@@ -49,7 +49,13 @@ impl Scanner {
         // Check for new payments to track.
         for payment in self.payment_rx.try_iter() {
             // Add payment to the db for tracking.
-            self.payments_db.insert(&payment).unwrap();
+            if let Err(e) = self.payments_db.insert(&payment) {
+                error!(
+                    "Failed to insert new payment for index {} into database for tracking: {}",
+                    payment.index, e
+                );
+                continue;
+            }
 
             // Set up communication for sending updates on this payment.
             let (update_tx, update_rx) = channel();
@@ -63,25 +69,30 @@ impl Scanner {
     /// Scan for payment updates and send them down their respective channels.
     pub async fn scan(&mut self) {
         // Update block cache, and scan both it and the txpool.
-        let (mut blocks_amounts, mut txpool_amounts) =
-            join!(self.scan_blocks(), self.scan_txpool());
+        let (blocks_amounts, txpool_amounts) = join!(self.scan_blocks(), self.scan_txpool());
+        let height = self.block_cache.lock().unwrap().height;
+
+        // Combine owned outputs into one big vec.
+        let mut owned_outputs: Vec<(SubIndex, OwnedOutput)> = blocks_amounts
+            .into_iter()
+            .chain(txpool_amounts.into_iter())
+            .collect();
 
         if self.first_scan {
             self.first_scan = false;
         }
 
-        let height = self.block_cache.lock().unwrap().height;
-        let deepest_update = blocks_amounts
+        let deepest_update = owned_outputs
             .iter()
-            .chain(txpool_amounts.iter())
-            .min_by(|(_, _, height_1), (_, _, height_2)| height_1.cmp(height_2))
-            .map_or(height + 1, |(_, _, h)| *h);
+            .min_by(|(_, output_1), (_, output_2)| output_1.cmp_by_age(output_2))
+            .map_or(height + 1, |(_, output)| {
+                output.height.unwrap_or(height + 1)
+            });
 
         // A place to keep track of what payments are changing, so we can send updates later.
         let mut updated_payments = Vec::new();
 
         // Prepare updated payments.
-        // TODO: Don't add a partial payments from before the payment was created.
         for payment_or_err in self.payments_db.iter() {
             // Retrieve old payment object.
             let old_payment = match payment_or_err {
@@ -95,29 +106,17 @@ impl Scanner {
             };
             let mut payment = old_payment.clone();
 
-            // Remove partial payments occurring later than the deepest block update.
-            trace!("Deepest Update: {}", deepest_update);
+            // Remove owned outputs occurring later than the deepest block update.
             payment
-                .partial_payments
-                .retain(|(height, _)| height < &deepest_update);
+                .owned_outputs
+                .retain(|output| output.older_than(deepest_update));
 
-            // Add partial payments from blocks.
-            for i in 0..blocks_amounts.len() {
-                if blocks_amounts[i].0 == payment.index {
-                    let (_, partial_amount, partial_height) = blocks_amounts.remove(i);
-                    payment
-                        .partial_payments
-                        .push((partial_height, partial_amount));
-                }
-            }
-
-            // Add partial payments from txpool.
-            for i in 0..txpool_amounts.len() {
-                if txpool_amounts[i].0 == payment.index {
-                    let (_, partial_amount, partial_height) = txpool_amounts.remove(i);
-                    payment
-                        .partial_payments
-                        .push((partial_height, partial_amount));
+            // Add owned outputs from blocks and txpool.
+            for i in 0..owned_outputs.len() {
+                let (sub_index, owned_output) = owned_outputs[i];
+                if sub_index == payment.index && owned_output.newer_than(payment.starting_block) {
+                    owned_outputs.remove(i);
+                    payment.owned_outputs.push(owned_output);
                 }
             }
 
@@ -131,11 +130,11 @@ impl Scanner {
                 // Zero it out first.
                 payment.paid_at = None;
                 payment.paid_amount = 0;
-                // Now add up the partial payments.
-                for (partial_height, partial_amount) in &payment.partial_payments {
-                    payment.paid_amount += partial_amount;
+                // Now add up the owned outputs.
+                for owned_output in &payment.owned_outputs {
+                    payment.paid_amount += owned_output.amount;
                     if payment.paid_amount >= payment.expected_amount && payment.paid_at.is_none() {
-                        payment.paid_at = Some(*partial_height);
+                        payment.paid_at = owned_output.height;
                     }
                 }
 
@@ -171,7 +170,7 @@ impl Scanner {
     /// Update block cache and scan the blocks.
     ///
     /// Returns a vector of tuples of the form (subaddress index, amount, height)
-    async fn scan_blocks(&self) -> Vec<(SubIndex, u64, u64)> {
+    async fn scan_blocks(&self) -> Vec<(SubIndex, OwnedOutput)> {
         let mut block_cache = self.block_cache.lock().unwrap();
 
         // Update block cache.
@@ -188,7 +187,7 @@ impl Scanner {
             blocks_updated = block_cache.blocks.len().try_into().unwrap();
         }
 
-        let mut partial_payments = Vec::new();
+        let mut owned_outputs = Vec::new();
 
         // Scan updated blocks.
         for i in (0..blocks_updated.try_into().unwrap()).rev() {
@@ -204,21 +203,21 @@ impl Scanner {
             let height: u64 = block_cache.height - i as u64;
 
             // Add what was found into the list.
-            partial_payments.extend::<Vec<(SubIndex, u64, u64)>>(
+            owned_outputs.extend::<Vec<(SubIndex, OwnedOutput)>>(
                 amounts_received
                     .into_iter()
-                    .map(|(subaddress_index, amount)| (subaddress_index, amount, height))
+                    .map(|(sub_index, amount)| (sub_index, OwnedOutput::new(amount, Some(height))))
                     .collect(),
             )
         }
 
-        partial_payments
+        owned_outputs
     }
 
     /// Retrieve and scan transaction pool.
     ///
-    /// Returns a vector of tuples of the form (subaddress index, amount, height)
-    async fn scan_txpool(&self) -> Vec<(SubIndex, u64, u64)> {
+    /// Returns a vector of tuples of the form (subaddress index, amount)
+    async fn scan_txpool(&self) -> Vec<(SubIndex, OwnedOutput)> {
         // Retrieve txpool.
         // TODO: Retrieve hashes, and then only retrieve transactions we don't already have.
         let txpool = match get_txpool(&self.url).await {
@@ -237,16 +236,9 @@ impl Scanner {
             amounts_received.len()
         );
 
-        // Add current block_cache height to each entry.
         amounts_received
-            .into_iter()
-            .map(|(subaddress_index, amount)| {
-                (
-                    subaddress_index,
-                    amount,
-                    self.block_cache.lock().unwrap().height,
-                )
-            })
+            .iter()
+            .map(|(sub_index, amount)| (*sub_index, OwnedOutput::new(*amount, None)))
             .collect()
     }
 
@@ -260,10 +252,10 @@ impl Scanner {
             let owned_outputs = tx.check_outputs(&self.viewpair, 0..2, 0..2).unwrap();
 
             for output in &owned_outputs {
-                let subaddress_index = SubIndex::from(output.sub_index());
+                let sub_index = SubIndex::from(output.sub_index());
 
                 // If this payment is being tracked, add the amount and payment ID to the result set.
-                match self.payments_db.contains_key(&subaddress_index) {
+                match self.payments_db.contains_key(&sub_index) {
                     Ok(true) => {
                         let amount = match owned_outputs[0].amount() {
                             Some(a) => a,
@@ -272,7 +264,7 @@ impl Scanner {
                                 continue;
                             }
                         };
-                        *amounts_received.entry(subaddress_index).or_insert(0) += amount;
+                        *amounts_received.entry(sub_index).or_insert(0) += amount;
                     }
                     Ok(false) => continue,
                     Err(e) => {
@@ -282,10 +274,7 @@ impl Scanner {
             }
         }
 
-        amounts_received
-            .into_iter()
-            .map(|(subaddress_index, amount)| (subaddress_index, amount))
-            .collect()
+        amounts_received.into_iter().collect()
     }
 
     /// Send updates down their respective channels.
@@ -293,24 +282,26 @@ impl Scanner {
     fn send_updates(&mut self, updated_payments: &[Payment]) {
         for payment in updated_payments {
             let confirmations = match payment.paid_at {
-                Some(height) => payment.current_block.saturating_sub(height).to_string(),
+                Some(height) => payment.current_block.saturating_sub(height - 1).to_string(),
                 None => "N/A".to_string(),
             };
             trace!(
                 "Payment update for subaddress index {}: \
                 \nPaid: {}/{} \
                 \nConfirmations: {} \
+                \nStarting block: {} \
                 \nCurrent block: {} \
                 \nExpiration block: {} \
-                \nPartial Payments: \
+                \nOwned outputs: \
                 \n{:#?}",
                 payment.index,
                 monero::Amount::from_pico(payment.paid_amount).as_xmr(),
                 monero::Amount::from_pico(payment.expected_amount).as_xmr(),
                 confirmations,
+                payment.starting_block,
                 payment.current_block,
                 payment.expiration_block,
-                payment.partial_payments,
+                payment.owned_outputs,
             );
             match self.channels.get(&payment.index) {
                 Some(tx) => {

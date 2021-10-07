@@ -39,16 +39,9 @@ impl PaymentsDb {
         }
     }
 
-    pub fn get(
-        &self,
-        subaddress_index: &SubIndex,
-    ) -> Result<Option<Payment>, PaymentStorageErrorKind> {
+    pub fn get(&self, sub_index: &SubIndex) -> Result<Option<Payment>, PaymentStorageErrorKind> {
         // Prepare key (subaddress index).
-        let key = [
-            subaddress_index.major.to_be_bytes(),
-            subaddress_index.minor.to_be_bytes(),
-        ]
-        .concat();
+        let key = [sub_index.major.to_be_bytes(), sub_index.minor.to_be_bytes()].concat();
 
         let maybe_payment_ivec = self.0.get(&key)?;
         match maybe_payment_ivec {
@@ -72,16 +65,9 @@ impl PaymentsDb {
             .flatten()
     }
 
-    pub fn contains_key(
-        &self,
-        subaddress_index: &SubIndex,
-    ) -> Result<bool, PaymentStorageErrorKind> {
+    pub fn contains_key(&self, sub_index: &SubIndex) -> Result<bool, PaymentStorageErrorKind> {
         // Prepare key (subaddress index).
-        let key = [
-            subaddress_index.major.to_be_bytes(),
-            subaddress_index.minor.to_be_bytes(),
-        ]
-        .concat();
+        let key = [sub_index.major.to_be_bytes(), sub_index.minor.to_be_bytes()].concat();
 
         self.0
             .contains_key(key)
