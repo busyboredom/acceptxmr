@@ -1,24 +1,24 @@
-use std::fmt;
+use std::{cmp::Ordering, fmt};
 
-use crate::{Payment, SubIndex};
+use crate::{Payment, SubIndex, Subscriber};
 
 /// Database containing pending payments.
-pub struct PaymentsDb(sled::Db);
+pub struct PaymentsDb(sled::Tree);
 
 impl PaymentsDb {
-    pub fn new() -> PaymentsDb {
+    pub fn new(path: &str) -> Result<PaymentsDb, PaymentStorageErrorKind> {
         let db = sled::Config::default()
-            .path("PaymentsDb")
+            .path(path)
             .flush_every_ms(None)
-            .open()
-            .unwrap();
-        PaymentsDb(db)
+            .open()?;
+        let tree = db.open_tree(b"pending payments")?;
+        Ok(PaymentsDb(tree))
     }
 
     pub fn insert(
         &mut self,
         payment: &Payment,
-    ) -> Result<Option<Payment>, Box<dyn std::error::Error>> {
+    ) -> Result<Option<Payment>, PaymentStorageErrorKind> {
         // Prepare key (subaddress index).
         let key = [
             payment.index.major.to_be_bytes(),
@@ -82,10 +82,43 @@ impl PaymentsDb {
         Ok(self.0.apply_batch(batch.0)?)
     }
 
+    pub fn watch_payment(&self, sub_index: SubIndex) -> Subscriber {
+        let prefix = [sub_index.major.to_be_bytes(), sub_index.minor.to_be_bytes()].concat();
+        let sled_subscriber = self.0.watch_prefix(prefix);
+        Subscriber::new(sled_subscriber)
+    }
+
     pub fn flush(&self) {
         self.0
             .flush()
-            .expect("Failed to flush payment updates to payments database");
+            .expect("failed to flush payment updates to payments database");
+    }
+
+    pub fn clone(&self) -> PaymentsDb {
+        PaymentsDb(self.0.clone())
+    }
+
+    /// Recover lowest height. This performs a full O(n) scan of the database. Returns None if the
+    /// database is empty.
+    pub fn get_lowest_height(&self) -> Result<Option<u64>, PaymentStorageErrorKind> {
+        self.iter()
+            .min_by(|payment_1, payment_2| {
+                // If there is an error, we want it returned.
+                if payment_1.is_err() {
+                    Ordering::Greater
+                } else if payment_2.is_err() {
+                    Ordering::Less
+                } else {
+                    // Otherwise, return the one with the lower height.
+                    payment_1
+                        .as_ref()
+                        .unwrap()
+                        .current_block
+                        .cmp(&payment_2.as_ref().unwrap().current_block)
+                }
+            })
+            .transpose()
+            .map(|maybe_payment| maybe_payment.map(|payment| payment.current_block))
     }
 }
 
@@ -135,10 +168,10 @@ impl fmt::Display for PaymentStorageErrorKind {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             PaymentStorageErrorKind::DatabaseError(sled_error) => {
-                write!(f, "Database error: {}", sled_error)
+                write!(f, "database error: {}", sled_error)
             }
             PaymentStorageErrorKind::SerializationError(bincode_error) => {
-                write!(f, "(De)serialization error: {}", bincode_error)
+                write!(f, "(de)serialization error: {}", bincode_error)
             }
         }
     }

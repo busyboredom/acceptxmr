@@ -1,21 +1,18 @@
 use std::collections::HashMap;
 use std::convert::TryInto;
-use std::sync::mpsc::{channel, Receiver, Sender};
-use std::sync::Mutex;
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{Arc, Mutex};
 
-use log::{debug, error, trace, warn};
+use log::{error, info, trace};
 use tokio::join;
 
-use crate::util::get_txpool;
+use crate::util;
 use crate::{BlockCache, OwnedOutput, Payment, PaymentsDb, SubIndex};
 
 pub struct Scanner {
     url: String,
     viewpair: monero::ViewPair,
-    payment_rx: Receiver<Payment>,
-    channel_tx: Sender<Receiver<Payment>>,
     payments_db: PaymentsDb,
-    channels: HashMap<SubIndex, Sender<Payment>>,
     // Block cache is mutexed to allow concurrent block & txpool scanning.
     // This is necessary even though txpool scanning doesn't use the block cache,
     // because rust doesn't allow mutably borrowing only part of "self".
@@ -24,53 +21,58 @@ pub struct Scanner {
 }
 
 impl Scanner {
-    pub fn new(
+    pub async fn new(
         url: String,
         viewpair: monero::ViewPair,
-        payment_rx: Receiver<Payment>,
-        channel_tx: Sender<Receiver<Payment>>,
         payments_db: PaymentsDb,
-        channels: HashMap<SubIndex, Sender<Payment>>,
-        block_cache: BlockCache,
+        block_cache_size: u64,
+        atomic_height: Arc<AtomicU64>,
     ) -> Scanner {
+        // Determine sensible initial height for block cache.
+        let height = match payments_db.get_lowest_height() {
+            Ok(Some(h)) => {
+                info!("Pending payments found in AcceptXMR database. Resuming from last block scanned: {}", h);
+                h
+            }
+            Ok(None) => {
+                let h = Scanner::get_daemon_height(&url).await;
+                info!("No pending payments found in AcceptXMR database. Skipping to blockchain tip: {}", h);
+                h
+            }
+            Err(e) => {
+                panic!("failed to determine suitable initial height for block cache from pending payments database: {}", e);
+            }
+        };
+
+        // Set atomic height to the above determined initial height. This sets the height of the
+        // main PaymentGateway as well.
+        atomic_height.store(height, Ordering::Relaxed);
+
+        // Initialize block cache.
+        let block_cache = BlockCache::init(&url, block_cache_size, atomic_height)
+            .await
+            .unwrap();
+
         Scanner {
             url,
             viewpair,
-            payment_rx,
-            channel_tx,
             payments_db,
-            channels,
             block_cache: Mutex::new(block_cache),
             first_scan: true,
         }
     }
 
-    pub fn track_new_payments(&mut self) {
-        // Check for new payments to track.
-        for payment in self.payment_rx.try_iter() {
-            // Add payment to the db for tracking.
-            if let Err(e) = self.payments_db.insert(&payment) {
-                error!(
-                    "Failed to insert new payment for index {} into database for tracking: {}",
-                    payment.index, e
-                );
-                continue;
-            }
-
-            // Set up communication for sending updates on this payment.
-            let (update_tx, update_rx) = channel();
-            self.channels.insert(payment.index, update_tx);
-            self.channel_tx.send(update_rx).unwrap();
-
-            debug!("Now tracking subaddress index {}", payment.index);
-        }
-    }
-
-    /// Scan for payment updates and send them down their respective channels.
+    /// Scan for payment updates.
     pub async fn scan(&mut self) {
         // Update block cache, and scan both it and the txpool.
         let (blocks_amounts, txpool_amounts) = join!(self.scan_blocks(), self.scan_txpool());
-        let height = self.block_cache.lock().unwrap().height;
+        let height = self
+            .block_cache
+            .lock()
+            // TODO: Handle this properly.
+            .unwrap()
+            .height
+            .load(Ordering::Relaxed);
 
         // Combine owned outputs into one big vec.
         let mut owned_outputs: Vec<(SubIndex, OwnedOutput)> = blocks_amounts
@@ -145,10 +147,11 @@ impl Scanner {
             }
         }
 
-        // Send updates.
-        self.send_updates(&updated_payments);
+        // log updates.
+        self.log_updates(&updated_payments);
 
         // Save updates.
+        // TODO: Compare and swap instead of batch insert. Only insert if payment already exists.
         let mut batch = PaymentsDb::new_batch();
         for payment in &updated_payments {
             if let Err(e) = batch.insert(payment) {
@@ -195,13 +198,13 @@ impl Scanner {
             let transactions = &block_cache.blocks[i].3;
             let amounts_received = self.scan_transactions(transactions.to_vec());
             trace!(
-                "Scanned {} transactions from block {}, and found {} tracked payments.",
+                "Scanned {} transactions from block {}, and found {} tracked payments",
                 transactions.len(),
                 block_cache.blocks[i].1,
                 amounts_received.len()
             );
 
-            let height: u64 = block_cache.height - i as u64;
+            let height: u64 = block_cache.height.load(Ordering::Relaxed) - i as u64;
 
             // Add what was found into the list.
             owned_outputs.extend::<Vec<(SubIndex, OwnedOutput)>>(
@@ -221,18 +224,18 @@ impl Scanner {
     async fn scan_txpool(&self) -> Vec<(SubIndex, OwnedOutput)> {
         // Retrieve txpool.
         // TODO: Retrieve hashes, and then only retrieve transactions we don't already have.
-        let txpool = match get_txpool(&self.url).await {
+        let txpool = match util::get_txpool(&self.url).await {
             Ok(pool) => pool,
             Err(e) => {
                 error!("Failed to get transaction pool: {}", e);
-                Vec::new()
+                return Vec::new();
             }
         };
 
         // Scan txpool.
         let amounts_received = self.scan_transactions(txpool.to_vec());
         trace!(
-            "Scanned {} transactions from txpool, and found {} tracked payments.",
+            "Scanned {} transactions from txpool, and found {} tracked payments",
             txpool.len(),
             amounts_received.len()
         );
@@ -243,10 +246,7 @@ impl Scanner {
             .collect()
     }
 
-    pub fn scan_transactions(
-        &self,
-        transactions: Vec<monero::Transaction>,
-    ) -> Vec<(SubIndex, u64)> {
+    fn scan_transactions(&self, transactions: Vec<monero::Transaction>) -> Vec<(SubIndex, u64)> {
         let mut amounts_received = HashMap::new();
         for tx in transactions {
             // Get owned outputs.
@@ -278,9 +278,8 @@ impl Scanner {
         amounts_received.into_iter().collect()
     }
 
-    /// Send updates down their respective channels.
-
-    fn send_updates(&mut self, updated_payments: &[Payment]) {
+    /// Log updates
+    fn log_updates(&mut self, updated_payments: &[Payment]) {
         for payment in updated_payments {
             let confirmations = match payment.paid_at {
                 Some(height) => payment.current_block.saturating_sub(height - 1).to_string(),
@@ -304,17 +303,11 @@ impl Scanner {
                 payment.expiration_block,
                 payment.owned_outputs,
             );
-            match self.channels.get(&payment.index) {
-                Some(tx) => {
-                    if tx.send(payment.clone()).is_err() {
-                        warn!("Receiver disconnected before payment completed. Update can not be sent to payment's receiver.");
-                    }
-                }
-                None => {
-                    warn!("Attempted to send payment update for payment to index {}, but the payment's update channel does not exist", payment.index);
-                    continue;
-                }
-            }
         }
+    }
+
+    /// TODO: Retry on failure instead of panic.
+    async fn get_daemon_height(url: &str) -> u64 {
+        util::get_daemon_height(url).await.unwrap()
     }
 }

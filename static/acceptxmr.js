@@ -1,13 +1,13 @@
 const BLOCK_TIME = 2;
 
 function copyPaymentAddress() {
-    /* Get the text field */
+    // Get the text field
     var copyText = document.getElementById("acceptxmr-address");
 
-    /* Copy the text inside the text field */
+    // Copy the text inside the text field
     navigator.clipboard.writeText(copyText.innerHTML);
 
-    /* Provide feedback */
+    // Provide feedback
     document.getElementById("acceptxmr-address-copy-btn").innerHTML = "Copied!";
     setTimeout(function(){
         document.getElementById("acceptxmr-address-copy-btn").innerHTML = "Copy";  
@@ -15,7 +15,7 @@ function copyPaymentAddress() {
 } 
 
 var host = window.location.host + window.location.pathname;
-let socket = new WebSocket("wss://" + host + "ws/");
+let socket = new WebSocket("ws://" + host + "ws/");
 
 socket.onopen = function(e) {
 };
@@ -45,7 +45,7 @@ socket.onmessage = function(event) {
     if (confirmations >= confirmationsRequired) {
         instructionString = "Paid! Thank you"
         socket.close();
-    } else if (message.paid_at != null) {
+    } else if (message.paid_amount > message.expected_amount) {
         instructionString = "Paid! Waiting for Confirmation..."
     } else if (expirationBlocks > 2) {
         instructionString = "Send Monero to Address Below"

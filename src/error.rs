@@ -25,7 +25,7 @@ impl fmt::Display for Error {
         match self {
             Error::RpcError(reqwest_error) => write!(f, "RPC request error: {}", reqwest_error),
             Error::PaymentStorageError(payment_storage_error) => {
-                write!(f, "Payment storage error: {}", payment_storage_error)
+                write!(f, "payment storage error: {}", payment_storage_error)
             }
         }
     }

@@ -1,6 +1,5 @@
 use std::env;
 use std::path::Path;
-use std::sync::mpsc::{Receiver, TryRecvError};
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
@@ -9,9 +8,9 @@ use actix_web::web::Data;
 use actix_web::{get, web, App, HttpRequest, HttpResponse, HttpServer};
 use actix_web_actors::ws;
 use bytestring::ByteString;
-use log::{debug, trace, warn};
+use log::{debug, error, trace, warn};
 
-use acceptxmr::{Payment, PaymentGateway, PaymentGatewayBuilder};
+use acceptxmr::{PaymentGateway, PaymentGatewayBuilder, Subscriber};
 
 /// How often heartbeat pings are sent
 const HEARTBEAT_INTERVAL: Duration = Duration::from_secs(4);
@@ -46,21 +45,17 @@ async fn main() -> std::io::Result<()> {
         .scan_rate(1000)
         .build();
 
-    let current_height = payment_gateway.get_current_height().await.unwrap();
-    payment_gateway.run(10, current_height - 10);
+    payment_gateway.run(10);
 
     let shared_payment_gateway = Data::new(Mutex::new(payment_gateway));
 
     HttpServer::new(move || {
         App::new()
             .app_data(shared_payment_gateway.clone())
-            .service(
-                web::scope("/{base_path}")
-                    .service(websocket)
-                    .service(actix_files::Files::new("", "./static").index_file("index.html")),
-            )
+            .service(websocket)
+            .service(actix_files::Files::new("", "./static").index_file("index.html"))
     })
-    .bind("0.0.0.0:8084")?
+    .bind("0.0.0.0:8080")?
     .run()
     .await
 }
@@ -68,14 +63,14 @@ async fn main() -> std::io::Result<()> {
 /// Define HTTP actor
 struct WebSocket {
     heartbeat: Instant,
-    update_rx: Receiver<Payment>,
+    payment_subscriber: Subscriber,
 }
 
 impl WebSocket {
-    fn new(update_rx: Receiver<Payment>) -> Self {
+    fn new(payment_subscriber: Subscriber) -> Self {
         Self {
             heartbeat: Instant::now(),
-            update_rx,
+            payment_subscriber,
         }
     }
 
@@ -102,9 +97,9 @@ impl WebSocket {
 
     fn check_update(&self, ctx: &mut <Self as Actor>::Context) {
         ctx.run_interval(UPDATE_INTERVAL, |act, ctx| {
-            match act.update_rx.try_recv() {
+            match act.payment_subscriber.next() {
                 // Send an update of we got one.
-                Ok(payment_update) => {
+                Some(Ok(payment_update)) => {
                     // Serialize the payment object.
                     let mut payment_json = serde_json::to_value(&payment_update)
                         .expect("Failed to serialize payment update.");
@@ -138,15 +133,11 @@ impl WebSocket {
                     }
                 }
                 // Otherwise, handle the error.
-                Err(e) => match e {
-                    // Do nothing.
-                    TryRecvError::Empty => {}
-                    // Give up, something went wrong.
-                    _ => {
-                        warn!("Websocket failed to receive payment update, disconnecting!");
-                        ctx.stop();
-                    }
-                },
+                Some(Err(e)) => {
+                    error!("Failed to receive payment update: {}", e);
+                }
+                // Or do nothing if nothing was received.
+                None => {}
             }
         });
     }
@@ -178,6 +169,10 @@ impl StreamHandler<Result<ws::Message, ws::ProtocolError>> for WebSocket {
             Ok(ws::Message::Text(text)) => debug!("Received from websocket: {}", text),
             Ok(ws::Message::Binary(bin)) => debug!("Received from websocket: {:?}", bin),
             Ok(ws::Message::Close(reason)) => {
+                match &reason {
+                    Some(r) => debug!("Websocket client closing: {:#?}", r.description),
+                    None => debug!("Websocket client closing"),
+                }
                 ctx.close(reason);
                 ctx.stop();
             }
@@ -194,14 +189,8 @@ async fn websocket(
     payment_gateway: web::Data<Mutex<PaymentGateway>>,
 ) -> Result<HttpResponse, actix_web::Error> {
     // TODO: Use cookies to determine if a purchase is already pending, and avoid creating a new one.
-    let payment_gateway = payment_gateway.lock().unwrap();
-    let (address, subindex) = payment_gateway.new_subaddress();
-    let current_block = payment_gateway
-        .get_current_height()
-        .await
-        .expect("Failed to get current height");
-    let payment = Payment::new(&address, subindex, current_block, 1, 2, current_block + 3);
-    let receiver = payment_gateway.track_payment(payment);
+    let mut payment_gateway = payment_gateway.lock().unwrap();
+    let subscriber = payment_gateway.new_payment(0.000001, 2, 3).unwrap();
 
-    ws::start(WebSocket::new(receiver), &req, stream)
+    ws::start(WebSocket::new(subscriber), &req, stream)
 }

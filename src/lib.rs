@@ -2,15 +2,15 @@ mod block_cache;
 mod error;
 mod payments_db;
 mod scanner;
+mod subscriber;
 mod util;
 
-use std::cmp::Ordering;
-use std::collections::HashMap;
+use std::cmp;
 use std::str::FromStr;
-use std::sync::mpsc::{channel, Receiver, Sender};
+use std::sync::{atomic, Arc};
 use std::{fmt, thread, u64};
 
-use log::info;
+use log::{debug, info};
 use monero::cryptonote::subaddress;
 use serde::{Deserialize, Serialize};
 use tokio::runtime::Runtime;
@@ -20,13 +20,14 @@ use block_cache::BlockCache;
 use error::Error;
 use payments_db::PaymentsDb;
 use scanner::Scanner;
+pub use subscriber::Subscriber;
 
 pub struct PaymentGateway {
     daemon_url: String,
     viewpair: monero::ViewPair,
     scan_rate: u64,
-    scanner_tx: Option<Sender<Payment>>,
-    scanner_rx: Option<Receiver<Receiver<Payment>>>,
+    payments_db: PaymentsDb,
+    height: Arc<atomic::AtomicU64>,
 }
 
 impl PaymentGateway {
@@ -34,7 +35,7 @@ impl PaymentGateway {
         PaymentGatewayBuilder::default()
     }
 
-    pub fn run(&mut self, cache_size: u64, initial_height: u64) {
+    pub fn run(&mut self, cache_size: u64) {
         // Gather info needed by the scanner.
         let url = self.daemon_url.to_owned();
         let viewpair = monero::ViewPair {
@@ -42,87 +43,76 @@ impl PaymentGateway {
             spend: self.viewpair.spend,
         };
         let scan_rate = self.scan_rate;
-
-        // Set up communication with the scanner.
-        let (payment_tx, payment_rx) = channel();
-        let (channel_tx, channel_rx) = channel();
-        self.scanner_tx = Some(payment_tx);
-        self.scanner_rx = Some(channel_rx);
+        let atomic_height = self.height.clone();
+        let pending_payments = self.payments_db.clone();
 
         // Spawn the scanning thread.
-        info!("Starting blockchain scanner now.");
+        info!("Starting blockchain scanner now");
         thread::Builder::new()
             .name("Scanning Thread".to_string())
             .spawn(move || {
                 // The thread needs a tokio runtime to process async functions.
                 let tokio_runtime = Runtime::new().unwrap();
                 tokio_runtime.block_on(async move {
-                    // Open (or create) db of pending payments.
-                    let pending_payments = PaymentsDb::new();
-
-                    // For each payment, we need a channel to send updates back to the initiating thread.
-                    let channels = HashMap::new();
-
-                    // Keep a cache of blocks.
-                    let block_cache = BlockCache::init(&url, cache_size, initial_height)
-                        .await
-                        .unwrap();
-
                     // Create scanner.
-                    let mut scanner = Scanner::new(
-                        url,
-                        viewpair,
-                        payment_rx,
-                        channel_tx,
-                        pending_payments,
-                        channels,
-                        block_cache,
-                    );
+                    let mut scanner =
+                        Scanner::new(url, viewpair, pending_payments, cache_size, atomic_height)
+                            .await;
 
                     // Scan for transactions once every scan_rate.
                     let mut blockscan_interval =
                         time::interval(time::Duration::from_millis(scan_rate));
                     loop {
                         join!(blockscan_interval.tick(), scanner.scan());
-                        scanner.track_new_payments();
                     }
                 })
             })
-            .expect("Error spawning scanning thread.");
+            .expect("Error spawning scanning thread");
     }
 
-    pub fn track_payment(&self, payment: Payment) -> Receiver<Payment> {
-        if self.scanner_rx.is_none() || self.scanner_tx.is_none() {
-            panic!("Can't communicate with scan thread; did you remember to run this PaymentGateway?")
-        }
+    /// Panics if xmr is more than u64::MAX.
+    pub fn new_payment(
+        &mut self,
+        xmr: f64,
+        confirmations_required: u64,
+        expiration_in: u64,
+    ) -> Result<Subscriber, Error> {
+        // Convert xmr to picos.
+        let amount = monero::Amount::from_xmr(xmr)
+            .expect("amount due must be less than u64::MAX")
+            .as_pico();
 
-        // Send the payment to the scanning thread.
-        self.scanner_tx.as_ref().unwrap().send(payment).unwrap();
+        // Get subaddress in base58, and subaddress index.
+        let sub_index = SubIndex::new(0, 1);
+        let subaddress = format!(
+            "{}",
+            subaddress::get_subaddress(&self.viewpair, sub_index.into(), None)
+        );
 
-        // Return a reciever so the caller can get updates on payment status.
-        self.scanner_rx.as_ref().unwrap().recv().unwrap()
+        // Create payment object.
+        let payment = Payment::new(
+            &subaddress,
+            sub_index,
+            self.height.load(atomic::Ordering::Relaxed),
+            amount,
+            confirmations_required,
+            expiration_in,
+        );
+
+        // Insert payment into database for tracking.
+        self.payments_db.insert(&payment)?;
+        debug!("Now tracking payment to subaddress index {}", payment.index);
+
+        // Return a subscriber so the caller can get updates on payment status.
+        Ok(self.watch_payment(sub_index))
     }
 
-    pub fn new_subaddress(&self) -> (String, SubIndex) {
-        let subindex = SubIndex::new(0, 1);
-        let subaddress = subaddress::get_subaddress(&self.viewpair, subindex.into(), None);
-        // Return address in base58, and payment ID in hex.
-        (format!("{}", subaddress), subindex)
+    pub fn watch_payment(&self, sub_index: SubIndex) -> Subscriber {
+        self.payments_db.watch_payment(sub_index)
     }
 
-    pub async fn get_block(&self, height: u64) -> Result<(monero::Hash, monero::Block), Error> {
-        util::get_block(&self.daemon_url, height).await
-    }
-
-    pub async fn get_block_transactions(
-        &self,
-        block: monero::Block,
-    ) -> Result<Vec<monero::Transaction>, Error> {
-        util::get_block_transactions(&self.daemon_url, &block).await
-    }
-
-    pub async fn get_current_height(&self) -> Result<u64, Error> {
-        util::get_current_height(&self.daemon_url).await
+    pub async fn get_daemon_height(&self) -> Result<u64, Error> {
+        util::get_daemon_height(&self.daemon_url).await
     }
 }
 
@@ -132,6 +122,7 @@ pub struct PaymentGatewayBuilder {
     private_viewkey: Option<monero::PrivateKey>,
     public_spendkey: Option<monero::PublicKey>,
     scan_rate: Option<u64>,
+    db_path: Option<String>,
 }
 
 impl PaymentGatewayBuilder {
@@ -140,20 +131,20 @@ impl PaymentGatewayBuilder {
     }
 
     pub fn daemon_url(mut self, url: &str) -> PaymentGatewayBuilder {
-        reqwest::Url::parse(url).expect("Invalid daemon URL");
+        reqwest::Url::parse(url).expect("invalid daemon URL");
         self.daemon_url = url.to_string();
         self
     }
 
     pub fn private_viewkey(mut self, private_viewkey: &str) -> PaymentGatewayBuilder {
         self.private_viewkey =
-            Some(monero::PrivateKey::from_str(private_viewkey).expect("Invalid private viewkey"));
+            Some(monero::PrivateKey::from_str(private_viewkey).expect("invalid private viewkey"));
         self
     }
 
     pub fn public_spendkey(mut self, public_spendkey: &str) -> PaymentGatewayBuilder {
         self.public_spendkey =
-            Some(monero::PublicKey::from_str(public_spendkey).expect("Invalid public spendkey"));
+            Some(monero::PublicKey::from_str(public_spendkey).expect("invalid public spendkey"));
         self
     }
 
@@ -162,14 +153,23 @@ impl PaymentGatewayBuilder {
         self
     }
 
+    pub fn db_path(mut self, path: &str) -> PaymentGatewayBuilder {
+        self.db_path = Some(path.to_string());
+        self
+    }
+
     pub fn build(self) -> PaymentGateway {
         let private_viewkey = self
             .private_viewkey
-            .expect("Private viewkey must be defined");
+            .expect("private viewkey must be defined");
         let public_spendkey = self
             .public_spendkey
-            .expect("Private viewkey must be defined");
+            .expect("public spendkey must be defined");
         let scan_rate = self.scan_rate.unwrap_or(1000);
+        let db_path = self.db_path.unwrap_or_else(|| "AcceptXMR_DB".to_string());
+        let payments_db =
+            PaymentsDb::new(&db_path).expect("failed to open pending payments database tree");
+        info!("Opened database in \"{}\"/", db_path);
         let viewpair = monero::ViewPair {
             view: private_viewkey,
             spend: public_spendkey,
@@ -178,8 +178,8 @@ impl PaymentGatewayBuilder {
             daemon_url: self.daemon_url,
             viewpair,
             scan_rate,
-            scanner_tx: None,
-            scanner_rx: None,
+            payments_db,
+            height: Arc::new(atomic::AtomicU64::new(0)),
         }
     }
 }
@@ -204,9 +204,10 @@ impl Payment {
         index: SubIndex,
         starting_block: u64,
         amount: u64,
-        confirmations: u64,
-        expiration_block: u64,
+        confirmations_required: u64,
+        expiration_in: u64,
     ) -> Payment {
+        let expiration_block = starting_block + expiration_in;
         Payment {
             address: address.to_string(),
             index,
@@ -214,7 +215,7 @@ impl Payment {
             expected_amount: amount,
             paid_amount: 0,
             paid_at: None,
-            confirmations_required: confirmations,
+            confirmations_required,
             current_block: 0,
             expiration_block,
             owned_outputs: Vec::new(),
@@ -298,15 +299,15 @@ impl OwnedOutput {
         }
     }
 
-    fn cmp_by_age(&self, other: &Self) -> Ordering {
+    fn cmp_by_age(&self, other: &Self) -> cmp::Ordering {
         match self.height {
             Some(height) => match other.height {
                 Some(other_height) => height.cmp(&other_height),
-                None => Ordering::Less,
+                None => cmp::Ordering::Less,
             },
             None => match other.height {
-                Some(_) => Ordering::Greater,
-                None => Ordering::Equal,
+                Some(_) => cmp::Ordering::Greater,
+                None => cmp::Ordering::Equal,
             },
         }
     }
