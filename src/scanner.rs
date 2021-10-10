@@ -275,27 +275,11 @@ impl Scanner {
     /// Log updates
     fn log_updates(&self, updated_payments: &[Payment]) {
         for payment in updated_payments {
-            let confirmations = match payment.confirmations() {
-                Some(height) => height.to_string(),
-                None => "N/A".to_string(),
-            };
             trace!(
                 "Payment update for subaddress index {}: \
-                \nPaid: {}/{} \
-                \nConfirmations: {} \
-                \nStarted at: {} \
-                \nCurrent height: {} \
-                \nExpiration at: {} \
-                \nOwned outputs: \
-                \n{:#?}",
+                \n{}",
                 payment.index,
-                monero::Amount::from_pico(payment.amount_paid).as_xmr(),
-                monero::Amount::from_pico(payment.amount_requested).as_xmr(),
-                confirmations,
-                payment.started_at,
-                payment.current_height,
-                payment.expiration_at,
-                payment.owned_outputs,
+                payment
             );
         }
     }

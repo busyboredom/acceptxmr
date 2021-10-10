@@ -6,6 +6,7 @@ mod subscriber;
 mod util;
 
 use std::cmp;
+use std::io::Read;
 use std::ops::Deref;
 use std::str::FromStr;
 use std::sync::{atomic, Arc};
@@ -13,7 +14,9 @@ use std::{fmt, thread, u64};
 
 use log::{debug, info, warn};
 use monero::cryptonote::subaddress;
+use qrcode::render::string::Element;
 use serde::{Deserialize, Serialize};
+use sled::Owned;
 use tokio::runtime::Runtime;
 use tokio::{join, time};
 
@@ -289,11 +292,8 @@ impl Payment {
     }
 
     pub fn confirmations(&self) -> Option<u64> {
-        if let Some(paid_at) = self.paid_at {
-            Some(self.current_height.saturating_sub(paid_at) + 1)
-        } else {
-            None
-        }
+        self.paid_at
+            .map(|paid_at| self.current_height.saturating_sub(paid_at) + 1)
     }
 
     pub fn current_height(&self) -> u64 {
@@ -377,5 +377,43 @@ impl OwnedOutput {
                 None => cmp::Ordering::Equal,
             },
         }
+    }
+}
+
+impl fmt::Display for Payment {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let confirmations = match self.confirmations() {
+            Some(height) => height.to_string(),
+            None => "N/A".to_string(),
+        };
+        let mut str = format!("Index {}: \
+            \nPaid: {}/{} \
+            \nConfirmations: {} \
+            \nStarted at: {} \
+            \nCurrent height: {} \
+            \nExpiration at: {} \
+            \nOwned outputs: \
+            \n[",
+            self.index,
+            monero::Amount::from_pico(self.amount_paid).as_xmr(),
+            monero::Amount::from_pico(self.amount_requested).as_xmr(),
+            confirmations,
+            self.started_at,
+            self.current_height,
+            self.expiration_at,
+        );
+        for output in &self.owned_outputs {
+            let height = match output.height {
+                Some(h) => h.to_string(),
+                None => "N/A".to_string(),
+            };
+            str.push_str(&format!("\n   {{Amount: {}, Height: {:?}}}", output.amount, height));
+        }
+        if self.owned_outputs.is_empty() {
+            str.push(']');
+        } else {
+            str.push_str("\n]");
+        }
+        write!(f, "{}", str)
     }
 }
