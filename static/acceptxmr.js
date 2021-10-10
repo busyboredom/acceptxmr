@@ -23,29 +23,26 @@ socket.onopen = function(e) {
 socket.onmessage = function(event) {
     var message = JSON.parse(event.data);
     
-    var paid = message.paid_amount;
-    document.getElementById("acceptxmr-paid").innerHTML = picoToXMR(paid);
-
-    var due = message.expected_amount;
-    document.getElementById("acceptxmr-due").innerHTML = picoToXMR(due);
+    document.getElementById("acceptxmr-paid").innerHTML = picoToXMR(message.amount_paid);
+    document.getElementById("acceptxmr-due").innerHTML = picoToXMR(message.amount_requested);
 
     var confirmations = 0
     if (message.paid_at != null) {
-        confirmations = Math.max(message.current_block - message.paid_at + 1, 0);
+        confirmations = Math.max(message.current_height - message.paid_at + 1, 0);
     }
     document.getElementById("acceptxmr-confirmations").innerHTML = confirmations;
 
     var confirmationsRequired = message.confirmations_required;
     document.getElementById("acceptxmr-confirmations-required").innerHTML = confirmationsRequired;
 
-    var expirationBlocks = message.expiration_block - message.current_block;
+    var expirationBlocks = message.expiration_at - message.current_height;
     var instructionString = "Loading...";
     var instructionClass = "acceptxmr-instruction";
     var newAddressBtnHidden = true;
     if (confirmations >= confirmationsRequired) {
         instructionString = "Paid! Thank you"
         socket.close();
-    } else if (message.paid_amount > message.expected_amount) {
+    } else if (message.amount_paid > message.amount_requested) {
         instructionString = "Paid! Waiting for Confirmation..."
     } else if (expirationBlocks > 2) {
         instructionString = "Send Monero to Address Below"

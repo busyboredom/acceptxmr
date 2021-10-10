@@ -91,7 +91,7 @@ impl Scanner {
                 output.height.unwrap_or(height + 1)
             });
 
-        // A place to keep track of what payments are changing, so we can send updates later.
+        // A place to keep track of what payments are changing, so we can log updates later.
         let mut updated_payments = Vec::new();
 
         // Prepare updated payments.
@@ -152,19 +152,12 @@ impl Scanner {
         self.log_updates(&updated_payments);
 
         // Save updates.
-        // TODO: Compare and swap instead of batch insert. Only insert if payment already exists.
-        let mut batch = PaymentsDb::new_batch();
         for payment in &updated_payments {
-            if let Err(e) = batch.insert(payment) {
+            if let Err(e) = self.payments_db.update(&payment.index, payment) {
                 error!(
                     "Failed to save update to payment for index {} to database: {}",
                     payment.index, e
                 );
-            }
-        }
-        if !updated_payments.is_empty() {
-            if let Err(e) = self.payments_db.apply_batch(batch) {
-                error!("Failed to save payment updates to database: {}", e);
             }
         }
 
@@ -280,13 +273,10 @@ impl Scanner {
     }
 
     /// Log updates
-    fn log_updates(&mut self, updated_payments: &[Payment]) {
+    fn log_updates(&self, updated_payments: &[Payment]) {
         for payment in updated_payments {
-            let confirmations = match payment.paid_at {
-                Some(height) => payment
-                    .current_height
-                    .saturating_sub(height - 1)
-                    .to_string(),
+            let confirmations = match payment.confirmations() {
+                Some(height) => height.to_string(),
                 None => "N/A".to_string(),
             };
             trace!(

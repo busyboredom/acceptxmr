@@ -252,12 +252,10 @@ impl Payment {
     }
 
     pub fn is_confirmed(&self) -> bool {
-        match self.paid_at {
-            Some(height) => {
-                let confirmations = self.current_height.saturating_sub(height) + 1;
-                confirmations >= self.confirmations_required
-            }
-            None => false,
+        if let Some(confirmations) = self.confirmations() {
+            confirmations >= self.confirmations_required
+        } else {
+            false
         }
     }
 
@@ -288,6 +286,14 @@ impl Payment {
 
     pub fn confirmations_required(&self) -> u64 {
         self.confirmations_required
+    }
+
+    pub fn confirmations(&self) -> Option<u64> {
+        if let Some(paid_at) = self.paid_at {
+            Some(self.current_height.saturating_sub(paid_at) + 1)
+        } else {
+            None
+        }
     }
 
     pub fn current_height(&self) -> u64 {

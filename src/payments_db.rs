@@ -1,7 +1,7 @@
 use std::error::Error;
 use std::{cmp::Ordering, fmt};
 
-use crate::{Payment, SubIndex, Subscriber};
+use crate::{AcceptXMRError, Payment, SubIndex, Subscriber};
 
 /// Database containing pending payments.
 pub(crate) struct PaymentsDb(sled::Tree);
@@ -13,6 +13,11 @@ impl PaymentsDb {
             .flush_every_ms(None)
             .open()?;
         let tree = db.open_tree(b"pending payments")?;
+
+        // Set merge operator to act as an update().
+
+        tree.set_merge_operator(PaymentsDb::update_merge);
+
         Ok(PaymentsDb(tree))
     }
 
@@ -46,17 +51,6 @@ impl PaymentsDb {
             .transpose()
     }
 
-    pub fn get(&self, sub_index: &SubIndex) -> Result<Option<Payment>, PaymentStorageError> {
-        // Prepare key (subaddress index).
-        let key = [sub_index.major.to_be_bytes(), sub_index.minor.to_be_bytes()].concat();
-
-        let maybe_payment_ivec = self.0.get(&key)?;
-        match maybe_payment_ivec {
-            Some(payment_ivec) => Ok(Some(bincode::deserialize(&payment_ivec)?)),
-            None => Ok(None),
-        }
-    }
-
     pub fn iter(
         &self,
     ) -> impl DoubleEndedIterator<Item = Result<Payment, PaymentStorageError>> + Send + Sync {
@@ -78,12 +72,24 @@ impl PaymentsDb {
         self.0.contains_key(key).map_err(PaymentStorageError::from)
     }
 
-    pub fn new_batch() -> Batch {
-        Batch::new()
-    }
+    pub fn update(&self, sub_index: &SubIndex, new: &Payment) -> Result<Payment, AcceptXMRError> {
+        // Prepare key (subaddress index).
+        let key = [sub_index.major.to_be_bytes(), sub_index.minor.to_be_bytes()].concat();
 
-    pub fn apply_batch(&self, batch: Batch) -> Result<(), PaymentStorageError> {
-        Ok(self.0.apply_batch(batch.0)?)
+        // Prepare values.
+        let new_ivec = bincode::serialize(&new).map_err(PaymentStorageError::from)?;
+
+        // Do the update using the merge operator configured when PaymentDb is constructed.
+        let maybe_old = self
+            .0
+            .merge(key, new_ivec)
+            .map_err(PaymentStorageError::from)?;
+        match maybe_old {
+            Some(ivec) => Ok(bincode::deserialize(&ivec).map_err(PaymentStorageError::from)?),
+            None => Err(AcceptXMRError::from(PaymentStorageError::Update(
+                *sub_index,
+            ))),
+        }
     }
 
     pub fn watch_payment(&self, sub_index: &SubIndex) -> Subscriber {
@@ -128,35 +134,20 @@ impl PaymentsDb {
             .transpose()
             .map(|maybe_payment| maybe_payment.map(|payment| payment.current_height))
     }
-}
 
-pub struct Batch(sled::Batch);
-
-impl Batch {
-    fn new() -> Batch {
-        Batch(sled::Batch::default())
-    }
-
-    pub fn insert(&mut self, payment: &Payment) -> Result<(), PaymentStorageError> {
-        // Prepare key (subaddress index).
-        let key = [
-            payment.index.major.to_be_bytes(),
-            payment.index.minor.to_be_bytes(),
-        ]
-        .concat();
-
-        // Prepare value (payment).
-        let value = bincode::serialize(&payment)?;
-        // Insert the payment into the database.
-        self.0.insert(key, value);
-
-        Ok(())
+    fn update_merge(_key: &[u8], old_value: Option<&[u8]>, new_value: &[u8]) -> Option<Vec<u8>> {
+        if old_value.is_some() {
+            Some(new_value.to_vec())
+        } else {
+            None
+        }
     }
 }
 
 #[derive(Debug)]
 pub enum PaymentStorageError {
     Database(sled::Error),
+    Update(SubIndex),
     Serialization(bincode::Error),
 }
 
@@ -177,6 +168,9 @@ impl fmt::Display for PaymentStorageError {
         match self {
             PaymentStorageError::Database(sled_error) => {
                 write!(f, "database error: {}", sled_error)
+            }
+            PaymentStorageError::Update(key) => {
+                write!(f, "no value with key {} to update", key)
             }
             PaymentStorageError::Serialization(bincode_error) => {
                 write!(f, "(de)serialization error: {}", bincode_error)
