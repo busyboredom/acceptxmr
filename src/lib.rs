@@ -19,6 +19,7 @@ use tokio::{join, time};
 
 use block_cache::BlockCache;
 pub use error::AcceptXMRError;
+pub use payments_db::PaymentStorageError;
 use payments_db::PaymentsDb;
 use scanner::Scanner;
 pub use subscriber::Subscriber;
@@ -26,6 +27,7 @@ pub use subscriber::Subscriber;
 #[derive(Clone)]
 pub struct PaymentGateway(pub(crate) Arc<PaymentGatewayInner>);
 
+#[doc(hidden)]
 pub struct PaymentGatewayInner {
     daemon_url: String,
     viewpair: monero::ViewPair,
@@ -123,8 +125,7 @@ impl PaymentGateway {
     pub fn remove_payment(&self, sub_index: &SubIndex) -> Result<Option<Payment>, AcceptXMRError> {
         match self.payments_db.remove(sub_index)? {
             Some(old) => {
-                if !(old.is_expired()
-                    || old.is_confirmed() && old.starting_block < old.current_block)
+                if !(old.is_expired() || old.is_confirmed() && old.started_at < old.current_height)
                 {
                     warn!("Removed a payment which was neither expired, nor fully confirmed and a block or more old. Was this intentional?");
                 }
@@ -214,38 +215,38 @@ impl PaymentGatewayBuilder {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Payment {
-    pub address: String,
-    pub index: SubIndex,
-    pub starting_block: u64,
-    pub expected_amount: u64,
-    pub paid_amount: u64,
-    pub paid_at: Option<u64>,
-    pub confirmations_required: u64,
-    pub current_block: u64,
-    pub expiration_block: u64,
-    pub owned_outputs: Vec<OwnedOutput>,
+    address: String,
+    index: SubIndex,
+    started_at: u64,
+    amount_requested: u64,
+    amount_paid: u64,
+    paid_at: Option<u64>,
+    confirmations_required: u64,
+    current_height: u64,
+    expiration_at: u64,
+    owned_outputs: Vec<OwnedOutput>,
 }
 
 impl Payment {
-    pub fn new(
+    fn new(
         address: &str,
         index: SubIndex,
-        starting_block: u64,
-        amount: u64,
+        started_at: u64,
+        amount_requested: u64,
         confirmations_required: u64,
         expiration_in: u64,
     ) -> Payment {
-        let expiration_block = starting_block + expiration_in;
+        let expiration_at = started_at + expiration_in;
         Payment {
             address: address.to_string(),
             index,
-            starting_block,
-            expected_amount: amount,
-            paid_amount: 0,
+            started_at,
+            amount_requested,
+            amount_paid: 0,
             paid_at: None,
             confirmations_required,
-            current_block: 0,
-            expiration_block,
+            current_height: 0,
+            expiration_at,
             owned_outputs: Vec::new(),
         }
     }
@@ -253,7 +254,7 @@ impl Payment {
     pub fn is_confirmed(&self) -> bool {
         match self.paid_at {
             Some(height) => {
-                let confirmations = self.current_block.saturating_sub(height) + 1;
+                let confirmations = self.current_height.saturating_sub(height) + 1;
                 confirmations >= self.confirmations_required
             }
             None => false,
@@ -262,7 +263,39 @@ impl Payment {
 
     pub fn is_expired(&self) -> bool {
         // At or passed the expiration block, AND not paid in full.
-        self.current_block >= self.expiration_block && self.paid_at.is_none()
+        self.current_height >= self.expiration_at && self.paid_at.is_none()
+    }
+
+    pub fn address(&self) -> String {
+        self.address.clone()
+    }
+
+    pub fn index(&self) -> SubIndex {
+        self.index
+    }
+
+    pub fn started_at(&self) -> u64 {
+        self.started_at
+    }
+
+    pub fn amount_requested(&self) -> u64 {
+        self.amount_requested
+    }
+
+    pub fn amount_paid(&self) -> u64 {
+        self.amount_paid
+    }
+
+    pub fn confirmations_required(&self) -> u64 {
+        self.confirmations_required
+    }
+
+    pub fn current_height(&self) -> u64 {
+        self.current_height
+    }
+
+    pub fn expiration_at(&self) -> u64 {
+        self.expiration_at
     }
 }
 
@@ -304,23 +337,23 @@ impl From<SubIndex> for subaddress::Index {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Copy)]
 pub struct OwnedOutput {
-    amount: u64,
-    height: Option<u64>,
+    pub amount: u64,
+    pub height: Option<u64>,
 }
 
 impl OwnedOutput {
-    pub fn new(amount: u64, height: Option<u64>) -> OwnedOutput {
+    fn new(amount: u64, height: Option<u64>) -> OwnedOutput {
         OwnedOutput { amount, height }
     }
 
-    pub fn newer_than(&self, other_height: u64) -> bool {
+    fn newer_than(&self, other_height: u64) -> bool {
         match self.height {
             Some(h) => h > other_height,
             None => true,
         }
     }
 
-    pub fn older_than(&self, other_height: u64) -> bool {
+    fn older_than(&self, other_height: u64) -> bool {
         match self.height {
             Some(h) => h < other_height,
             None => false,

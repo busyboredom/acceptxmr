@@ -117,26 +117,27 @@ impl Scanner {
             // Add owned outputs from blocks and txpool.
             for i in 0..owned_outputs.len() {
                 let (sub_index, owned_output) = owned_outputs[i];
-                if sub_index == payment.index && owned_output.newer_than(payment.starting_block) {
+                if sub_index == payment.index && owned_output.newer_than(payment.started_at) {
                     owned_outputs.remove(i);
                     payment.owned_outputs.push(owned_output);
                 }
             }
 
             // Update payment's current_block.
-            if payment.current_block != height {
-                payment.current_block = height;
+            if payment.current_height != height {
+                payment.current_height = height;
             }
 
             // No need to recalculate total paid_amount or paid_at unless something changed.
             if payment != old_payment {
                 // Zero it out first.
                 payment.paid_at = None;
-                payment.paid_amount = 0;
+                payment.amount_paid = 0;
                 // Now add up the owned outputs.
                 for owned_output in &payment.owned_outputs {
-                    payment.paid_amount += owned_output.amount;
-                    if payment.paid_amount >= payment.expected_amount && payment.paid_at.is_none() {
+                    payment.amount_paid += owned_output.amount;
+                    if payment.amount_paid >= payment.amount_requested && payment.paid_at.is_none()
+                    {
                         payment.paid_at = owned_output.height;
                     }
                 }
@@ -282,25 +283,28 @@ impl Scanner {
     fn log_updates(&mut self, updated_payments: &[Payment]) {
         for payment in updated_payments {
             let confirmations = match payment.paid_at {
-                Some(height) => payment.current_block.saturating_sub(height - 1).to_string(),
+                Some(height) => payment
+                    .current_height
+                    .saturating_sub(height - 1)
+                    .to_string(),
                 None => "N/A".to_string(),
             };
             trace!(
                 "Payment update for subaddress index {}: \
                 \nPaid: {}/{} \
                 \nConfirmations: {} \
-                \nStarting block: {} \
-                \nCurrent block: {} \
-                \nExpiration block: {} \
+                \nStarted at: {} \
+                \nCurrent height: {} \
+                \nExpiration at: {} \
                 \nOwned outputs: \
                 \n{:#?}",
                 payment.index,
-                monero::Amount::from_pico(payment.paid_amount).as_xmr(),
-                monero::Amount::from_pico(payment.expected_amount).as_xmr(),
+                monero::Amount::from_pico(payment.amount_paid).as_xmr(),
+                monero::Amount::from_pico(payment.amount_requested).as_xmr(),
                 confirmations,
-                payment.starting_block,
-                payment.current_block,
-                payment.expiration_block,
+                payment.started_at,
+                payment.current_height,
+                payment.expiration_at,
                 payment.owned_outputs,
             );
         }

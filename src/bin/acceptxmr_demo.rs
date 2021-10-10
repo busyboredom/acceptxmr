@@ -62,14 +62,14 @@ async fn main() -> std::io::Result<()> {
                 }
             };
             // If it's confirmed or expired, we probably shouldn't bother tracking it anymore.
-            if (payment.is_confirmed() && payment.starting_block < payment.current_block)
+            if (payment.is_confirmed() && payment.started_at() < payment.current_height())
                 || payment.is_expired()
             {
                 debug!(
                     "Payment to index {} is either confirmed or expired. Removing payment now",
-                    payment.index
+                    payment.index()
                 );
-                if let Err(e) = gateway_copy.remove_payment(&payment.index) {
+                if let Err(e) = gateway_copy.remove_payment(&payment.index()) {
                     error!("Failed to remove fully confirmed payment: {}", e);
                 };
             }

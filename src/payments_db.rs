@@ -1,3 +1,4 @@
+use std::error::Error;
 use std::{cmp::Ordering, fmt};
 
 use crate::{Payment, SubIndex, Subscriber};
@@ -120,12 +121,12 @@ impl PaymentsDb {
                     payment_1
                         .as_ref()
                         .unwrap()
-                        .current_block
-                        .cmp(&payment_2.as_ref().unwrap().current_block)
+                        .current_height
+                        .cmp(&payment_2.as_ref().unwrap().current_height)
                 }
             })
             .transpose()
-            .map(|maybe_payment| maybe_payment.map(|payment| payment.current_block))
+            .map(|maybe_payment| maybe_payment.map(|payment| payment.current_height))
     }
 }
 
@@ -155,31 +156,33 @@ impl Batch {
 
 #[derive(Debug)]
 pub enum PaymentStorageError {
-    DatabaseError(sled::Error),
-    SerializationError(bincode::Error),
+    Database(sled::Error),
+    Serialization(bincode::Error),
 }
 
 impl From<sled::Error> for PaymentStorageError {
     fn from(e: sled::Error) -> Self {
-        Self::DatabaseError(e)
+        Self::Database(e)
     }
 }
 
 impl From<bincode::Error> for PaymentStorageError {
     fn from(e: bincode::Error) -> Self {
-        Self::SerializationError(e)
+        Self::Serialization(e)
     }
 }
 
 impl fmt::Display for PaymentStorageError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            PaymentStorageError::DatabaseError(sled_error) => {
+            PaymentStorageError::Database(sled_error) => {
                 write!(f, "database error: {}", sled_error)
             }
-            PaymentStorageError::SerializationError(bincode_error) => {
+            PaymentStorageError::Serialization(bincode_error) => {
                 write!(f, "(de)serialization error: {}", bincode_error)
             }
         }
     }
 }
+
+impl Error for PaymentStorageError {}
