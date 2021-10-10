@@ -6,7 +6,7 @@ use crate::{Payment, SubIndex, Subscriber};
 pub struct PaymentsDb(sled::Tree);
 
 impl PaymentsDb {
-    pub fn new(path: &str) -> Result<PaymentsDb, PaymentStorageErrorKind> {
+    pub fn new(path: &str) -> Result<PaymentsDb, PaymentStorageError> {
         let db = sled::Config::default()
             .path(path)
             .flush_every_ms(None)
@@ -15,10 +15,7 @@ impl PaymentsDb {
         Ok(PaymentsDb(tree))
     }
 
-    pub fn insert(
-        &mut self,
-        payment: &Payment,
-    ) -> Result<Option<Payment>, PaymentStorageErrorKind> {
+    pub fn insert(&self, payment: &Payment) -> Result<Option<Payment>, PaymentStorageError> {
         // Prepare key (subaddress index).
         let key = [
             payment.index.major.to_be_bytes(),
@@ -39,7 +36,7 @@ impl PaymentsDb {
         }
     }
 
-    pub fn get(&self, sub_index: &SubIndex) -> Result<Option<Payment>, PaymentStorageErrorKind> {
+    pub fn get(&self, sub_index: &SubIndex) -> Result<Option<Payment>, PaymentStorageError> {
         // Prepare key (subaddress index).
         let key = [sub_index.major.to_be_bytes(), sub_index.minor.to_be_bytes()].concat();
 
@@ -52,33 +49,33 @@ impl PaymentsDb {
 
     pub fn iter(
         &self,
-    ) -> impl DoubleEndedIterator<Item = Result<Payment, PaymentStorageErrorKind>> + Send + Sync
+    ) -> impl DoubleEndedIterator<Item = Result<Payment, PaymentStorageError>> + Send + Sync
     {
         // Convert iterator of Result<IVec> to Result<Payment>.
         self.0
             .iter()
             .values()
             .map(|r| {
-                r.map(|ivec| bincode::deserialize(&ivec).map_err(PaymentStorageErrorKind::from))
-                    .map_err(PaymentStorageErrorKind::from)
+                r.map(|ivec| bincode::deserialize(&ivec).map_err(PaymentStorageError::from))
+                    .map_err(PaymentStorageError::from)
             })
             .flatten()
     }
 
-    pub fn contains_key(&self, sub_index: &SubIndex) -> Result<bool, PaymentStorageErrorKind> {
+    pub fn contains_key(&self, sub_index: &SubIndex) -> Result<bool, PaymentStorageError> {
         // Prepare key (subaddress index).
         let key = [sub_index.major.to_be_bytes(), sub_index.minor.to_be_bytes()].concat();
 
         self.0
             .contains_key(key)
-            .map_err(PaymentStorageErrorKind::from)
+            .map_err(PaymentStorageError::from)
     }
 
     pub fn new_batch() -> Batch {
         Batch::new()
     }
 
-    pub fn apply_batch(&self, batch: Batch) -> Result<(), PaymentStorageErrorKind> {
+    pub fn apply_batch(&self, batch: Batch) -> Result<(), PaymentStorageError> {
         Ok(self.0.apply_batch(batch.0)?)
     }
 
@@ -100,7 +97,7 @@ impl PaymentsDb {
 
     /// Recover lowest height. This performs a full O(n) scan of the database. Returns None if the
     /// database is empty.
-    pub fn get_lowest_height(&self) -> Result<Option<u64>, PaymentStorageErrorKind> {
+    pub fn get_lowest_height(&self) -> Result<Option<u64>, PaymentStorageError> {
         self.iter()
             .min_by(|payment_1, payment_2| {
                 // If there is an error, we want it returned.
@@ -129,7 +126,7 @@ impl Batch {
         Batch(sled::Batch::default())
     }
 
-    pub fn insert(&mut self, payment: &Payment) -> Result<(), PaymentStorageErrorKind> {
+    pub fn insert(&mut self, payment: &Payment) -> Result<(), PaymentStorageError> {
         // Prepare key (subaddress index).
         let key = [
             payment.index.major.to_be_bytes(),
@@ -147,30 +144,30 @@ impl Batch {
 }
 
 #[derive(Debug)]
-pub enum PaymentStorageErrorKind {
+pub enum PaymentStorageError {
     DatabaseError(sled::Error),
     SerializationError(bincode::Error),
 }
 
-impl From<sled::Error> for PaymentStorageErrorKind {
+impl From<sled::Error> for PaymentStorageError {
     fn from(e: sled::Error) -> Self {
         Self::DatabaseError(e)
     }
 }
 
-impl From<bincode::Error> for PaymentStorageErrorKind {
+impl From<bincode::Error> for PaymentStorageError {
     fn from(e: bincode::Error) -> Self {
         Self::SerializationError(e)
     }
 }
 
-impl fmt::Display for PaymentStorageErrorKind {
+impl fmt::Display for PaymentStorageError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            PaymentStorageErrorKind::DatabaseError(sled_error) => {
+            PaymentStorageError::DatabaseError(sled_error) => {
                 write!(f, "database error: {}", sled_error)
             }
-            PaymentStorageErrorKind::SerializationError(bincode_error) => {
+            PaymentStorageError::SerializationError(bincode_error) => {
                 write!(f, "(de)serialization error: {}", bincode_error)
             }
         }

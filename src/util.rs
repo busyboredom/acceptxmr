@@ -1,9 +1,12 @@
 use log::trace;
 use monero::consensus::deserialize;
 
-use crate::Error;
+use crate::AcceptXMRError;
 
-pub async fn get_block(url: &str, height: u64) -> Result<(monero::Hash, monero::Block), Error> {
+pub async fn get_block(
+    url: &str,
+    height: u64,
+) -> Result<(monero::Hash, monero::Block), AcceptXMRError> {
     let client = reqwest::Client::new();
 
     trace!("Requesting block {}", height);
@@ -39,7 +42,7 @@ pub async fn get_block(url: &str, height: u64) -> Result<(monero::Hash, monero::
 pub async fn get_block_transactions(
     url: &str,
     block: &monero::Block,
-) -> Result<Vec<monero::Transaction>, Error> {
+) -> Result<Vec<monero::Transaction>, AcceptXMRError> {
     // Get block transactions in sets of 100 or less (the restricted RPC maximum).
     // TODO: Get them concurrently.
     let client = reqwest::Client::new();
@@ -84,7 +87,7 @@ pub async fn get_block_transactions(
     Ok(transactions)
 }
 
-pub async fn get_txpool(url: &str) -> Result<Vec<monero::Transaction>, Error> {
+pub async fn get_txpool(url: &str) -> Result<Vec<monero::Transaction>, AcceptXMRError> {
     let client = reqwest::Client::new();
 
     trace!("Requesting txpool");
@@ -109,7 +112,7 @@ pub async fn get_txpool(url: &str) -> Result<Vec<monero::Transaction>, Error> {
     Ok(transactions)
 }
 
-pub async fn get_daemon_height(url: &str) -> Result<u64, Error> {
+pub async fn get_daemon_height(url: &str) -> Result<u64, AcceptXMRError> {
     let client = reqwest::Client::new();
 
     let request_body = r#"{"jsonrpc":"2.0","id":"0","method":"get_block_count"}"#;

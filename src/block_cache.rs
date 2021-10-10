@@ -4,7 +4,7 @@ use std::sync::Arc;
 
 use log::{debug, trace, warn};
 
-use crate::{util, Error};
+use crate::{util, AcceptXMRError};
 
 pub struct BlockCache {
     pub height: Arc<AtomicU64>,
@@ -16,7 +16,7 @@ impl BlockCache {
         url: &str,
         cache_size: u64,
         initial_height: Arc<AtomicU64>,
-    ) -> Result<BlockCache, Error> {
+    ) -> Result<BlockCache, AcceptXMRError> {
         let mut blocks = Vec::with_capacity(cache_size.try_into().unwrap());
         // TODO: Get blocks concurrently.
         for i in 0..cache_size {
@@ -45,7 +45,7 @@ impl BlockCache {
     }
 
     /// Update the block cache with newest blocks from daemon. Returns number of blocks updated.
-    pub async fn update(&mut self, url: &str) -> Result<u64, Error> {
+    pub async fn update(&mut self, url: &str) -> Result<u64, AcceptXMRError> {
         // If the cache is behind, get a new block and drop the oldest.
         trace!("Checking for block cache updates");
         let mut updated = 0;

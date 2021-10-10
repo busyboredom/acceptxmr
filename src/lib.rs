@@ -6,6 +6,7 @@ mod subscriber;
 mod util;
 
 use std::cmp;
+use std::ops::Deref;
 use std::str::FromStr;
 use std::sync::{atomic, Arc};
 use std::{fmt, thread, u64};
@@ -17,12 +18,15 @@ use tokio::runtime::Runtime;
 use tokio::{join, time};
 
 use block_cache::BlockCache;
-use error::Error;
+use error::AcceptXMRError;
 use payments_db::PaymentsDb;
 use scanner::Scanner;
 pub use subscriber::Subscriber;
 
-pub struct PaymentGateway {
+#[derive(Clone)]
+pub struct PaymentGateway(pub(crate) Arc<PaymentGatewayInner>);
+
+pub struct PaymentGatewayInner {
     daemon_url: String,
     viewpair: monero::ViewPair,
     scan_rate: u64,
@@ -30,17 +34,25 @@ pub struct PaymentGateway {
     height: Arc<atomic::AtomicU64>,
 }
 
+impl Deref for PaymentGateway {
+    type Target = PaymentGatewayInner;
+
+    fn deref(&self) -> &PaymentGatewayInner {
+        &self.0
+    }
+}
+
 impl PaymentGateway {
     pub fn builder() -> PaymentGatewayBuilder {
         PaymentGatewayBuilder::default()
     }
 
-    pub fn run(&mut self, cache_size: u64) {
+    pub fn run(&self, cache_size: u64) {
         // Gather info needed by the scanner.
-        let url = self.daemon_url.to_owned();
+        let url = self.0.daemon_url.to_owned();
         let viewpair = monero::ViewPair {
-            view: self.viewpair.view,
-            spend: self.viewpair.spend,
+            view: self.0.viewpair.view,
+            spend: self.0.viewpair.spend,
         };
         let scan_rate = self.scan_rate;
         let atomic_height = self.height.clone();
@@ -76,7 +88,7 @@ impl PaymentGateway {
         xmr: f64,
         confirmations_required: u64,
         expiration_in: u64,
-    ) -> Result<Subscriber, Error> {
+    ) -> Result<Subscriber, AcceptXMRError> {
         // Convert xmr to picos.
         let amount = monero::Amount::from_xmr(xmr)
             .expect("amount due must be less than u64::MAX")
@@ -111,7 +123,7 @@ impl PaymentGateway {
         self.payments_db.watch_payment(sub_index)
     }
 
-    pub async fn get_daemon_height(&self) -> Result<u64, Error> {
+    pub async fn get_daemon_height(&self) -> Result<u64, AcceptXMRError> {
         util::get_daemon_height(&self.daemon_url).await
     }
 }
@@ -169,18 +181,19 @@ impl PaymentGatewayBuilder {
         let db_path = self.db_path.unwrap_or_else(|| "AcceptXMR_DB".to_string());
         let payments_db =
             PaymentsDb::new(&db_path).expect("failed to open pending payments database tree");
-        info!("Opened database in \"{}\"/", db_path);
+        info!("Opened database in \"{}/\"", db_path);
         let viewpair = monero::ViewPair {
             view: private_viewkey,
             spend: public_spendkey,
         };
-        PaymentGateway {
+
+        PaymentGateway(Arc::new(PaymentGatewayInner {
             daemon_url: self.daemon_url,
             viewpair,
             scan_rate,
             payments_db,
             height: Arc::new(atomic::AtomicU64::new(0)),
-        }
+        }))
     }
 }
 

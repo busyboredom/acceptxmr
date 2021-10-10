@@ -10,7 +10,7 @@ use actix_web_actors::ws;
 use bytestring::ByteString;
 use log::{debug, error, trace, warn};
 
-use acceptxmr::{PaymentGateway, PaymentGatewayBuilder, Subscriber};
+use acceptxmr::{PaymentGateway, PaymentGatewayBuilder, SubIndex, Subscriber};
 
 /// How often heartbeat pings are sent
 const HEARTBEAT_INTERVAL: Duration = Duration::from_secs(4);
@@ -38,7 +38,7 @@ async fn main() -> std::io::Result<()> {
         .to_string();
 
     let xmr_daemon_url = "http://busyboredom.com:18081";
-    let mut payment_gateway = PaymentGatewayBuilder::new()
+    let payment_gateway = PaymentGatewayBuilder::new()
         .daemon_url(xmr_daemon_url)
         .private_viewkey(&viewkey_string)
         .public_spendkey("dd4c491d53ad6b46cda01ed6cb9bac57615d9eac8d5e4dd1c0363ac8dfd420a7")
@@ -47,8 +47,19 @@ async fn main() -> std::io::Result<()> {
 
     payment_gateway.run(10);
 
-    let shared_payment_gateway = Data::new(Mutex::new(payment_gateway));
+    // Watch for payment updates and deal with them accordingly.
+    let gateway_copy = payment_gateway.clone();
+    std::thread::spawn(move || {
+        let mut subscriber = gateway_copy.watch_payment(SubIndex::new(0, 0));
+        loop {
+            let payment = match subscriber.recv() {
+                Ok(_) => {}
+                Err(_) => {}
+            };
+        }
+    });
 
+    let shared_payment_gateway = Data::new(payment_gateway);
     HttpServer::new(move || {
         App::new()
             .app_data(shared_payment_gateway.clone())
