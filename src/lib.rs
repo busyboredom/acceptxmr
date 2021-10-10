@@ -11,14 +11,14 @@ use std::str::FromStr;
 use std::sync::{atomic, Arc};
 use std::{fmt, thread, u64};
 
-use log::{debug, info};
+use log::{debug, info, warn};
 use monero::cryptonote::subaddress;
 use serde::{Deserialize, Serialize};
 use tokio::runtime::Runtime;
 use tokio::{join, time};
 
 use block_cache::BlockCache;
-use error::AcceptXMRError;
+pub use error::AcceptXMRError;
 use payments_db::PaymentsDb;
 use scanner::Scanner;
 pub use subscriber::Subscriber;
@@ -83,7 +83,7 @@ impl PaymentGateway {
     }
 
     /// Panics if xmr is more than u64::MAX.
-    pub fn new_payment(
+    pub async fn new_payment(
         &mut self,
         xmr: f64,
         confirmations_required: u64,
@@ -116,10 +116,25 @@ impl PaymentGateway {
         debug!("Now tracking payment to subaddress index {}", payment.index);
 
         // Return a subscriber so the caller can get updates on payment status.
-        Ok(self.watch_payment(sub_index))
+        // TODO: Don't return before a flush happens.
+        Ok(self.watch_payment(&sub_index))
     }
 
-    pub fn watch_payment(&self, sub_index: SubIndex) -> Subscriber {
+    pub fn remove_payment(&self, sub_index: &SubIndex) -> Result<Option<Payment>, AcceptXMRError> {
+        match self.payments_db.remove(sub_index)? {
+            Some(old) => {
+                if !(old.is_expired()
+                    || old.is_confirmed() && old.starting_block < old.current_block)
+                {
+                    warn!("Removed a payment which was neither expired, nor fully confirmed and a block or more old. Was this intentional?");
+                }
+                Ok(self.payments_db.remove(sub_index)?)
+            }
+            None => Ok(None),
+        }
+    }
+
+    pub fn watch_payment(&self, sub_index: &SubIndex) -> Subscriber {
         self.payments_db.watch_payment(sub_index)
     }
 

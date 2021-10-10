@@ -3,7 +3,7 @@ use std::{cmp::Ordering, fmt};
 use crate::{Payment, SubIndex, Subscriber};
 
 /// Database containing pending payments.
-pub struct PaymentsDb(sled::Tree);
+pub(crate) struct PaymentsDb(sled::Tree);
 
 impl PaymentsDb {
     pub fn new(path: &str) -> Result<PaymentsDb, PaymentStorageError> {
@@ -36,6 +36,15 @@ impl PaymentsDb {
         }
     }
 
+    pub fn remove(&self, sub_index: &SubIndex) -> Result<Option<Payment>, PaymentStorageError> {
+        // Prepare key (subaddress index).
+        let key = [sub_index.major.to_be_bytes(), sub_index.minor.to_be_bytes()].concat();
+
+        let old = self.0.remove(key).transpose();
+        old.map(|ivec_or_err| Ok(bincode::deserialize(&ivec_or_err?)?))
+            .transpose()
+    }
+
     pub fn get(&self, sub_index: &SubIndex) -> Result<Option<Payment>, PaymentStorageError> {
         // Prepare key (subaddress index).
         let key = [sub_index.major.to_be_bytes(), sub_index.minor.to_be_bytes()].concat();
@@ -49,8 +58,7 @@ impl PaymentsDb {
 
     pub fn iter(
         &self,
-    ) -> impl DoubleEndedIterator<Item = Result<Payment, PaymentStorageError>> + Send + Sync
-    {
+    ) -> impl DoubleEndedIterator<Item = Result<Payment, PaymentStorageError>> + Send + Sync {
         // Convert iterator of Result<IVec> to Result<Payment>.
         self.0
             .iter()
@@ -66,9 +74,7 @@ impl PaymentsDb {
         // Prepare key (subaddress index).
         let key = [sub_index.major.to_be_bytes(), sub_index.minor.to_be_bytes()].concat();
 
-        self.0
-            .contains_key(key)
-            .map_err(PaymentStorageError::from)
+        self.0.contains_key(key).map_err(PaymentStorageError::from)
     }
 
     pub fn new_batch() -> Batch {
@@ -79,8 +85,12 @@ impl PaymentsDb {
         Ok(self.0.apply_batch(batch.0)?)
     }
 
-    pub fn watch_payment(&self, sub_index: SubIndex) -> Subscriber {
-        let prefix = [sub_index.major.to_be_bytes(), sub_index.minor.to_be_bytes()].concat();
+    pub fn watch_payment(&self, sub_index: &SubIndex) -> Subscriber {
+        let mut prefix = Vec::new();
+        // If asked to watch the primary address index, watch everything. Otherwise, watch that specific index.
+        if sub_index != &SubIndex::new(0, 0) {
+            prefix = [sub_index.major.to_be_bytes(), sub_index.minor.to_be_bytes()].concat();
+        }
         let sled_subscriber = self.0.watch_prefix(prefix);
         Subscriber::new(sled_subscriber)
     }

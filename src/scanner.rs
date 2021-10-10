@@ -9,7 +9,7 @@ use tokio::join;
 use crate::util;
 use crate::{BlockCache, OwnedOutput, Payment, PaymentsDb, SubIndex};
 
-pub struct Scanner {
+pub(crate) struct Scanner {
     url: String,
     viewpair: monero::ViewPair,
     payments_db: PaymentsDb,

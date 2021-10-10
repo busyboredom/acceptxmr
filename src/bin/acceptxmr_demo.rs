@@ -10,7 +10,7 @@ use actix_web_actors::ws;
 use bytestring::ByteString;
 use log::{debug, error, trace, warn};
 
-use acceptxmr::{PaymentGateway, PaymentGatewayBuilder, SubIndex, Subscriber};
+use acceptxmr::{AcceptXMRError, PaymentGateway, PaymentGatewayBuilder, SubIndex, Subscriber};
 
 /// How often heartbeat pings are sent
 const HEARTBEAT_INTERVAL: Duration = Duration::from_secs(4);
@@ -50,16 +50,33 @@ async fn main() -> std::io::Result<()> {
     // Watch for payment updates and deal with them accordingly.
     let gateway_copy = payment_gateway.clone();
     std::thread::spawn(move || {
-        let mut subscriber = gateway_copy.watch_payment(SubIndex::new(0, 0));
+        // Watch all payment updates by subscribing to the primary address index (0/0).
+        let mut subscriber = gateway_copy.watch_payment(&SubIndex::new(0, 0));
         loop {
             let payment = match subscriber.recv() {
-                Ok(_) => {}
-                Err(_) => {}
+                Ok(p) => p,
+                Err(AcceptXMRError::SubscriberRecv) => panic!("Blockchain scanner crashed!"),
+                Err(e) => {
+                    error!("Error retrieving payment update: {}", e);
+                    continue;
+                }
             };
+            // If it's confirmed or expired, we probably shouldn't bother tracking it anymore.
+            if (payment.is_confirmed() && payment.starting_block < payment.current_block)
+                || payment.is_expired()
+            {
+                debug!(
+                    "Payment to index {} is either confirmed or expired. Removing payment now",
+                    payment.index
+                );
+                if let Err(e) = gateway_copy.remove_payment(&payment.index) {
+                    error!("Failed to remove fully confirmed payment: {}", e);
+                };
+            }
         }
     });
 
-    let shared_payment_gateway = Data::new(payment_gateway);
+    let shared_payment_gateway = Data::new(Mutex::new(payment_gateway));
     HttpServer::new(move || {
         App::new()
             .app_data(shared_payment_gateway.clone())
@@ -113,7 +130,7 @@ impl WebSocket {
                 Some(Ok(payment_update)) => {
                     // Serialize the payment object.
                     let mut payment_json = serde_json::to_value(&payment_update)
-                        .expect("Failed to serialize payment update.");
+                        .expect("Failed to serialize payment update");
                     // User doesn't need the subaddress index, so remove it.
                     payment_json.as_object_mut().unwrap().remove("index");
                     // Convert to string.
@@ -125,17 +142,12 @@ impl WebSocket {
                     // if the payment is confirmed or expired, stop checking for updates.
                     // TODO: Acknowledge the payment completion.
                     if payment_update.is_confirmed() {
-                        debug!("Payment to index {} fully confirmed!", payment_update.index);
                         ctx.close(Some(ws::CloseReason::from((
                             ws::CloseCode::Normal,
                             "Payment Complete",
                         ))));
                         ctx.stop();
                     } else if payment_update.is_expired() {
-                        debug!(
-                            "Payment to index {} expired before full confirmation.",
-                            payment_update.index
-                        );
                         ctx.close(Some(ws::CloseReason::from((
                             ws::CloseCode::Normal,
                             "Payment Expired",
@@ -201,7 +213,7 @@ async fn websocket(
 ) -> Result<HttpResponse, actix_web::Error> {
     // TODO: Use cookies to determine if a purchase is already pending, and avoid creating a new one.
     let mut payment_gateway = payment_gateway.lock().unwrap();
-    let subscriber = payment_gateway.new_payment(0.000001, 2, 3).unwrap();
+    let subscriber = payment_gateway.new_payment(0.000001, 2, 3).await.unwrap();
 
     ws::start(WebSocket::new(subscriber), &req, stream)
 }
