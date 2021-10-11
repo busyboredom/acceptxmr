@@ -7,16 +7,17 @@ use log::{error, info, trace};
 use tokio::join;
 
 use crate::util;
-use crate::{BlockCache, OwnedOutput, Payment, PaymentsDb, SubIndex};
+use crate::{BlockCache, OwnedOutput, Payment, PaymentsDb, SubIndex, TxpoolCache};
 
 pub(crate) struct Scanner {
     url: String,
     viewpair: monero::ViewPair,
     payments_db: PaymentsDb,
-    // Block cache is mutexed to allow concurrent block & txpool scanning.
-    // This is necessary even though txpool scanning doesn't use the block cache,
-    // because rust doesn't allow mutably borrowing only part of "self".
+    // Block cache and txpool cache are mutexed to allow concurrent block & txpool scanning. This is
+    // necessary even though txpool scanning doesn't use the block cache, and vice versa, because
+    // rust doesn't allow mutably borrowing only part of "self".
     block_cache: Mutex<BlockCache>,
+    txpool_cache: Mutex<TxpoolCache>,
     first_scan: bool,
 }
 
@@ -48,16 +49,18 @@ impl Scanner {
         // main PaymentGateway as well.
         atomic_height.store(height, Ordering::Relaxed);
 
-        // Initialize block cache.
-        let block_cache = BlockCache::init(&url, block_cache_size, atomic_height)
-            .await
-            .unwrap();
+        // Initialize block cache and txpool cache.
+        let (block_cache, txpool_cache) = join!(
+            BlockCache::init(&url, block_cache_size, atomic_height),
+            TxpoolCache::init(&url)
+        );
 
         Scanner {
             url,
             viewpair,
             payments_db,
-            block_cache: Mutex::new(block_cache),
+            block_cache: Mutex::new(block_cache.unwrap()),
+            txpool_cache: Mutex::new(txpool_cache),
             first_scan: true,
         }
     }
@@ -190,7 +193,7 @@ impl Scanner {
         // Scan updated blocks.
         for i in (0..blocks_updated.try_into().unwrap()).rev() {
             let transactions = &block_cache.blocks[i].3;
-            let amounts_received = self.scan_transactions(transactions.to_vec());
+            let amounts_received = self.scan_transactions(transactions);
             trace!(
                 "Scanned {} transactions from block {}, and found {} tracked payments",
                 transactions.len(),
@@ -216,18 +219,17 @@ impl Scanner {
     ///
     /// Returns a vector of tuples of the form (subaddress index, amount)
     async fn scan_txpool(&self) -> Vec<(SubIndex, OwnedOutput)> {
-        // Retrieve txpool.
-        // TODO: Retrieve hashes, and then only retrieve transactions we don't already have.
-        let txpool = match util::get_txpool(&self.url).await {
-            Ok(pool) => pool,
-            Err(e) => {
-                error!("Failed to get transaction pool: {}", e);
-                return Vec::new();
-            }
-        };
+        // Update txpool.
+        let mut txpool_cache = self.txpool_cache.lock().unwrap();
+        txpool_cache.update(&self.url).await;
+        let txpool: Vec<monero::Transaction> = txpool_cache
+            .transactions
+            .iter()
+            .map(|(_, tx)| tx.to_owned())
+            .collect();
 
         // Scan txpool.
-        let amounts_received = self.scan_transactions(txpool.to_vec());
+        let amounts_received = self.scan_transactions(&txpool);
         trace!(
             "Scanned {} transactions from txpool, and found {} tracked payments",
             txpool.len(),
@@ -240,7 +242,7 @@ impl Scanner {
             .collect()
     }
 
-    fn scan_transactions(&self, transactions: Vec<monero::Transaction>) -> Vec<(SubIndex, u64)> {
+    fn scan_transactions(&self, transactions: &[monero::Transaction]) -> Vec<(SubIndex, u64)> {
         let mut amounts_received = HashMap::new();
         for tx in transactions {
             // Get owned outputs.

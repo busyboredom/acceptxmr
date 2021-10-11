@@ -1,7 +1,7 @@
 use std::error::Error;
 use std::{cmp::Ordering, fmt};
 
-use crate::{AcceptXMRError, Payment, SubIndex, Subscriber};
+use crate::{AcceptXmrError, Payment, SubIndex, Subscriber};
 
 /// Database containing pending payments.
 pub(crate) struct PaymentsDb(sled::Tree);
@@ -72,7 +72,7 @@ impl PaymentsDb {
         self.0.contains_key(key).map_err(PaymentStorageError::from)
     }
 
-    pub fn update(&self, sub_index: &SubIndex, new: &Payment) -> Result<Payment, AcceptXMRError> {
+    pub fn update(&self, sub_index: &SubIndex, new: &Payment) -> Result<Payment, AcceptXmrError> {
         // Prepare key (subaddress index).
         let key = [sub_index.major.to_be_bytes(), sub_index.minor.to_be_bytes()].concat();
 
@@ -86,7 +86,7 @@ impl PaymentsDb {
             .map_err(PaymentStorageError::from)?;
         match maybe_old {
             Some(ivec) => Ok(bincode::deserialize(&ivec).map_err(PaymentStorageError::from)?),
-            None => Err(AcceptXMRError::from(PaymentStorageError::Update(
+            None => Err(AcceptXmrError::from(PaymentStorageError::Update(
                 *sub_index,
             ))),
         }

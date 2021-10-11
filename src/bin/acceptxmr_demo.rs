@@ -10,7 +10,7 @@ use actix_web_actors::ws;
 use bytestring::ByteString;
 use log::{debug, error, trace, warn};
 
-use acceptxmr::{AcceptXMRError, PaymentGateway, PaymentGatewayBuilder, SubIndex, Subscriber};
+use acceptxmr::{AcceptXmrError, PaymentGateway, PaymentGatewayBuilder, SubIndex, Subscriber};
 
 /// How often heartbeat pings are sent
 const HEARTBEAT_INTERVAL: Duration = Duration::from_secs(4);
@@ -55,7 +55,7 @@ async fn main() -> std::io::Result<()> {
         loop {
             let payment = match subscriber.recv() {
                 Ok(p) => p,
-                Err(AcceptXMRError::SubscriberRecv) => panic!("Blockchain scanner crashed!"),
+                Err(AcceptXmrError::SubscriberRecv) => panic!("Blockchain scanner crashed!"),
                 Err(e) => {
                     error!("Error retrieving payment update: {}", e);
                     continue;

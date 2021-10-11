@@ -3,10 +3,10 @@ mod error;
 mod payments_db;
 mod scanner;
 mod subscriber;
+mod txpool_cache;
 mod util;
 
 use std::cmp;
-use std::io::Read;
 use std::ops::Deref;
 use std::str::FromStr;
 use std::sync::{atomic, Arc};
@@ -14,18 +14,17 @@ use std::{fmt, thread, u64};
 
 use log::{debug, info, warn};
 use monero::cryptonote::subaddress;
-use qrcode::render::string::Element;
 use serde::{Deserialize, Serialize};
-use sled::Owned;
 use tokio::runtime::Runtime;
 use tokio::{join, time};
 
 use block_cache::BlockCache;
-pub use error::AcceptXMRError;
+pub use error::AcceptXmrError;
 pub use payments_db::PaymentStorageError;
 use payments_db::PaymentsDb;
 use scanner::Scanner;
 pub use subscriber::Subscriber;
+use txpool_cache::TxpoolCache;
 
 #[derive(Clone)]
 pub struct PaymentGateway(pub(crate) Arc<PaymentGatewayInner>);
@@ -93,7 +92,7 @@ impl PaymentGateway {
         xmr: f64,
         confirmations_required: u64,
         expiration_in: u64,
-    ) -> Result<Subscriber, AcceptXMRError> {
+    ) -> Result<Subscriber, AcceptXmrError> {
         // Convert xmr to picos.
         let amount = monero::Amount::from_xmr(xmr)
             .expect("amount due must be less than u64::MAX")
@@ -125,7 +124,7 @@ impl PaymentGateway {
         Ok(self.watch_payment(&sub_index))
     }
 
-    pub fn remove_payment(&self, sub_index: &SubIndex) -> Result<Option<Payment>, AcceptXMRError> {
+    pub fn remove_payment(&self, sub_index: &SubIndex) -> Result<Option<Payment>, AcceptXmrError> {
         match self.payments_db.remove(sub_index)? {
             Some(old) => {
                 if !(old.is_expired() || old.is_confirmed() && old.started_at < old.current_height)
@@ -142,8 +141,8 @@ impl PaymentGateway {
         self.payments_db.watch_payment(sub_index)
     }
 
-    pub async fn get_daemon_height(&self) -> Result<u64, AcceptXMRError> {
-        util::get_daemon_height(&self.daemon_url).await
+    pub async fn get_daemon_height(&self) -> Result<u64, AcceptXmrError> {
+        Ok(util::get_daemon_height(&self.daemon_url).await?)
     }
 }
 
@@ -386,7 +385,8 @@ impl fmt::Display for Payment {
             Some(height) => height.to_string(),
             None => "N/A".to_string(),
         };
-        let mut str = format!("Index {}: \
+        let mut str = format!(
+            "Index {}: \
             \nPaid: {}/{} \
             \nConfirmations: {} \
             \nStarted at: {} \
@@ -407,7 +407,10 @@ impl fmt::Display for Payment {
                 Some(h) => h.to_string(),
                 None => "N/A".to_string(),
             };
-            str.push_str(&format!("\n   {{Amount: {}, Height: {:?}}}", output.amount, height));
+            str.push_str(&format!(
+                "\n   {{Amount: {}, Height: {:?}}}",
+                output.amount, height
+            ));
         }
         if self.owned_outputs.is_empty() {
             str.push(']');
