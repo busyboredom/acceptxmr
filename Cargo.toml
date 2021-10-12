@@ -12,10 +12,6 @@ readme = "README.md"
 name = "acceptxmr"
 path = "src/lib.rs"
 
-[[bin]]
-name = "acceptxmr_demo"
-path = "src/bin/acceptxmr_demo.rs"
-
 [dependencies]
 tokio = { version = "1", features = ["full"] }
 reqwest = { version = "0", features = ["json"] }
@@ -23,13 +19,14 @@ serde = "1"
 serde_json = "1"
 monero = "0"
 hex = "0"
-qrcode = "0"
-env_logger = "0"
 log = "0"
+sled = "0"
+bincode = "1"
+
+[dev-dependencies]
 actix = "0.12"
 actix-web = "4.0.0-beta.9"
 actix-web-actors = "4.0.0-beta.7"
 actix-files = "0.6.0-beta.7"
+env_logger = "0"
 bytestring = "1"
-sled = "0"
-bincode = "1"
