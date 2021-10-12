@@ -10,6 +10,7 @@ use std::cmp;
 use std::ops::Deref;
 use std::str::FromStr;
 use std::sync::{atomic, Arc};
+use std::time::Duration;
 use std::{fmt, thread, u64};
 
 use log::{debug, info, warn};
@@ -26,6 +27,8 @@ use scanner::Scanner;
 pub use subscriber::Subscriber;
 use txpool_cache::TxpoolCache;
 
+const DEFAULT_SCAN_INTERVAL: Duration = Duration::from_millis(1000);
+
 #[derive(Clone)]
 pub struct PaymentGateway(pub(crate) Arc<PaymentGatewayInner>);
 
@@ -33,7 +36,7 @@ pub struct PaymentGateway(pub(crate) Arc<PaymentGatewayInner>);
 pub struct PaymentGatewayInner {
     daemon_url: String,
     viewpair: monero::ViewPair,
-    scan_rate: u64,
+    scan_interval: Duration,
     payments_db: PaymentsDb,
     height: Arc<atomic::AtomicU64>,
 }
@@ -58,7 +61,7 @@ impl PaymentGateway {
             view: self.0.viewpair.view,
             spend: self.0.viewpair.spend,
         };
-        let scan_rate = self.scan_rate;
+        let scan_interval = self.scan_interval;
         let atomic_height = self.height.clone();
         let pending_payments = self.payments_db.clone();
 
@@ -75,9 +78,9 @@ impl PaymentGateway {
                         Scanner::new(url, viewpair, pending_payments, cache_size, atomic_height)
                             .await;
 
-                    // Scan for transactions once every scan_rate.
+                    // Scan for transactions once every scan_interval.
                     let mut blockscan_interval =
-                        time::interval(time::Duration::from_millis(scan_rate));
+                        time::interval(scan_interval);
                     loop {
                         join!(blockscan_interval.tick(), scanner.scan());
                     }
@@ -151,7 +154,7 @@ pub struct PaymentGatewayBuilder {
     daemon_url: String,
     private_viewkey: Option<monero::PrivateKey>,
     public_spendkey: Option<monero::PublicKey>,
-    scan_rate: Option<u64>,
+    scan_interval: Option<Duration>,
     db_path: Option<String>,
 }
 
@@ -178,8 +181,8 @@ impl PaymentGatewayBuilder {
         self
     }
 
-    pub fn scan_rate(mut self, milliseconds: u64) -> PaymentGatewayBuilder {
-        self.scan_rate = Some(milliseconds);
+    pub fn scan_interval(mut self, interval: Duration) -> PaymentGatewayBuilder {
+        self.scan_interval = Some(interval);
         self
     }
 
@@ -195,7 +198,7 @@ impl PaymentGatewayBuilder {
         let public_spendkey = self
             .public_spendkey
             .expect("public spendkey must be defined");
-        let scan_rate = self.scan_rate.unwrap_or(1000);
+        let scan_interval = self.scan_interval.unwrap_or(DEFAULT_SCAN_INTERVAL);
         let db_path = self.db_path.unwrap_or_else(|| "AcceptXMR_DB".to_string());
         let payments_db =
             PaymentsDb::new(&db_path).expect("failed to open pending payments database tree");
@@ -208,7 +211,7 @@ impl PaymentGatewayBuilder {
         PaymentGateway(Arc::new(PaymentGatewayInner {
             daemon_url: self.daemon_url,
             viewpair,
-            scan_rate,
+            scan_interval,
             payments_db,
             height: Arc::new(atomic::AtomicU64::new(0)),
         }))

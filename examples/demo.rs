@@ -42,7 +42,7 @@ async fn main() -> std::io::Result<()> {
         .daemon_url(xmr_daemon_url)
         .private_viewkey(&viewkey_string)
         .public_spendkey("dd4c491d53ad6b46cda01ed6cb9bac57615d9eac8d5e4dd1c0363ac8dfd420a7")
-        .scan_rate(1000)
+        .scan_interval(Duration::from_millis(500))
         .build();
 
     payment_gateway.run(10);
