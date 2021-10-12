@@ -226,7 +226,7 @@ pub struct Payment {
     confirmations_required: u64,
     current_height: u64,
     expiration_at: u64,
-    owned_outputs: Vec<OwnedOutput>,
+    transfers: Vec<Transfer>,
 }
 
 impl Payment {
@@ -249,7 +249,7 @@ impl Payment {
             confirmations_required,
             current_height: 0,
             expiration_at,
-            owned_outputs: Vec::new(),
+            transfers: Vec::new(),
         }
     }
 
@@ -341,14 +341,14 @@ impl From<SubIndex> for subaddress::Index {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Copy)]
-pub struct OwnedOutput {
+pub struct Transfer {
     pub amount: u64,
     pub height: Option<u64>,
 }
 
-impl OwnedOutput {
-    fn new(amount: u64, height: Option<u64>) -> OwnedOutput {
-        OwnedOutput { amount, height }
+impl Transfer {
+    fn new(amount: u64, height: Option<u64>) -> Transfer {
+        Transfer { amount, height }
     }
 
     fn newer_than(&self, other_height: u64) -> bool {
@@ -392,7 +392,7 @@ impl fmt::Display for Payment {
             \nStarted at: {} \
             \nCurrent height: {} \
             \nExpiration at: {} \
-            \nOwned outputs: \
+            \ntransfers: \
             \n[",
             self.index,
             monero::Amount::from_pico(self.amount_paid).as_xmr(),
@@ -402,17 +402,17 @@ impl fmt::Display for Payment {
             self.current_height,
             self.expiration_at,
         );
-        for output in &self.owned_outputs {
-            let height = match output.height {
+        for transfer in &self.transfers {
+            let height = match transfer.height {
                 Some(h) => h.to_string(),
                 None => "N/A".to_string(),
             };
             str.push_str(&format!(
                 "\n   {{Amount: {}, Height: {:?}}}",
-                output.amount, height
+                transfer.amount, height
             ));
         }
-        if self.owned_outputs.is_empty() {
+        if self.transfers.is_empty() {
             str.push(']');
         } else {
             str.push_str("\n]");

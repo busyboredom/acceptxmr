@@ -1,3 +1,5 @@
+// TODO: Make this a struct and name it Rpc.
+
 use std::fmt;
 use std::future::Future;
 use std::{collections::HashSet, error::Error};
@@ -7,7 +9,9 @@ use monero::consensus::{deserialize, encode};
 use tokio::{join, time};
 
 pub async fn get_block(url: &str, height: u64) -> Result<(monero::Hash, monero::Block), RpcError> {
-    let client = reqwest::Client::new();
+    let client = reqwest::ClientBuilder::new()
+        .connect_timeout(time::Duration::from_millis(2000))
+        .build()?;
 
     trace!("Requesting block {}", height);
     let request_body = r#"{"jsonrpc":"2.0","id":"0","method":"get_block","params":{"height":"#
@@ -51,7 +55,9 @@ pub async fn get_block_transactions(
 }
 
 pub async fn get_txpool(url: &str) -> Result<Vec<monero::Transaction>, RpcError> {
-    let client = reqwest::Client::new();
+    let client = reqwest::ClientBuilder::new()
+        .connect_timeout(time::Duration::from_millis(2000))
+        .build()?;
 
     trace!("Requesting txpool");
     // TODO: Consider using json_rpc method for this.
@@ -80,7 +86,9 @@ pub async fn get_txpool(url: &str) -> Result<Vec<monero::Transaction>, RpcError>
 }
 
 pub async fn get_txpool_hashes(url: &str) -> Result<HashSet<monero::Hash>, RpcError> {
-    let client = reqwest::Client::new();
+    let client = reqwest::ClientBuilder::new()
+        .connect_timeout(time::Duration::from_millis(2000))
+        .build()?;
 
     trace!("Requesting txpool hashes");
     let res = client
@@ -111,7 +119,9 @@ pub async fn get_transactions_by_hashes(
     url: &str,
     hashes: &[monero::Hash],
 ) -> Result<Vec<monero::Transaction>, RpcError> {
-    let client = reqwest::Client::new();
+    let client = reqwest::ClientBuilder::new()
+        .connect_timeout(time::Duration::from_millis(2000))
+        .build()?;
     let mut transactions = Vec::new();
     for i in 0..(hashes.len() / 100 + 1) {
         // We've gotta grab these in parts to avoid putting too much load on the RPC server, so
@@ -153,7 +163,9 @@ pub async fn get_transactions_by_hashes(
 }
 
 pub async fn get_daemon_height(url: &str) -> Result<u64, RpcError> {
-    let client = reqwest::Client::new();
+    let client = reqwest::ClientBuilder::new()
+        .connect_timeout(time::Duration::from_millis(2000))
+        .build()?;
 
     let request_body = r#"{"jsonrpc":"2.0","id":"0","method":"get_block_count"}"#;
     let res = client

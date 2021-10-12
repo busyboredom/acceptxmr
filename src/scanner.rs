@@ -4,10 +4,11 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 
 use log::{error, info, trace};
+use monero::cryptonote::hash::Hashable;
 use tokio::join;
 
 use crate::util;
-use crate::{BlockCache, OwnedOutput, Payment, PaymentsDb, SubIndex, TxpoolCache};
+use crate::{BlockCache, Payment, PaymentsDb, SubIndex, Transfer, TxpoolCache};
 
 pub(crate) struct Scanner {
     url: String,
@@ -77,8 +78,8 @@ impl Scanner {
             .height
             .load(Ordering::Relaxed);
 
-        // Combine owned outputs into one big vec.
-        let mut owned_outputs: Vec<(SubIndex, OwnedOutput)> = blocks_amounts
+        // Combine transfers into one big vec.
+        let mut transfers: Vec<(SubIndex, Transfer)> = blocks_amounts
             .into_iter()
             .chain(txpool_amounts.into_iter())
             .collect();
@@ -87,11 +88,11 @@ impl Scanner {
             self.first_scan = false;
         }
 
-        let deepest_update = owned_outputs
+        let deepest_update = transfers
             .iter()
-            .min_by(|(_, output_1), (_, output_2)| output_1.cmp_by_age(output_2))
-            .map_or(height + 1, |(_, output)| {
-                output.height.unwrap_or(height + 1)
+            .min_by(|(_, transfer_1), (_, transfer_2)| transfer_1.cmp_by_age(transfer_2))
+            .map_or(height + 1, |(_, transfer)| {
+                transfer.height.unwrap_or(height + 1)
             });
 
         // A place to keep track of what payments are changing, so we can log updates later.
@@ -112,17 +113,17 @@ impl Scanner {
             };
             let mut payment = old_payment.clone();
 
-            // Remove owned outputs occurring later than the deepest block update.
+            // Remove transfers occurring later than the deepest block update.
             payment
-                .owned_outputs
-                .retain(|output| output.older_than(deepest_update));
+                .transfers
+                .retain(|transfer| transfer.older_than(deepest_update));
 
-            // Add owned outputs from blocks and txpool.
-            for i in 0..owned_outputs.len() {
-                let (sub_index, owned_output) = owned_outputs[i];
-                if sub_index == payment.index && owned_output.newer_than(payment.started_at) {
-                    owned_outputs.remove(i);
-                    payment.owned_outputs.push(owned_output);
+            // Add transfers from blocks and txpool.
+            for i in 0..transfers.len() {
+                let (sub_index, owned_transfer) = transfers[i];
+                if sub_index == payment.index && owned_transfer.newer_than(payment.started_at) {
+                    transfers.remove(i);
+                    payment.transfers.push(owned_transfer);
                 }
             }
 
@@ -136,12 +137,12 @@ impl Scanner {
                 // Zero it out first.
                 payment.paid_at = None;
                 payment.amount_paid = 0;
-                // Now add up the owned outputs.
-                for owned_output in &payment.owned_outputs {
-                    payment.amount_paid += owned_output.amount;
+                // Now add up the transfers.
+                for transfer in &payment.transfers {
+                    payment.amount_paid += transfer.amount;
                     if payment.amount_paid >= payment.amount_requested && payment.paid_at.is_none()
                     {
-                        payment.paid_at = owned_output.height;
+                        payment.paid_at = transfer.height;
                     }
                 }
 
@@ -171,7 +172,7 @@ impl Scanner {
     /// Update block cache and scan the blocks.
     ///
     /// Returns a vector of tuples of the form (subaddress index, amount, height)
-    async fn scan_blocks(&self) -> Vec<(SubIndex, OwnedOutput)> {
+    async fn scan_blocks(&self) -> Vec<(SubIndex, Transfer)> {
         let mut block_cache = self.block_cache.lock().unwrap();
 
         // Update block cache.
@@ -188,14 +189,14 @@ impl Scanner {
             blocks_updated = block_cache.blocks.len().try_into().unwrap();
         }
 
-        let mut owned_outputs = Vec::new();
+        let mut transfers = Vec::new();
 
         // Scan updated blocks.
         for i in (0..blocks_updated.try_into().unwrap()).rev() {
             let transactions = &block_cache.blocks[i].3;
             let amounts_received = self.scan_transactions(transactions);
             trace!(
-                "Scanned {} transactions from block {}, and found {} tracked payments",
+                "Scanned {} transactions from block {}, and found {} transfers for tracked payments",
                 transactions.len(),
                 block_cache.blocks[i].1,
                 amounts_received.len()
@@ -204,64 +205,92 @@ impl Scanner {
             let height: u64 = block_cache.height.load(Ordering::Relaxed) - i as u64;
 
             // Add what was found into the list.
-            owned_outputs.extend::<Vec<(SubIndex, OwnedOutput)>>(
+            transfers.extend::<Vec<(SubIndex, Transfer)>>(
                 amounts_received
                     .into_iter()
-                    .map(|(sub_index, amount)| (sub_index, OwnedOutput::new(amount, Some(height))))
+                    .map(|(_, amounts)| amounts)
+                    .flatten()
+                    .map(|amount| (amount.0, Transfer::new(amount.1, Some(height))))
                     .collect(),
             )
         }
 
-        owned_outputs
+        transfers
     }
 
     /// Retrieve and scan transaction pool.
     ///
     /// Returns a vector of tuples of the form (subaddress index, amount)
-    async fn scan_txpool(&self) -> Vec<(SubIndex, OwnedOutput)> {
+    async fn scan_txpool(&self) -> Vec<(SubIndex, Transfer)> {
         // Update txpool.
         let mut txpool_cache = self.txpool_cache.lock().unwrap();
-        txpool_cache.update(&self.url).await;
-        let txpool: Vec<monero::Transaction> = txpool_cache
-            .transactions
-            .iter()
-            .map(|(_, tx)| tx.to_owned())
-            .collect();
+        let new_transactions = txpool_cache.update(&self.url).await;
+
+        // Transfers previously discovered the txpool (no reason to scan the same transactions
+        // twice).
+        let discovered_transfers = txpool_cache.discovered_transfers();
 
         // Scan txpool.
-        let amounts_received = self.scan_transactions(&txpool);
+        let amounts_received = self.scan_transactions(&new_transactions);
         trace!(
-            "Scanned {} transactions from txpool, and found {} tracked payments",
-            txpool.len(),
+            "Scanned {} transactions from txpool, and found {} transfers for tracked payments",
+            new_transactions.len(),
             amounts_received.len()
         );
 
-        amounts_received
+        let new_transfers: HashMap<monero::Hash, Vec<(SubIndex, Transfer)>> = amounts_received
             .iter()
-            .map(|(sub_index, amount)| (*sub_index, OwnedOutput::new(*amount, None)))
+            .map(|(hash, amounts)| {
+                (
+                    *hash,
+                    amounts
+                        .iter()
+                        .map(|(sub_index, amount)| (*sub_index, Transfer::new(*amount, None)))
+                        .collect(),
+                )
+            })
+            .collect();
+
+        let mut transfers: HashMap<monero::Hash, Vec<(SubIndex, Transfer)>> =
+            new_transfers.to_owned();
+        transfers.extend(discovered_transfers.to_owned());
+
+        // Add the new transfers to the cache for next scan.
+        txpool_cache.insert_transfers(&new_transfers);
+
+        transfers
+            .into_iter()
+            .map(|(_, amounts)| amounts)
+            .flatten()
             .collect()
     }
 
-    fn scan_transactions(&self, transactions: &[monero::Transaction]) -> Vec<(SubIndex, u64)> {
+    fn scan_transactions(
+        &self,
+        transactions: &[monero::Transaction],
+    ) -> HashMap<monero::Hash, Vec<(SubIndex, u64)>> {
         let mut amounts_received = HashMap::new();
         for tx in transactions {
-            // Get owned outputs.
-            let owned_outputs = tx.check_outputs(&self.viewpair, 0..2, 0..2).unwrap();
+            // Get transfers.
+            let transfers = tx.check_outputs(&self.viewpair, 0..2, 0..2).unwrap();
 
-            for output in &owned_outputs {
-                let sub_index = SubIndex::from(output.sub_index());
+            for transfer in &transfers {
+                let sub_index = SubIndex::from(transfer.sub_index());
 
                 // If this payment is being tracked, add the amount and payment ID to the result set.
                 match self.payments_db.contains_key(&sub_index) {
                     Ok(true) => {
-                        let amount = match owned_outputs[0].amount() {
+                        let amount = match transfers[0].amount() {
                             Some(a) => a,
                             None => {
                                 error!("Failed to unblind transaction amount");
                                 continue;
                             }
                         };
-                        *amounts_received.entry(sub_index).or_insert(0) += amount;
+                        amounts_received
+                            .entry(tx.hash())
+                            .or_insert_with(Vec::new)
+                            .push((sub_index, amount));
                     }
                     Ok(false) => continue,
                     Err(e) => {

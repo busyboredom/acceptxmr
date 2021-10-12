@@ -4,10 +4,11 @@ use log::trace;
 use monero::cryptonote::hash::Hashable;
 use tokio::join;
 
-use crate::util;
+use crate::{util, SubIndex, Transfer};
 
 pub struct TxpoolCache {
-    pub transactions: HashMap<monero::Hash, monero::Transaction>,
+    transactions: HashMap<monero::Hash, monero::Transaction>,
+    discovered_transfers: HashMap<monero::Hash, Vec<(SubIndex, Transfer)>>,
 }
 
 impl TxpoolCache {
@@ -15,11 +16,15 @@ impl TxpoolCache {
         let txs = util::retry(url, 2000, util::get_txpool).await;
         let transactions = txs.iter().map(|tx| (tx.hash(), tx.to_owned())).collect();
 
-        TxpoolCache { transactions }
+        TxpoolCache {
+            transactions,
+            discovered_transfers: HashMap::new(),
+        }
     }
 
-    /// Update the txpool cache with newest tansactions from daemon txpool. Returns number of transactions received.
-    pub async fn update(&mut self, url: &str) -> u64 {
+    /// Update the txpool cache with newest tansactions from daemon txpool. Returns
+    /// transactions received.
+    pub async fn update(&mut self, url: &str) -> Vec<monero::Transaction> {
         trace!("Checking for new transactions in txpool");
         let retry_millis = 2000;
 
@@ -39,12 +44,31 @@ impl TxpoolCache {
                 retry_millis,
                 util::get_transactions_by_hashes,
             ),
-            async { self.transactions.retain(|k, _| txpool_hashes.contains(k)) }
+            async {
+                self.transactions.retain(|k, _| txpool_hashes.contains(k));
+                self.discovered_transfers
+                    .retain(|k, _| txpool_hashes.contains(k));
+            }
         );
 
         self.transactions
             .extend(new_transactions.iter().map(|tx| (tx.hash(), tx.to_owned())));
 
-        new_transactions.len() as u64
+        new_transactions
+    }
+
+    pub fn discovered_transfers(&self) -> &HashMap<monero::Hash, Vec<(SubIndex, Transfer)>> {
+        &self.discovered_transfers
+    }
+
+    pub fn insert_transfers(
+        &mut self,
+        transfers: &HashMap<monero::Hash, Vec<(SubIndex, Transfer)>>,
+    ) {
+        self.discovered_transfers.extend(transfers.to_owned());
+        trace!(
+            "Txpool contains {} transfers for tracked payments",
+            self.discovered_transfers.len(),
+        );
     }
 }
