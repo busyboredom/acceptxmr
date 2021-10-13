@@ -2,11 +2,13 @@ mod block_cache;
 mod error;
 mod payments_db;
 mod scanner;
+mod subaddress_cache;
 mod subscriber;
 mod txpool_cache;
 mod util;
 
 use std::cmp;
+use std::cmp::Ordering;
 use std::ops::Deref;
 use std::str::FromStr;
 use std::sync::{atomic, Arc};
@@ -24,6 +26,7 @@ pub use error::AcceptXmrError;
 pub use payments_db::PaymentStorageError;
 use payments_db::PaymentsDb;
 use scanner::Scanner;
+use subaddress_cache::SubaddressCache;
 pub use subscriber::Subscriber;
 use txpool_cache::TxpoolCache;
 
@@ -38,6 +41,7 @@ pub struct PaymentGatewayInner {
     viewpair: monero::ViewPair,
     scan_interval: Duration,
     payments_db: PaymentsDb,
+    subaddresses: SubaddressCache,
     height: Arc<atomic::AtomicU64>,
 }
 
@@ -66,7 +70,7 @@ impl PaymentGateway {
         let pending_payments = self.payments_db.clone();
 
         // Spawn the scanning thread.
-        info!("Starting blockchain scanner now");
+        info!("Starting blockchain scanner");
         thread::Builder::new()
             .name("Scanning Thread".to_string())
             .spawn(move || {
@@ -79,8 +83,7 @@ impl PaymentGateway {
                             .await;
 
                     // Scan for transactions once every scan_interval.
-                    let mut blockscan_interval =
-                        time::interval(scan_interval);
+                    let mut blockscan_interval = time::interval(scan_interval);
                     loop {
                         join!(blockscan_interval.tick(), scanner.scan());
                     }
@@ -123,7 +126,7 @@ impl PaymentGateway {
         debug!("Now tracking payment to subaddress index {}", payment.index);
 
         // Return a subscriber so the caller can get updates on payment status.
-        // TODO: Don't return before a flush happens.
+        // TODO: Consider not returning before a flush happens (maybe optionally flush when called?).
         Ok(self.watch_payment(&sub_index))
     }
 
@@ -207,12 +210,15 @@ impl PaymentGatewayBuilder {
             view: private_viewkey,
             spend: public_spendkey,
         };
+        let subaddresses = SubaddressCache::init(&viewpair);
+        debug!("Generated {} initial subaddresses", subaddresses.len());
 
         PaymentGateway(Arc::new(PaymentGatewayInner {
             daemon_url: self.daemon_url,
             viewpair,
             scan_interval,
             payments_db,
+            subaddresses,
             height: Arc::new(atomic::AtomicU64::new(0)),
         }))
     }
@@ -316,6 +322,22 @@ pub struct SubIndex {
 impl SubIndex {
     pub fn new(major: u32, minor: u32) -> SubIndex {
         SubIndex { major, minor }
+    }
+}
+
+impl Ord for SubIndex {
+    fn cmp(&self, other: &Self) -> Ordering {
+        match self.major.cmp(&other.major) {
+            Ordering::Equal => self.minor.cmp(&other.minor),
+            Ordering::Greater => Ordering::Greater,
+            Ordering::Less => Ordering::Less,
+        }
+    }
+}
+
+impl PartialOrd for SubIndex {
+    fn partial_cmp(&self, other: &Self) -> Option<cmp::Ordering> {
+        Some(self.cmp(other))
     }
 }
 

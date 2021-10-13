@@ -6,7 +6,7 @@ use log::{debug, trace, warn};
 
 use crate::{util, AcceptXmrError};
 
-pub struct BlockCache {
+pub(crate) struct BlockCache {
     pub height: Arc<AtomicU64>,
     pub blocks: Vec<(monero::Hash, u64, monero::Block, Vec<monero::Transaction>)>,
 }

@@ -6,7 +6,7 @@ use tokio::join;
 
 use crate::{util, SubIndex, Transfer};
 
-pub struct TxpoolCache {
+pub(crate) struct TxpoolCache {
     transactions: HashMap<monero::Hash, monero::Transaction>,
     discovered_transfers: HashMap<monero::Hash, Vec<(SubIndex, Transfer)>>,
 }
