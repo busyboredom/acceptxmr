@@ -210,7 +210,7 @@ impl PaymentGatewayBuilder {
             view: private_viewkey,
             spend: public_spendkey,
         };
-        let subaddresses = SubaddressCache::init(&viewpair);
+        let subaddresses = SubaddressCache::init(&payments_db, &viewpair);
         debug!("Generated {} initial subaddresses", subaddresses.len());
 
         PaymentGateway(Arc::new(PaymentGatewayInner {
