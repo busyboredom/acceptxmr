@@ -42,7 +42,7 @@ async fn main() -> std::io::Result<()> {
         .daemon_url(xmr_daemon_url)
         .private_viewkey(&viewkey_string)
         .public_spendkey("dd4c491d53ad6b46cda01ed6cb9bac57615d9eac8d5e4dd1c0363ac8dfd420a7")
-        .scan_interval(Duration::from_millis(500))
+        .scan_interval(Duration::from_millis(2000))
         .build();
 
     payment_gateway.run(10);
@@ -212,7 +212,7 @@ async fn websocket(
     payment_gateway: web::Data<Mutex<PaymentGateway>>,
 ) -> Result<HttpResponse, actix_web::Error> {
     // TODO: Use cookies to determine if a purchase is already pending, and avoid creating a new one.
-    let mut payment_gateway = payment_gateway.lock().unwrap();
+    let payment_gateway = payment_gateway.lock().unwrap();
     let subscriber = payment_gateway.new_payment(0.000001, 2, 3).await.unwrap();
 
     ws::start(WebSocket::new(subscriber), &req, stream)

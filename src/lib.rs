@@ -11,7 +11,7 @@ use std::cmp;
 use std::cmp::Ordering;
 use std::ops::Deref;
 use std::str::FromStr;
-use std::sync::{atomic, Arc};
+use std::sync::{atomic, Arc, Mutex};
 use std::time::Duration;
 use std::{fmt, thread, u64};
 
@@ -41,7 +41,7 @@ pub struct PaymentGatewayInner {
     viewpair: monero::ViewPair,
     scan_interval: Duration,
     payments_db: PaymentsDb,
-    subaddresses: SubaddressCache,
+    subaddresses: Mutex<SubaddressCache>,
     height: Arc<atomic::AtomicU64>,
 }
 
@@ -94,7 +94,7 @@ impl PaymentGateway {
 
     /// Panics if xmr is more than u64::MAX.
     pub async fn new_payment(
-        &mut self,
+        &self,
         xmr: f64,
         confirmations_required: u64,
         expiration_in: u64,
@@ -105,11 +105,7 @@ impl PaymentGateway {
             .as_pico();
 
         // Get subaddress in base58, and subaddress index.
-        let sub_index = SubIndex::new(0, 1);
-        let subaddress = format!(
-            "{}",
-            subaddress::get_subaddress(&self.viewpair, sub_index.into(), None)
-        );
+        let (sub_index, subaddress) = self.subaddresses.lock().unwrap().remove_random();
 
         // Create payment object.
         let payment = Payment::new(
@@ -137,7 +133,13 @@ impl PaymentGateway {
                 {
                     warn!("Removed a payment which was neither expired, nor fully confirmed and a block or more old. Was this intentional?");
                 }
-                Ok(self.payments_db.remove(sub_index)?)
+                // Put the subaddress back in the subaddress cache.
+                self.subaddresses
+                    .lock()
+                    .unwrap()
+                    .insert(*sub_index, old.address.clone());
+
+                Ok(Some(old))
             }
             None => Ok(None),
         }
@@ -210,7 +212,7 @@ impl PaymentGatewayBuilder {
             view: private_viewkey,
             spend: public_spendkey,
         };
-        let subaddresses = SubaddressCache::init(&payments_db, &viewpair);
+        let subaddresses = SubaddressCache::init(&payments_db, viewpair);
         debug!("Generated {} initial subaddresses", subaddresses.len());
 
         PaymentGateway(Arc::new(PaymentGatewayInner {
@@ -218,7 +220,7 @@ impl PaymentGatewayBuilder {
             viewpair,
             scan_interval,
             payments_db,
-            subaddresses,
+            subaddresses: Mutex::new(subaddresses),
             height: Arc::new(atomic::AtomicU64::new(0)),
         }))
     }
@@ -313,6 +315,48 @@ impl Payment {
     }
 }
 
+impl fmt::Display for Payment {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let confirmations = match self.confirmations() {
+            Some(height) => height.to_string(),
+            None => "N/A".to_string(),
+        };
+        let mut str = format!(
+            "Index {}: \
+            \nPaid: {}/{} \
+            \nConfirmations: {} \
+            \nStarted at: {} \
+            \nCurrent height: {} \
+            \nExpiration at: {} \
+            \ntransfers: \
+            \n[",
+            self.index,
+            monero::Amount::from_pico(self.amount_paid).as_xmr(),
+            monero::Amount::from_pico(self.amount_requested).as_xmr(),
+            confirmations,
+            self.started_at,
+            self.current_height,
+            self.expiration_at,
+        );
+        for transfer in &self.transfers {
+            let height = match transfer.height {
+                Some(h) => h.to_string(),
+                None => "N/A".to_string(),
+            };
+            str.push_str(&format!(
+                "\n   {{Amount: {}, Height: {:?}}}",
+                transfer.amount, height
+            ));
+        }
+        if self.transfers.is_empty() {
+            str.push(']');
+        } else {
+            str.push_str("\n]");
+        }
+        write!(f, "{}", str)
+    }
+}
+
 #[derive(Debug, Copy, Clone, Hash, Serialize, Deserialize, PartialEq, Eq)]
 pub struct SubIndex {
     pub major: u32,
@@ -401,47 +445,5 @@ impl Transfer {
                 None => cmp::Ordering::Equal,
             },
         }
-    }
-}
-
-impl fmt::Display for Payment {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let confirmations = match self.confirmations() {
-            Some(height) => height.to_string(),
-            None => "N/A".to_string(),
-        };
-        let mut str = format!(
-            "Index {}: \
-            \nPaid: {}/{} \
-            \nConfirmations: {} \
-            \nStarted at: {} \
-            \nCurrent height: {} \
-            \nExpiration at: {} \
-            \ntransfers: \
-            \n[",
-            self.index,
-            monero::Amount::from_pico(self.amount_paid).as_xmr(),
-            monero::Amount::from_pico(self.amount_requested).as_xmr(),
-            confirmations,
-            self.started_at,
-            self.current_height,
-            self.expiration_at,
-        );
-        for transfer in &self.transfers {
-            let height = match transfer.height {
-                Some(h) => h.to_string(),
-                None => "N/A".to_string(),
-            };
-            str.push_str(&format!(
-                "\n   {{Amount: {}, Height: {:?}}}",
-                transfer.amount, height
-            ));
-        }
-        if self.transfers.is_empty() {
-            str.push(']');
-        } else {
-            str.push_str("\n]");
-        }
-        write!(f, "{}", str)
     }
 }

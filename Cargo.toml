@@ -17,7 +17,7 @@ tokio = { version = "1", features = ["full"] }
 reqwest = { version = "0", features = ["json"] }
 serde = "1"
 serde_json = "1"
-monero = "0"
+monero = { path = "../monero-rs", version = "0"}
 hex = "0"
 log = "0"
 sled = "0"

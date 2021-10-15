@@ -4,8 +4,8 @@ use std::ops::Range;
 use indexmap::{IndexMap, IndexSet};
 use rand::Rng;
 
-use log::error;
-use monero::cryptonote::subaddress;
+use log::{debug, error};
+use monero::{cryptonote::subaddress, ViewPair};
 
 use crate::{PaymentsDb, SubIndex};
 
@@ -14,10 +14,11 @@ const MIN_AVAILABLE_SUBADDRESSES: u32 = 100;
 pub(crate) struct SubaddressCache {
     highest_index: SubIndex,
     available_subaddresses: IndexMap<SubIndex, String>,
+    viewpair: ViewPair,
 }
 
 impl SubaddressCache {
-    pub fn init(payments_db: &PaymentsDb, viewpair: &monero::ViewPair) -> SubaddressCache {
+    pub fn init(payments_db: &PaymentsDb, viewpair: monero::ViewPair) -> SubaddressCache {
         let used_sub_indexes: IndexSet<SubIndex> = payments_db
             .iter()
             .map(|payment_or_err| match payment_or_err {
@@ -32,15 +33,24 @@ impl SubaddressCache {
             })
             .collect();
         let max_used = match used_sub_indexes.iter().max() {
-            Some(max_sub_index) => max_sub_index.minor,
-            None => 0,
+            Some(max_sub_index) => {
+                debug!(
+                    "Highest subaddress index in the database: {}",
+                    SubIndex::new(1, max_sub_index.minor)
+                );
+                max_sub_index.minor
+            }
+            None => {
+                debug!("Highest subaddress index in the database: N/A");
+                0
+            }
         };
 
         // Generate enough subaddresses to cover all pending payments.
         let minor_index_range = 0..cmp::max(MIN_AVAILABLE_SUBADDRESSES, max_used + 1);
         let highest_index = SubIndex::new(1, minor_index_range.end - 1);
         let mut available_subaddresses: IndexMap<SubIndex, String> =
-            SubaddressCache::generate_range(1..2, minor_index_range, viewpair)
+            SubaddressCache::generate_range(1..2, minor_index_range, &viewpair)
                 .into_iter()
                 .collect();
 
@@ -50,6 +60,7 @@ impl SubaddressCache {
         SubaddressCache {
             highest_index,
             available_subaddresses,
+            viewpair,
         }
     }
 
@@ -58,13 +69,22 @@ impl SubaddressCache {
         let map_index = rng.gen_range(0..self.available_subaddresses.len());
 
         match self.available_subaddresses.shift_remove_index(map_index) {
-            Some((sub_index, subaddress)) => (sub_index, subaddress),
+            Some((sub_index, subaddress)) => {
+                if self.len() <= MIN_AVAILABLE_SUBADDRESSES as usize {
+                    self.extend_by(MIN_AVAILABLE_SUBADDRESSES);
+                }
+                (sub_index, subaddress)
+            }
             None => {
                 // Is this the best way to handle this error?
                 error!("Failed to retrieve subaddress by index from subaddress cache; retrying");
                 self.remove_random()
             }
         }
+    }
+
+    pub fn insert(&mut self, sub_index: SubIndex, address: String) -> Option<String> {
+        self.available_subaddresses.insert(sub_index, address)
     }
 
     pub fn len(&self) -> usize {
@@ -78,7 +98,7 @@ impl SubaddressCache {
     /// (1, u32::MAX), generation stop prematurely.
     ///
     /// Returns the number of subaddresses appended to the subaddress cache.
-    pub fn extend_by(&mut self, n: u64, viewpair: &monero::ViewPair) -> u64 {
+    pub fn extend_by(&mut self, n: u32) -> u32 {
         // TODO: Change this to use generate_range().
         let mut count = 0;
         for _ in 0..n {
@@ -89,7 +109,7 @@ impl SubaddressCache {
             let sub_index = SubIndex::new(1, self.highest_index.minor + 1);
             let subaddress = format!(
                 "{}",
-                subaddress::get_subaddress(viewpair, sub_index.into(), None)
+                subaddress::get_subaddress(&self.viewpair, sub_index.into(), None)
             );
             self.available_subaddresses.insert(sub_index, subaddress);
             self.highest_index = sub_index;
