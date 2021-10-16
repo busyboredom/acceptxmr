@@ -4,7 +4,7 @@ use log::trace;
 use monero::cryptonote::hash::Hashable;
 use tokio::join;
 
-use crate::{rcp, SubIndex, Transfer};
+use crate::{rpc, SubIndex, Transfer};
 
 pub(crate) struct TxpoolCache {
     transactions: HashMap<monero::Hash, monero::Transaction>,
@@ -13,7 +13,7 @@ pub(crate) struct TxpoolCache {
 
 impl TxpoolCache {
     pub async fn init(url: &str) -> TxpoolCache {
-        let txs = rcp::retry(url, 2000, rcp::get_txpool).await;
+        let txs = rpc::retry(url, 2000, rpc::txpool).await;
         let transactions = txs.iter().map(|tx| (tx.hash(), tx.clone())).collect();
 
         TxpoolCache {
@@ -28,7 +28,7 @@ impl TxpoolCache {
         trace!("Checking for new transactions in txpool");
         let retry_millis = 2000;
 
-        let txpool_hashes = rcp::retry(url, retry_millis, rcp::txpool_hashes).await;
+        let txpool_hashes = rpc::retry(url, retry_millis, rpc::txpool_hashes).await;
         trace!("Transactions in txpool: {}", txpool_hashes.len());
         let mut new_hashes = Vec::new();
         for hash in &txpool_hashes {
@@ -38,7 +38,7 @@ impl TxpoolCache {
         }
 
         let (new_transactions, _) = join!(
-            rcp::retry_vec(url, &new_hashes, retry_millis, rcp::transactions_by_hashes,),
+            rpc::retry_vec(url, &new_hashes, retry_millis, rpc::transactions_by_hashes,),
             async {
                 self.transactions.retain(|k, _| txpool_hashes.contains(k));
                 self.discovered_transfers

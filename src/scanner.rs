@@ -8,7 +8,7 @@ use monero::cryptonote::hash::Hashable;
 use tokio::join;
 use tokio::sync::Mutex;
 
-use crate::rcp;
+use crate::rpc;
 use crate::{BlockCache, PaymentsDb, SubIndex, Transfer, TxpoolCache};
 
 pub(crate) struct Scanner {
@@ -38,7 +38,7 @@ impl Scanner {
                 h
             }
             Ok(None) => {
-                let h = Scanner::daemon_height(&url).await;
+                let h = rpc::retry(&url, 2000, rpc::daemon_height).await;
                 info!("No pending payments found in AcceptXMR database. Skipping to blockchain tip: {}", h);
                 h
             }
@@ -302,10 +302,5 @@ impl Scanner {
         }
 
         amounts_received.into_iter().collect()
-    }
-
-    /// TODO: Retry on failure instead of panic.
-    async fn daemon_height(url: &str) -> u64 {
-        rcp::daemon_height(url).await.unwrap()
     }
 }

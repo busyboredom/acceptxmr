@@ -54,7 +54,7 @@ pub async fn block_transactions(
     transactions_by_hashes(url, transaction_hashes).await
 }
 
-pub async fn get_txpool(url: &str) -> Result<Vec<monero::Transaction>, RpcError> {
+pub async fn txpool(url: &str) -> Result<Vec<monero::Transaction>, RpcError> {
     let client = reqwest::ClientBuilder::new()
         .connect_timeout(time::Duration::from_millis(2000))
         .build()?;
@@ -225,6 +225,7 @@ where
     }
 }
 
+#[allow(clippy::module_name_repetitions)]
 #[derive(Debug)]
 pub enum RpcError {
     Http(reqwest::Error),

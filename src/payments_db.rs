@@ -138,10 +138,15 @@ impl PaymentsDb {
     }
 }
 
+/// An error occurring while storing or retrieving pending payments.
 #[derive(Debug)]
 pub enum PaymentStorageError {
+    /// An error caused by the database, or some interaction with it.
     Database(sled::Error),
+    /// A [`Payment`] in the database can not be updated, because the
+    /// `Payment` does not exist.
     Update(SubIndex),
+    /// Failed to (de)serialize a [`Payment`].
     Serialization(bincode::Error),
 }
 

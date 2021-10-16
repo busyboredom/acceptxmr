@@ -4,7 +4,7 @@ use std::sync::Arc;
 
 use log::{debug, trace, warn};
 
-use crate::{rcp, AcceptXmrError};
+use crate::{rpc, AcceptXmrError};
 
 pub(crate) struct BlockCache {
     pub height: Arc<AtomicU64>,
@@ -21,8 +21,8 @@ impl BlockCache {
         // TODO: Get blocks concurrently.
         for i in 0..cache_size {
             let height = initial_height.load(Ordering::Relaxed) - i;
-            let (block_id, block) = rcp::block(url, height).await?;
-            let transactions = rcp::block_transactions(url, &block).await?;
+            let (block_id, block) = rpc::block(url, height).await?;
+            let transactions = rpc::block_transactions(url, &block).await?;
             blocks.push((block_id, height, block, transactions));
         }
 
@@ -49,11 +49,11 @@ impl BlockCache {
         // If the cache is behind, get a new block and drop the oldest.
         trace!("Checking for block cache updates");
         let mut updated = 0;
-        let blockchain_height = rcp::daemon_height(url).await?;
+        let blockchain_height = rpc::daemon_height(url).await?;
         if self.height.load(Ordering::Relaxed) < blockchain_height {
             let (block_id, block) =
-                rcp::block(url, self.height.load(Ordering::Relaxed) + 1).await?;
-            let transactions = rcp::block_transactions(url, &block).await?;
+                rpc::block(url, self.height.load(Ordering::Relaxed) + 1).await?;
+            let transactions = rpc::block_transactions(url, &block).await?;
             self.blocks.insert(
                 0,
                 (
@@ -89,8 +89,8 @@ impl BlockCache {
             if self.blocks[i].2.header.prev_id != self.blocks[i + 1].0 {
                 warn!("Blocks in cache not consecutive! A reorg may have occurred; repairing now");
                 let (block_id, block) =
-                    rcp::block(url, self.height.load(Ordering::Relaxed) - 1).await?;
-                let transactions = rcp::block_transactions(url, &block).await?;
+                    rpc::block(url, self.height.load(Ordering::Relaxed) - 1).await?;
+                let transactions = rpc::block_transactions(url, &block).await?;
                 self.blocks[i + 1] = (
                     block_id,
                     self.height.load(Ordering::Relaxed) + 1,

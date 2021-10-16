@@ -4,6 +4,7 @@ use sled::Event;
 
 use crate::{payments_db::PaymentStorageError, AcceptXmrError, Payment};
 
+/// A means of receiving updates on a given payment.
 pub struct Subscriber(sled::Subscriber);
 
 impl Subscriber {
@@ -11,7 +12,7 @@ impl Subscriber {
         Subscriber(sled_subscriber)
     }
 
-    /// Attempts to wait for a payment update on this subscriber. 
+    /// Attempts to wait for a payment update on this subscriber.
     ///
     /// # Errors
     ///

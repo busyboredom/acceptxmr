@@ -1,8 +1,40 @@
+//! # A Library for Accepting Monero
+//!
+//! This library aims to provide a simple, reliable, and efficient means to track monero payments.
+//!
+//! To track a payments, the [`PaymentGateway`] generates subaddresses using your private view key and
+//! public spend key. It then watches for monero sent to that subaddress by periodically querying a
+//! monero daemon of your choosing, and scanning newly received transactions for relevant outputs
+//! using your private view key and public spend key.
+//!
+//! ## Security
+//!
+//! `AcceptXMR` is non-custodial, and does not require a hot wallet. However, it does require your
+//! private view key and public spend key for scanning outputs. If keeping these private is important
+//! to you, please take appropriate precautions to secure the platform you run your application on.
+//!
+//! Also note that anonymity networks like TOR are not currently supported for RPC calls. This
+//! means that your network traffic will reveal that you are interacting with the monero network.
+//!
+//! ## Reliability
+//!
+//! This library strives for reliability, but that attempt may not be successful. `AcceptXMR` is
+//! young and poorly tested, and relies on several crates which are undergoing rapid changes
+//! themselves (for example, the database used ([Sled](sled)) is still in beta).
+//!
+//! That said, this payment gateway should survive unexpected power loss thanks to pending payments
+//! being stored in a database, which is flushed to disk each time new blocks/transactions are
+//! scanned. A best effort is made to keep the scanning thread free any of potential panics, and RPC
+//! calls in the scanning thread are logged and repeated on failure. In the event that an error does
+//! occur, the liberal use of logging within this library should hopefully facilitate a speedy
+//! diagnosis an correction.
+
 #![warn(clippy::pedantic)]
+#![warn(missing_docs)]
 
 mod block_cache;
 mod payments_db;
-mod rcp;
+mod rpc;
 mod scanner;
 mod subaddress_cache;
 mod subscriber;
@@ -24,7 +56,6 @@ use tokio::runtime::Runtime;
 use tokio::{join, time};
 
 use block_cache::BlockCache;
-pub use payments_db::PaymentStorageError;
 use payments_db::PaymentsDb;
 use scanner::Scanner;
 use subaddress_cache::SubaddressCache;
@@ -33,7 +64,11 @@ use txpool_cache::TxpoolCache;
 pub use util::AcceptXmrError;
 
 const DEFAULT_SCAN_INTERVAL: Duration = Duration::from_millis(1000);
+const DEFAULT_DAEMON: &str = "https://node.moneroworld.com:18089";
+const DEFAULT_DB_PATH: &str = "AcceptXMR_DB";
 
+/// The `PaymentGateway` allows you to track new [`Payment`]s, remove old payments from tracking, and
+/// "watch" (or subscribe to) payments that are already pending.
 #[derive(Clone)]
 pub struct PaymentGateway(pub(crate) Arc<PaymentGatewayInner>);
 
@@ -56,12 +91,19 @@ impl Deref for PaymentGateway {
 }
 
 impl PaymentGateway {
+    /// Returns a builder used to create a new payment gateway.
     #[must_use]
-    pub fn builder() -> PaymentGatewayBuilder {
-        PaymentGatewayBuilder::default()
+    pub fn builder(private_viewkey: &str, public_spendkey: &str) -> PaymentGatewayBuilder {
+        PaymentGatewayBuilder::new(private_viewkey, public_spendkey)
     }
 
-    #[allow(clippy::missing_panics_doc)]
+    /// Runs the payment gateway. This function spawns a new thread, which periodically scans new
+    /// blocks and transactions from the configured daemon.
+    ///
+    /// # Panics
+    ///
+    /// This thread panics if called more than once. Only one payment gateway should be running at a
+    /// time.
     pub fn run(&self, cache_size: u64) {
         // Gather info needed by the scanner.
         let url = self.0.daemon_url.clone();
@@ -96,12 +138,15 @@ impl PaymentGateway {
             .expect("Error spawning scanning thread");
     }
 
+    /// Adds a new [`Payment`] to the payment gateway for tracking, and returns a [`Subscriber`] for
+    /// receiving updates to that payment as they occur.
+    ///
     /// # Errors
     ///
     /// Returns an error if there are any underlying issues modifying data in the
     /// database.
     ///
-    /// # Panics 
+    /// # Panics
     ///
     /// Panics if `xmr` is negative, or larger than `u64::MAX`.
     pub async fn new_payment(
@@ -162,6 +207,10 @@ impl PaymentGateway {
         }
     }
 
+    /// Returns a `Subscriber` for the given subaddress index. If a tracked payment exists for that
+    /// subaddress, the subscriber can be used to receive updates to for that payment.
+    ///
+    /// To subscribe to all payment updates, use the index of the primary address: (0,0).
     #[must_use]
     pub fn watch_payment(&self, sub_index: SubIndex) -> Subscriber {
         self.payments_db.watch_payment(sub_index)
@@ -174,25 +223,36 @@ impl PaymentGateway {
     /// Returns and error if a connection can not be made to the daemon, or if the daemon's response
     /// cannot be parsed.
     pub async fn daemon_height(&self) -> Result<u64, AcceptXmrError> {
-        Ok(rcp::daemon_height(&self.daemon_url).await?)
+        Ok(rpc::daemon_height(&self.daemon_url).await?)
     }
 }
 
-#[derive(Default)]
+/// A builder for the payment gateway. Used to configure your desired monero daemon, scan interval,
+/// view key, etc.
 pub struct PaymentGatewayBuilder {
     daemon_url: String,
-    private_viewkey: Option<monero::PrivateKey>,
-    public_spendkey: Option<monero::PublicKey>,
-    scan_interval: Option<Duration>,
-    db_path: Option<String>,
+    private_viewkey: monero::PrivateKey,
+    public_spendkey: monero::PublicKey,
+    scan_interval: Duration,
+    db_path: String,
 }
 
 impl PaymentGatewayBuilder {
+    /// Create a new payment gateway builder.
     #[must_use]
-    pub fn new() -> PaymentGatewayBuilder {
-        PaymentGatewayBuilder::default()
+    pub fn new(private_viewkey: &str, public_spendkey: &str) -> PaymentGatewayBuilder {
+        PaymentGatewayBuilder {
+            daemon_url: DEFAULT_DAEMON.to_string(),
+            private_viewkey: monero::PrivateKey::from_str(private_viewkey)
+                .expect("invalid private viewkey"),
+            public_spendkey: monero::PublicKey::from_str(public_spendkey)
+                .expect("invalid public spendkey"),
+            scan_interval: DEFAULT_SCAN_INTERVAL,
+            db_path: DEFAULT_DB_PATH.to_string(),
+        }
     }
 
+    /// Set the url and port of your preferred monero daemon. Defaults to `"https://node.moneroworld.com:18089"`
     #[must_use]
     pub fn daemon_url(mut self, url: &str) -> PaymentGatewayBuilder {
         reqwest::Url::parse(url).expect("invalid daemon URL");
@@ -200,48 +260,34 @@ impl PaymentGatewayBuilder {
         self
     }
 
-    #[must_use]
-    pub fn private_viewkey(mut self, private_viewkey: &str) -> PaymentGatewayBuilder {
-        self.private_viewkey =
-            Some(monero::PrivateKey::from_str(private_viewkey).expect("invalid private viewkey"));
-        self
-    }
-
-    #[must_use]
-    pub fn public_spendkey(mut self, public_spendkey: &str) -> PaymentGatewayBuilder {
-        self.public_spendkey =
-            Some(monero::PublicKey::from_str(public_spendkey).expect("invalid public spendkey"));
-        self
-    }
-
+    /// Set the minimum scan interval. New blocks / transactions will be scanned for relevant outputs
+    /// at most every `interval`. Defaults to 1 second.
     #[must_use]
     pub fn scan_interval(mut self, interval: Duration) -> PaymentGatewayBuilder {
-        self.scan_interval = Some(interval);
+        self.scan_interval = interval;
         self
     }
 
+    /// Path to the pending payments database. Defaults to `"AcceptXMR_DB/"`.
     #[must_use]
     pub fn db_path(mut self, path: &str) -> PaymentGatewayBuilder {
-        self.db_path = Some(path.to_string());
+        self.db_path = path.to_string();
         self
     }
 
+    /// Build the payment gateway.
+    ///
+    /// # Panics
+    ///
+    /// Panics the database cannot be opened at the path specified.
     #[must_use]
     pub fn build(self) -> PaymentGateway {
-        let private_viewkey = self
-            .private_viewkey
-            .expect("private viewkey must be defined");
-        let public_spendkey = self
-            .public_spendkey
-            .expect("public spendkey must be defined");
-        let scan_interval = self.scan_interval.unwrap_or(DEFAULT_SCAN_INTERVAL);
-        let db_path = self.db_path.unwrap_or_else(|| "AcceptXMR_DB".to_string());
         let payments_db =
-            PaymentsDb::new(&db_path).expect("failed to open pending payments database tree");
-        info!("Opened database in \"{}/\"", db_path);
+            PaymentsDb::new(&self.db_path).expect("failed to open pending payments database tree");
+        info!("Opened database in \"{}/\"", self.db_path);
         let viewpair = monero::ViewPair {
-            view: private_viewkey,
-            spend: public_spendkey,
+            view: self.private_viewkey,
+            spend: self.public_spendkey,
         };
         let subaddresses = SubaddressCache::init(&payments_db, viewpair);
         debug!("Generated {} initial subaddresses", subaddresses.len());
@@ -249,7 +295,7 @@ impl PaymentGatewayBuilder {
         PaymentGateway(Arc::new(PaymentGatewayInner {
             daemon_url: self.daemon_url,
             viewpair,
-            scan_interval,
+            scan_interval: self.scan_interval,
             payments_db,
             subaddresses: Mutex::new(subaddresses),
             height: Arc::new(atomic::AtomicU64::new(0)),
@@ -257,6 +303,11 @@ impl PaymentGatewayBuilder {
     }
 }
 
+/// Representation of a customer's payment. `Payment`s are created by the [`PaymentGateway`], and are
+/// initially unpaid.
+///
+/// `Payments` have an expiration block, after which they are considered expired. However, note that
+/// the payment gateway by default will continue updating payments even after expiration.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Payment {
     address: String,
@@ -295,6 +346,7 @@ impl Payment {
         }
     }
 
+    /// Returns `true` if the `Payment` has received the required number of confirmations.
     #[must_use]
     pub fn is_confirmed(&self) -> bool {
         self.confirmations().map_or(false, |confirmations| {
@@ -302,53 +354,65 @@ impl Payment {
         })
     }
 
+    /// Returns `true` if the `Payment`'s current block is greater than or equal to its expiration
+    /// block.
     #[must_use]
     pub fn is_expired(&self) -> bool {
         // At or passed the expiration block, AND not paid in full.
         self.current_height >= self.expiration_at && self.paid_at.is_none()
     }
 
+    /// Returns the base 58 encoded subaddress of this `Payment`.
     #[must_use]
     pub fn address(&self) -> String {
         self.address.clone()
     }
 
+    /// Returns the [subaddress index](SubIndex) of this `Payment`.
     #[must_use]
     pub fn index(&self) -> SubIndex {
         self.index
     }
 
+    /// Returns the blockchain height at which the `Payment` was created.
     #[must_use]
     pub fn started_at(&self) -> u64 {
         self.started_at
     }
 
+    /// Returns the amount of monero requested, in piconeros.
     #[must_use]
     pub fn amount_requested(&self) -> u64 {
         self.amount_requested
     }
 
+    /// Returns the amount of monero paid, in piconeros.
     #[must_use]
     pub fn amount_paid(&self) -> u64 {
         self.amount_paid
     }
 
+    /// Returns the number of confirmations this `Payment` requires before it is considered fully confirmed.
     #[must_use]
     pub fn confirmations_required(&self) -> u64 {
         self.confirmations_required
     }
 
+    /// Returns the number of confirmations this `Payment` has received since it was paid in full.
+    /// Returns None if the `Payment` has not yet been paid in full.
     #[must_use]
     pub fn confirmations(&self) -> Option<u64> {
         self.paid_at
             .map(|paid_at| self.current_height.saturating_sub(paid_at) + 1)
     }
 
+    /// Returns the last height at which this `payment` was updated.
     #[must_use]
     pub fn current_height(&self) -> u64 {
         self.current_height
     }
 
+    /// Returns the height at which this `Payment` will expire.
     #[must_use]
     pub fn expiration_at(&self) -> u64 {
         self.expiration_at
@@ -397,13 +461,17 @@ impl fmt::Display for Payment {
     }
 }
 
+/// A subaddress index.
 #[derive(Debug, Copy, Clone, Hash, Serialize, Deserialize, PartialEq, Eq)]
 pub struct SubIndex {
+    /// Subadress major index.
     pub major: u32,
+    /// Subaddress minor index.
     pub minor: u32,
 }
 
 impl SubIndex {
+    /// Create a new subaddress index from major and minor indexes.
     #[must_use]
     pub fn new(major: u32, minor: u32) -> SubIndex {
         SubIndex { major, minor }
@@ -450,9 +518,14 @@ impl From<SubIndex> for subaddress::Index {
     }
 }
 
+/// A `Transfer` represents a sum of owned outputs at a given height. When part of a `Payment`, it
+/// specifically represents the sum of owned outputs for that payment's subaddress, at a given
+/// height.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Copy)]
 pub struct Transfer {
+    /// Amount transferred in piconeros.
     pub amount: u64,
+    /// Block height of the transfer, or None if the outputs are in the txpool.
     pub height: Option<u64>,
 }
 

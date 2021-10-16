@@ -2,12 +2,16 @@ use std::error::Error;
 use std::fmt;
 
 use crate::payments_db::PaymentStorageError;
-use crate::rcp::RpcError;
+use crate::rpc::RpcError;
 
+/// Library's custom error type.
 #[derive(Debug)]
 pub enum AcceptXmrError {
+    /// An error originating from a daemon RPC call.
     Rpc(RpcError),
+    /// An error storing/retrieving [`Payment`](crate)s.
     PaymentStorage(PaymentStorageError),
+    /// Subscriber failed to retrieve update.
     SubscriberRecv,
 }
 

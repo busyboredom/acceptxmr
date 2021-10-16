@@ -38,12 +38,13 @@ async fn main() -> std::io::Result<()> {
         .to_string();
 
     let xmr_daemon_url = "http://busyboredom.com:18081";
-    let payment_gateway = PaymentGatewayBuilder::new()
-        .daemon_url(xmr_daemon_url)
-        .private_viewkey(&viewkey_string)
-        .public_spendkey("dd4c491d53ad6b46cda01ed6cb9bac57615d9eac8d5e4dd1c0363ac8dfd420a7")
-        .scan_interval(Duration::from_millis(2000))
-        .build();
+    let payment_gateway = PaymentGatewayBuilder::new(
+        &viewkey_string,
+        "dd4c491d53ad6b46cda01ed6cb9bac57615d9eac8d5e4dd1c0363ac8dfd420a7",
+    )
+    .daemon_url(xmr_daemon_url)
+    .scan_interval(Duration::from_millis(2000))
+    .build();
 
     payment_gateway.run(10);
 
