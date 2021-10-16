@@ -7,10 +7,15 @@ use crate::{payments_db::PaymentStorageError, AcceptXmrError, Payment};
 pub struct Subscriber(sled::Subscriber);
 
 impl Subscriber {
-    pub fn new(sled_subscriber: sled::Subscriber) -> Subscriber {
+    pub(crate) fn new(sled_subscriber: sled::Subscriber) -> Subscriber {
         Subscriber(sled_subscriber)
     }
 
+    /// Attempts to wait for a payment update on this subscriber. 
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the channel is closed, or if there is an error deserializing the update.
     pub fn recv(&mut self) -> Result<Payment, AcceptXmrError> {
         let maybe_event = self.0.next();
         match maybe_event {

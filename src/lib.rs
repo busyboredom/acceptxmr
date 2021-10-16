@@ -13,7 +13,7 @@ use std::cmp;
 use std::cmp::Ordering;
 use std::ops::Deref;
 use std::str::FromStr;
-use std::sync::{atomic, Arc, Mutex};
+use std::sync::{atomic, Arc, Mutex, PoisonError};
 use std::time::Duration;
 use std::{fmt, thread, u64};
 
@@ -61,6 +61,7 @@ impl PaymentGateway {
         PaymentGatewayBuilder::default()
     }
 
+    #[allow(clippy::missing_panics_doc)]
     pub fn run(&self, cache_size: u64) {
         // Gather info needed by the scanner.
         let url = self.0.daemon_url.clone();
@@ -95,7 +96,14 @@ impl PaymentGateway {
             .expect("Error spawning scanning thread");
     }
 
-    /// Panics if `xmr` is more than `u64::MAX`.
+    /// # Errors
+    ///
+    /// Returns an error if there are any underlying issues modifying data in the
+    /// database.
+    ///
+    /// # Panics 
+    ///
+    /// Panics if `xmr` is negative, or larger than `u64::MAX`.
     pub async fn new_payment(
         &self,
         xmr: f64,
@@ -104,7 +112,7 @@ impl PaymentGateway {
     ) -> Result<Subscriber, AcceptXmrError> {
         // Convert xmr to picos.
         let amount = monero::Amount::from_xmr(xmr)
-            .expect("amount due must be less than u64::MAX")
+            .expect("amount due must be positive and less than u64::MAX")
             .as_pico();
 
         // Get subaddress in base58, and subaddress index.
@@ -145,7 +153,7 @@ impl PaymentGateway {
                 // Put the subaddress back in the subaddress cache.
                 self.subaddresses
                     .lock()
-                    .unwrap()
+                    .unwrap_or_else(PoisonError::into_inner)
                     .insert(sub_index, old.address.clone());
 
                 Ok(Some(old))
