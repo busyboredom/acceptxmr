@@ -1,6 +1,8 @@
+#![warn(clippy::pedantic)]
+
 mod block_cache;
-mod error;
 mod payments_db;
+mod rcp;
 mod scanner;
 mod subaddress_cache;
 mod subscriber;
@@ -22,13 +24,13 @@ use tokio::runtime::Runtime;
 use tokio::{join, time};
 
 use block_cache::BlockCache;
-pub use error::AcceptXmrError;
 pub use payments_db::PaymentStorageError;
 use payments_db::PaymentsDb;
 use scanner::Scanner;
 use subaddress_cache::SubaddressCache;
 pub use subscriber::Subscriber;
 use txpool_cache::TxpoolCache;
+pub use util::AcceptXmrError;
 
 const DEFAULT_SCAN_INTERVAL: Duration = Duration::from_millis(1000);
 
@@ -54,13 +56,14 @@ impl Deref for PaymentGateway {
 }
 
 impl PaymentGateway {
+    #[must_use]
     pub fn builder() -> PaymentGatewayBuilder {
         PaymentGatewayBuilder::default()
     }
 
     pub fn run(&self, cache_size: u64) {
         // Gather info needed by the scanner.
-        let url = self.0.daemon_url.to_owned();
+        let url = self.0.daemon_url.clone();
         let viewpair = monero::ViewPair {
             view: self.0.viewpair.view,
             spend: self.0.viewpair.spend,
@@ -87,12 +90,12 @@ impl PaymentGateway {
                     loop {
                         join!(blockscan_interval.tick(), scanner.scan());
                     }
-                })
+                });
             })
             .expect("Error spawning scanning thread");
     }
 
-    /// Panics if xmr is more than u64::MAX.
+    /// Panics if `xmr` is more than `u64::MAX`.
     pub async fn new_payment(
         &self,
         xmr: f64,
@@ -123,10 +126,16 @@ impl PaymentGateway {
 
         // Return a subscriber so the caller can get updates on payment status.
         // TODO: Consider not returning before a flush happens (maybe optionally flush when called?).
-        Ok(self.watch_payment(&sub_index))
+        Ok(self.watch_payment(sub_index))
     }
 
-    pub fn remove_payment(&self, sub_index: &SubIndex) -> Result<Option<Payment>, AcceptXmrError> {
+    /// Remove (i.e. stop tracking) payment, returning the old payment if it existed.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if there are any underlying issues modifying/retrieving data in the
+    /// database.
+    pub fn remove_payment(&self, sub_index: SubIndex) -> Result<Option<Payment>, AcceptXmrError> {
         match self.payments_db.remove(sub_index)? {
             Some(old) => {
                 if !(old.is_expired() || old.is_confirmed() && old.started_at < old.current_height)
@@ -137,7 +146,7 @@ impl PaymentGateway {
                 self.subaddresses
                     .lock()
                     .unwrap()
-                    .insert(*sub_index, old.address.clone());
+                    .insert(sub_index, old.address.clone());
 
                 Ok(Some(old))
             }
@@ -145,12 +154,19 @@ impl PaymentGateway {
         }
     }
 
-    pub fn watch_payment(&self, sub_index: &SubIndex) -> Subscriber {
+    #[must_use]
+    pub fn watch_payment(&self, sub_index: SubIndex) -> Subscriber {
         self.payments_db.watch_payment(sub_index)
     }
 
-    pub async fn get_daemon_height(&self) -> Result<u64, AcceptXmrError> {
-        Ok(util::get_daemon_height(&self.daemon_url).await?)
+    /// Get current height of daemon using a monero daemon RPC call.
+    ///
+    /// # Errors
+    ///
+    /// Returns and error if a connection can not be made to the daemon, or if the daemon's response
+    /// cannot be parsed.
+    pub async fn daemon_height(&self) -> Result<u64, AcceptXmrError> {
+        Ok(rcp::daemon_height(&self.daemon_url).await?)
     }
 }
 
@@ -164,38 +180,45 @@ pub struct PaymentGatewayBuilder {
 }
 
 impl PaymentGatewayBuilder {
+    #[must_use]
     pub fn new() -> PaymentGatewayBuilder {
         PaymentGatewayBuilder::default()
     }
 
+    #[must_use]
     pub fn daemon_url(mut self, url: &str) -> PaymentGatewayBuilder {
         reqwest::Url::parse(url).expect("invalid daemon URL");
         self.daemon_url = url.to_string();
         self
     }
 
+    #[must_use]
     pub fn private_viewkey(mut self, private_viewkey: &str) -> PaymentGatewayBuilder {
         self.private_viewkey =
             Some(monero::PrivateKey::from_str(private_viewkey).expect("invalid private viewkey"));
         self
     }
 
+    #[must_use]
     pub fn public_spendkey(mut self, public_spendkey: &str) -> PaymentGatewayBuilder {
         self.public_spendkey =
             Some(monero::PublicKey::from_str(public_spendkey).expect("invalid public spendkey"));
         self
     }
 
+    #[must_use]
     pub fn scan_interval(mut self, interval: Duration) -> PaymentGatewayBuilder {
         self.scan_interval = Some(interval);
         self
     }
 
+    #[must_use]
     pub fn db_path(mut self, path: &str) -> PaymentGatewayBuilder {
         self.db_path = Some(path.to_string());
         self
     }
 
+    #[must_use]
     pub fn build(self) -> PaymentGateway {
         let private_viewkey = self
             .private_viewkey
@@ -264,52 +287,61 @@ impl Payment {
         }
     }
 
+    #[must_use]
     pub fn is_confirmed(&self) -> bool {
-        if let Some(confirmations) = self.confirmations() {
+        self.confirmations().map_or(false, |confirmations| {
             confirmations >= self.confirmations_required
-        } else {
-            false
-        }
+        })
     }
 
+    #[must_use]
     pub fn is_expired(&self) -> bool {
         // At or passed the expiration block, AND not paid in full.
         self.current_height >= self.expiration_at && self.paid_at.is_none()
     }
 
+    #[must_use]
     pub fn address(&self) -> String {
         self.address.clone()
     }
 
+    #[must_use]
     pub fn index(&self) -> SubIndex {
         self.index
     }
 
+    #[must_use]
     pub fn started_at(&self) -> u64 {
         self.started_at
     }
 
+    #[must_use]
     pub fn amount_requested(&self) -> u64 {
         self.amount_requested
     }
 
+    #[must_use]
     pub fn amount_paid(&self) -> u64 {
         self.amount_paid
     }
 
+    #[must_use]
     pub fn confirmations_required(&self) -> u64 {
         self.confirmations_required
     }
 
+    #[must_use]
     pub fn confirmations(&self) -> Option<u64> {
         self.paid_at
             .map(|paid_at| self.current_height.saturating_sub(paid_at) + 1)
     }
 
+    #[must_use]
     pub fn current_height(&self) -> u64 {
         self.current_height
     }
 
+    #[must_use]
     pub fn expiration_at(&self) -> u64 {
         self.expiration_at
     }
@@ -364,6 +396,7 @@ pub struct SubIndex {
 }
 
 impl SubIndex {
+    #[must_use]
     pub fn new(major: u32, minor: u32) -> SubIndex {
         SubIndex { major, minor }
     }

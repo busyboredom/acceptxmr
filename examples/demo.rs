@@ -51,7 +51,7 @@ async fn main() -> std::io::Result<()> {
     let gateway_copy = payment_gateway.clone();
     std::thread::spawn(move || {
         // Watch all payment updates by subscribing to the primary address index (0/0).
-        let mut subscriber = gateway_copy.watch_payment(&SubIndex::new(0, 0));
+        let mut subscriber = gateway_copy.watch_payment(SubIndex::new(0, 0));
         loop {
             let payment = match subscriber.recv() {
                 Ok(p) => p,
@@ -69,7 +69,7 @@ async fn main() -> std::io::Result<()> {
                     "Payment to index {} is either confirmed or expired. Removing payment now",
                     payment.index()
                 );
-                if let Err(e) = gateway_copy.remove_payment(&payment.index()) {
+                if let Err(e) = gateway_copy.remove_payment(payment.index()) {
                     error!("Failed to remove fully confirmed payment: {}", e);
                 };
             }

@@ -42,7 +42,7 @@ impl PaymentsDb {
         }
     }
 
-    pub fn remove(&self, sub_index: &SubIndex) -> Result<Option<Payment>, PaymentStorageError> {
+    pub fn remove(&self, sub_index: SubIndex) -> Result<Option<Payment>, PaymentStorageError> {
         // Prepare key (subaddress index).
         let key = [sub_index.major.to_be_bytes(), sub_index.minor.to_be_bytes()].concat();
 
@@ -55,24 +55,20 @@ impl PaymentsDb {
         &self,
     ) -> impl DoubleEndedIterator<Item = Result<Payment, PaymentStorageError>> + Send + Sync {
         // Convert iterator of Result<IVec> to Result<Payment>.
-        self.0
-            .iter()
-            .values()
-            .map(|r| {
-                r.map(|ivec| bincode::deserialize(&ivec).map_err(PaymentStorageError::from))
-                    .map_err(PaymentStorageError::from)
-            })
-            .flatten()
+        self.0.iter().values().flat_map(|r| {
+            r.map(|ivec| bincode::deserialize(&ivec).map_err(PaymentStorageError::from))
+                .map_err(PaymentStorageError::from)
+        })
     }
 
-    pub fn contains_key(&self, sub_index: &SubIndex) -> Result<bool, PaymentStorageError> {
+    pub fn contains_key(&self, sub_index: SubIndex) -> Result<bool, PaymentStorageError> {
         // Prepare key (subaddress index).
         let key = [sub_index.major.to_be_bytes(), sub_index.minor.to_be_bytes()].concat();
 
         self.0.contains_key(key).map_err(PaymentStorageError::from)
     }
 
-    pub fn update(&self, sub_index: &SubIndex, new: &Payment) -> Result<Payment, AcceptXmrError> {
+    pub fn update(&self, sub_index: SubIndex, new: &Payment) -> Result<Payment, AcceptXmrError> {
         // Prepare key (subaddress index).
         let key = [sub_index.major.to_be_bytes(), sub_index.minor.to_be_bytes()].concat();
 
@@ -86,16 +82,14 @@ impl PaymentsDb {
             .map_err(PaymentStorageError::from)?;
         match maybe_old {
             Some(ivec) => Ok(bincode::deserialize(&ivec).map_err(PaymentStorageError::from)?),
-            None => Err(AcceptXmrError::from(PaymentStorageError::Update(
-                *sub_index,
-            ))),
+            None => Err(AcceptXmrError::from(PaymentStorageError::Update(sub_index))),
         }
     }
 
-    pub fn watch_payment(&self, sub_index: &SubIndex) -> Subscriber {
+    pub fn watch_payment(&self, sub_index: SubIndex) -> Subscriber {
         let mut prefix = Vec::new();
         // If asked to watch the primary address index, watch everything. Otherwise, watch that specific index.
-        if sub_index != &SubIndex::new(0, 0) {
+        if sub_index != SubIndex::new(0, 0) {
             prefix = [sub_index.major.to_be_bytes(), sub_index.minor.to_be_bytes()].concat();
         }
         let sled_subscriber = self.0.watch_prefix(prefix);
@@ -114,7 +108,7 @@ impl PaymentsDb {
 
     /// Recover lowest height. This performs a full O(n) scan of the database. Returns None if the
     /// database is empty.
-    pub fn get_lowest_height(&self) -> Result<Option<u64>, PaymentStorageError> {
+    pub fn lowest_height(&self) -> Result<Option<u64>, PaymentStorageError> {
         self.iter()
             .min_by(|payment_1, payment_2| {
                 // If there is an error, we want it returned.

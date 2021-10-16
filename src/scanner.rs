@@ -1,14 +1,15 @@
 use std::collections::HashMap;
 use std::convert::TryInto;
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 
 use log::{error, info, trace};
 use monero::cryptonote::hash::Hashable;
 use tokio::join;
+use tokio::sync::Mutex;
 
-use crate::util;
-use crate::{BlockCache, Payment, PaymentsDb, SubIndex, Transfer, TxpoolCache};
+use crate::rcp;
+use crate::{BlockCache, PaymentsDb, SubIndex, Transfer, TxpoolCache};
 
 pub(crate) struct Scanner {
     url: String,
@@ -31,13 +32,13 @@ impl Scanner {
         atomic_height: Arc<AtomicU64>,
     ) -> Scanner {
         // Determine sensible initial height for block cache.
-        let height = match payments_db.get_lowest_height() {
+        let height = match payments_db.lowest_height() {
             Ok(Some(h)) => {
                 info!("Pending payments found in AcceptXMR database. Resuming from last block scanned: {}", h);
                 h
             }
             Ok(None) => {
-                let h = Scanner::get_daemon_height(&url).await;
+                let h = Scanner::daemon_height(&url).await;
                 info!("No pending payments found in AcceptXMR database. Skipping to blockchain tip: {}", h);
                 h
             }
@@ -74,7 +75,7 @@ impl Scanner {
             .block_cache
             .lock()
             // TODO: Handle this properly.
-            .unwrap()
+            .await
             .height
             .load(Ordering::Relaxed);
 
@@ -152,12 +153,15 @@ impl Scanner {
             }
         }
 
-        // log updates.
-        self.log_updates(&updated_payments);
-
-        // Save updates.
+        // Save and log updates.
         for payment in &updated_payments {
-            if let Err(e) = self.payments_db.update(&payment.index, payment) {
+            trace!(
+                "Payment update for subaddress index {}: \
+                    \n{}",
+                payment.index,
+                payment
+            );
+            if let Err(e) = self.payments_db.update(payment.index, payment) {
                 error!(
                     "Failed to save update to payment for index {} to database: {}",
                     payment.index, e
@@ -173,7 +177,7 @@ impl Scanner {
     ///
     /// Returns a vector of tuples of the form (subaddress index, amount, height)
     async fn scan_blocks(&self) -> Vec<(SubIndex, Transfer)> {
-        let mut block_cache = self.block_cache.lock().unwrap();
+        let mut block_cache = self.block_cache.lock().await;
 
         // Update block cache.
         let mut blocks_updated = match block_cache.update(&self.url).await {
@@ -208,11 +212,10 @@ impl Scanner {
             transfers.extend::<Vec<(SubIndex, Transfer)>>(
                 amounts_received
                     .into_iter()
-                    .map(|(_, amounts)| amounts)
-                    .flatten()
+                    .flat_map(|(_, amounts)| amounts)
                     .map(|amount| (amount.0, Transfer::new(amount.1, Some(height))))
                     .collect(),
-            )
+            );
         }
 
         transfers
@@ -223,7 +226,7 @@ impl Scanner {
     /// Returns a vector of tuples of the form (subaddress index, amount)
     async fn scan_txpool(&self) -> Vec<(SubIndex, Transfer)> {
         // Update txpool.
-        let mut txpool_cache = self.txpool_cache.lock().unwrap();
+        let mut txpool_cache = self.txpool_cache.lock().await;
         let new_transactions = txpool_cache.update(&self.url).await;
 
         // Transfers previously discovered the txpool (no reason to scan the same transactions
@@ -251,17 +254,16 @@ impl Scanner {
             })
             .collect();
 
-        let mut transfers: HashMap<monero::Hash, Vec<(SubIndex, Transfer)>> =
-            new_transfers.to_owned();
-        transfers.extend(discovered_transfers.to_owned());
+        let mut transfers: HashMap<monero::Hash, Vec<(SubIndex, Transfer)>> = new_transfers.clone();
+        // CLoning here because discovered_transactions is owned by the txpool cache.
+        transfers.extend(discovered_transfers.clone());
 
         // Add the new transfers to the cache for next scan.
         txpool_cache.insert_transfers(&new_transfers);
 
         transfers
             .into_iter()
-            .map(|(_, amounts)| amounts)
-            .flatten()
+            .flat_map(|(_, amounts)| amounts)
             .collect()
     }
 
@@ -278,14 +280,13 @@ impl Scanner {
                 let sub_index = SubIndex::from(transfer.sub_index());
 
                 // If this payment is being tracked, add the amount and payment ID to the result set.
-                match self.payments_db.contains_key(&sub_index) {
+                match self.payments_db.contains_key(sub_index) {
                     Ok(true) => {
-                        let amount = match transfers[0].amount() {
-                            Some(a) => a,
-                            None => {
-                                error!("Failed to unblind transaction amount");
-                                continue;
-                            }
+                        let amount = if let Some(amt) = transfers[0].amount() {
+                            amt
+                        } else {
+                            error!("Failed to unblind transaction amount");
+                            continue;
                         };
                         amounts_received
                             .entry(tx.hash())
@@ -303,20 +304,8 @@ impl Scanner {
         amounts_received.into_iter().collect()
     }
 
-    /// Log updates
-    fn log_updates(&self, updated_payments: &[Payment]) {
-        for payment in updated_payments {
-            trace!(
-                "Payment update for subaddress index {}: \
-                \n{}",
-                payment.index,
-                payment
-            );
-        }
-    }
-
     /// TODO: Retry on failure instead of panic.
-    async fn get_daemon_height(url: &str) -> u64 {
-        util::get_daemon_height(url).await.unwrap()
+    async fn daemon_height(url: &str) -> u64 {
+        rcp::daemon_height(url).await.unwrap()
     }
 }

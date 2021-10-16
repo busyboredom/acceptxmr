@@ -19,6 +19,8 @@ pub(crate) struct SubaddressCache {
 
 impl SubaddressCache {
     pub fn init(payments_db: &PaymentsDb, viewpair: monero::ViewPair) -> SubaddressCache {
+        // Get currently used subindexes from database, so they won't be put in the list of
+        // available subindexes.
         let used_sub_indexes: IndexSet<SubIndex> = payments_db
             .iter()
             .map(|payment_or_err| match payment_or_err {
@@ -32,18 +34,17 @@ impl SubaddressCache {
                 }
             })
             .collect();
-        let max_used = match used_sub_indexes.iter().max() {
-            Some(max_sub_index) => {
-                debug!(
-                    "Highest subaddress index in the database: {}",
-                    SubIndex::new(1, max_sub_index.minor)
-                );
-                max_sub_index.minor
-            }
-            None => {
-                debug!("Highest subaddress index in the database: N/A");
-                0
-            }
+
+        // Get highest index from list of used subindexes.
+        let max_used = if let Some(max_sub_index) = used_sub_indexes.iter().max() {
+            debug!(
+                "Highest subaddress index in the database: {}",
+                SubIndex::new(1, max_sub_index.minor)
+            );
+            max_sub_index.minor
+        } else {
+            debug!("Highest subaddress index in the database: N/A");
+            0
         };
 
         // Generate enough subaddresses to cover all pending payments.
@@ -68,18 +69,17 @@ impl SubaddressCache {
         let mut rng = rand::thread_rng();
         let map_index = rng.gen_range(0..self.available_subaddresses.len());
 
-        match self.available_subaddresses.shift_remove_index(map_index) {
-            Some((sub_index, subaddress)) => {
-                if self.len() <= MIN_AVAILABLE_SUBADDRESSES as usize {
-                    self.extend_by(MIN_AVAILABLE_SUBADDRESSES);
-                }
-                (sub_index, subaddress)
+        if let Some((sub_index, subaddress)) =
+            self.available_subaddresses.shift_remove_index(map_index)
+        {
+            if self.len() <= MIN_AVAILABLE_SUBADDRESSES as usize {
+                self.extend_by(MIN_AVAILABLE_SUBADDRESSES);
             }
-            None => {
-                // Is this the best way to handle this error?
-                error!("Failed to retrieve subaddress by index from subaddress cache; retrying");
-                self.remove_random()
-            }
+            (sub_index, subaddress)
+        } else {
+            // Is this the best way to handle this error?
+            error!("Failed to retrieve subaddress by index from subaddress cache; retrying");
+            self.remove_random()
         }
     }
 
@@ -95,7 +95,7 @@ impl SubaddressCache {
     /// subaddress cache.
     ///
     /// If adding `n` additional subaddresses would extend the cache beyond the maximum index of
-    /// (1, u32::MAX), generation stop prematurely.
+    /// `(1, u32::MAX)`, generation stop prematurely.
     ///
     /// Returns the number of subaddresses appended to the subaddress cache.
     pub fn extend_by(&mut self, n: u32) -> u32 {
