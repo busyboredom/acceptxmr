@@ -48,12 +48,14 @@
 //!     .build();
 //! ```
 //!
-//! Please note that `scan_interval` is the minimum time before scanning for updates. If your
+//! Please note that `scan_interval` is the minimum time between scanning for updates. If your
 //! daemon's response time is already greater than your `scan_interval`, or if your CPU is unable to
 //! scan new transactions fast enough, reducing your `scan_interval` will do nothing.
 
 #![warn(clippy::pedantic)]
 #![warn(missing_docs)]
+#![warn(clippy::cargo)]
+#![allow(clippy::multiple_crate_versions)]
 
 mod block_cache;
 mod payments_db;
