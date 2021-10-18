@@ -35,8 +35,8 @@ For maximum performance, please host your own monero daemon the same local netwo
 daemon slowness are primary cause of high payment update latency in the majority of use cases.
 
 To reduce the average latency before receiving payment updates, you may also consider lowering
-the [`PaymentGateway`]'s `scan_interval` below the default of 1 second:
-```
+the `PaymentGateway`'s `scan_interval` below the default of 1 second:
+```rust
 use acceptxmr::PaymentGateway;
 use std::time::Duration;
 

@@ -7,7 +7,7 @@ description = "Track Monero payments easily, efficiently and reliably."
 repository = "https://github.com/busyboredom/acceptxmr"
 readme = "README.md"
 keywords = ["monero", "xmr"]
-categories = ["cryptography::cryptocurrencies", ]
+categories = ["cryptography::cryptocurrencies"]
 
 [lib]
 name = "acceptxmr"
