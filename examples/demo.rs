@@ -1,6 +1,5 @@
 use std::env;
 use std::path::Path;
-use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
 use actix::{Actor, ActorContext, AsyncContext, StreamHandler};
@@ -80,7 +79,7 @@ async fn main() -> std::io::Result<()> {
         }
     });
 
-    let shared_payment_gateway = Data::new(Mutex::new(payment_gateway));
+    let shared_payment_gateway = Data::new(payment_gateway);
     HttpServer::new(move || {
         App::new()
             .app_data(shared_payment_gateway.clone())
@@ -213,10 +212,9 @@ impl StreamHandler<Result<ws::Message, ws::ProtocolError>> for WebSocket {
 async fn websocket(
     req: HttpRequest,
     stream: web::Payload,
-    payment_gateway: web::Data<Mutex<PaymentGateway>>,
+    payment_gateway: web::Data<PaymentGateway>,
 ) -> Result<HttpResponse, actix_web::Error> {
     // TODO: Use cookies to determine if a purchase is already pending, and avoid creating a new one.
-    let payment_gateway = payment_gateway.lock().unwrap();
     let subscriber = payment_gateway.new_payment(0.000001, 2, 3).await.unwrap();
 
     ws::start(WebSocket::new(subscriber), &req, stream)

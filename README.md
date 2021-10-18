@@ -2,7 +2,7 @@
 
 This library aims to provide a simple, reliable, and efficient means to track monero payments.
 
-To track a payments, the `PaymentGateway` generates subaddresses using your private view key and
+To track payments, the `PaymentGateway` generates subaddresses using your private view key and
 public spend key. It then watches for monero sent to that subaddress by periodically querying a
 monero daemon of your choosing, and scanning newly received transactions for relevant outputs
 using your private view key and public spend key.

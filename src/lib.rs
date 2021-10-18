@@ -2,7 +2,7 @@
 //!
 //! This library aims to provide a simple, reliable, and efficient means to track monero payments.
 //!
-//! To track a payments, the [`PaymentGateway`] generates subaddresses using your private view key and
+//! To track payments, the [`PaymentGateway`] generates subaddresses using your private view key and
 //! public spend key. It then watches for monero sent to that subaddress by periodically querying a
 //! monero daemon of your choosing, and scanning newly received transactions for relevant outputs
 //! using your private view key and public spend key.
@@ -66,19 +66,18 @@ mod subscriber;
 mod txpool_cache;
 mod util;
 
-use std::cmp;
-use std::cmp::Ordering;
+use std::cmp::{self, Ordering};
 use std::ops::Deref;
 use std::str::FromStr;
-use std::sync::{atomic, Arc, Mutex, PoisonError};
+use std::sync::{atomic, Arc};
 use std::time::Duration;
 use std::{fmt, thread, u64};
 
 use log::{debug, info, warn};
 use monero::cryptonote::subaddress;
 use serde::{Deserialize, Serialize};
-use tokio::runtime::Runtime;
-use tokio::{join, time};
+use tokio::runtime::{Handle, Runtime};
+use tokio::{join, sync::Mutex, time};
 
 use block_cache::BlockCache;
 use payments_db::PaymentsDb;
@@ -202,7 +201,7 @@ impl PaymentGateway {
             .as_pico();
 
         // Get subaddress in base58, and subaddress index.
-        let (sub_index, subaddress) = self.subaddresses.lock().unwrap().remove_random();
+        let (sub_index, subaddress) = self.subaddresses.lock().await.remove_random();
 
         // Create payment object.
         let payment = Payment::new(
@@ -237,10 +236,12 @@ impl PaymentGateway {
                     warn!("Removed a payment which was neither expired, nor fully confirmed and a block or more old. Was this intentional?");
                 }
                 // Put the subaddress back in the subaddress cache.
-                self.subaddresses
-                    .lock()
-                    .unwrap_or_else(PoisonError::into_inner)
-                    .insert(sub_index, old.address.clone());
+                Handle::current().block_on(async {
+                    self.subaddresses
+                        .lock()
+                        .await
+                        .insert(sub_index, old.address.clone())
+                });
 
                 Ok(Some(old))
             }
