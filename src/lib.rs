@@ -1,4 +1,4 @@
-//! # A Library for Accepting Monero
+//! # `AcceptXMR`: A Library for Accepting Monero
 //!
 //! This library aims to provide a simple, reliable, and efficient means to track monero payments.
 //!
@@ -19,8 +19,8 @@
 //! ## Reliability
 //!
 //! This library strives for reliability, but that attempt may not be successful. `AcceptXMR` is
-//! young and poorly tested, and relies on several crates which are undergoing rapid changes
-//! themselves (for example, the database used ([Sled](sled)) is still in beta).
+//! young and unproven, and relies on several crates which are undergoing rapid changes themselves
+//! (for example, the database used ([Sled](sled)) is still in beta).
 //!
 //! That said, this payment gateway should survive unexpected power loss thanks to pending payments
 //! being stored in a database, which is flushed to disk each time new blocks/transactions are
