@@ -119,10 +119,6 @@ impl RpcClient {
         hashes: &[monero::Hash],
     ) -> Result<Vec<monero::Transaction>, RpcError> {
         let mut transactions = Vec::new();
-        // If passed an empty list, return an empty list.
-        if hashes.is_empty() {
-            return Ok(transactions);
-        }
         for i in 0..=hashes.len() / MAX_REQUESTED_TRANSACTIONS {
             // We've gotta grab these in parts to avoid putting too much load on the RPC server, so
             // these are the start and end indexes of the hashes we're grabbing for now.
@@ -131,8 +127,13 @@ impl RpcClient {
             let ending_index: usize =
                 std::cmp::min(MAX_REQUESTED_TRANSACTIONS * (i + 1), hashes.len());
 
+            // If requesting an empty list, return what we have now.
+            if ending_index == starting_index {
+                return Ok(transactions);
+            }
+
             // Build a json containing the hashes of the transactions we want.
-            trace!("Requesting {} transactions", hashes.len());
+            trace!("Requesting {} transactions", ending_index - starting_index);
             let request_body = r#"{"txs_hashes":"#.to_owned()
                 + &serde_json::json!(hashes[starting_index..ending_index]
                     .iter()
