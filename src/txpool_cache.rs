@@ -4,31 +4,32 @@ use log::trace;
 use monero::cryptonote::hash::Hashable;
 use tokio::join;
 
-use crate::{rpc, SubIndex, Transfer};
+use crate::{rpc::RpcClient, AcceptXmrError, SubIndex, Transfer};
 
 pub(crate) struct TxpoolCache {
+    rpc_client: RpcClient,
     transactions: HashMap<monero::Hash, monero::Transaction>,
     discovered_transfers: HashMap<monero::Hash, Vec<(SubIndex, Transfer)>>,
 }
 
 impl TxpoolCache {
-    pub async fn init(url: &str) -> TxpoolCache {
-        let txs = rpc::retry(url, 2000, rpc::txpool).await;
+    pub async fn init(rpc_client: RpcClient) -> Result<TxpoolCache, AcceptXmrError> {
+        let txs = rpc_client.txpool().await?;
         let transactions = txs.iter().map(|tx| (tx.hash(), tx.clone())).collect();
 
-        TxpoolCache {
+        Ok(TxpoolCache {
+            rpc_client,
             transactions,
             discovered_transfers: HashMap::new(),
-        }
+        })
     }
 
-    /// Update the txpool cache with newest tansactions from daemon txpool. Returns
+    /// Update the txpool cache with newest [tansactions](monero::Transaction) from daemon txpool. Returns
     /// transactions received.
-    pub async fn update(&mut self, url: &str) -> Vec<monero::Transaction> {
+    pub async fn update(&mut self) -> Result<Vec<monero::Transaction>, AcceptXmrError> {
         trace!("Checking for new transactions in txpool");
-        let retry_millis = 2000;
 
-        let txpool_hashes = rpc::retry(url, retry_millis, rpc::txpool_hashes).await;
+        let txpool_hashes = self.rpc_client.txpool_hashes().await?;
         trace!("Transactions in txpool: {}", txpool_hashes.len());
         let mut new_hashes = Vec::new();
         for hash in &txpool_hashes {
@@ -37,19 +38,20 @@ impl TxpoolCache {
             }
         }
 
-        let (new_transactions, _) = join!(
-            rpc::retry_vec(url, &new_hashes, retry_millis, rpc::transactions_by_hashes,),
-            async {
-                self.transactions.retain(|k, _| txpool_hashes.contains(k));
-                self.discovered_transfers
-                    .retain(|k, _| txpool_hashes.contains(k));
-            }
-        );
+        // Cloning RPC client because async block below requires unique access to `self`.
+        // TODO: Find a way to do this without cloning.
+        let rpc_client = self.rpc_client.clone();
+        let (new_transactions, _) = join!(rpc_client.transactions_by_hashes(&new_hashes), async {
+            self.transactions.retain(|k, _| txpool_hashes.contains(k));
+            self.discovered_transfers
+                .retain(|k, _| txpool_hashes.contains(k));
+        });
+        let new_transactions = new_transactions?;
 
         self.transactions
             .extend(new_transactions.iter().map(|tx| (tx.hash(), tx.clone())));
 
-        new_transactions
+        Ok(new_transactions)
     }
 
     pub fn discovered_transfers(&self) -> &HashMap<monero::Hash, Vec<(SubIndex, Transfer)>> {

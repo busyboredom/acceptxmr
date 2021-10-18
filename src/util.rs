@@ -3,16 +3,19 @@ use std::fmt;
 
 use crate::payments_db::PaymentStorageError;
 use crate::rpc::RpcError;
+use crate::SubIndex;
 
 /// Library's custom error type.
 #[derive(Debug)]
 pub enum AcceptXmrError {
     /// An error originating from a daemon RPC call.
     Rpc(RpcError),
-    /// An error storing/retrieving [`Payment`](crate)s.
+    /// An error storing/retrieving [`Payment`](crate::Payment)s.
     PaymentStorage(PaymentStorageError),
-    /// Subscriber failed to retrieve update.
+    /// [`Subscriber`](crate::Subscriber) failed to retrieve update.
     SubscriberRecv,
+    /// Failure to unblind the amount of an owned output.
+    Unblind(SubIndex),
 }
 
 impl From<RpcError> for AcceptXmrError {
@@ -30,16 +33,17 @@ impl From<PaymentStorageError> for AcceptXmrError {
 impl fmt::Display for AcceptXmrError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            AcceptXmrError::Rpc(reqwest_error) => {
-                write!(f, "RPC error: {}", reqwest_error)
+            AcceptXmrError::Rpc(e) => {
+                write!(f, "RPC error: {}", e)
             }
-            AcceptXmrError::PaymentStorage(payment_storage_error) => {
-                write!(f, "payment storage error: {}", payment_storage_error)
+            AcceptXmrError::PaymentStorage(e) => {
+                write!(f, "payment storage error: {}", e)
             }
             AcceptXmrError::SubscriberRecv => write!(
                 f,
-                "subscriber cannot receive further updates because the update source has shut down"
+                "subscriber cannot receive further updates, likely because the scanning thread has panicked"
             ),
+            AcceptXmrError::Unblind(index) => write!(f, "unable to unblind amount of owned output sent to subaddress index {}", index),
         }
     }
 }

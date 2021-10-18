@@ -43,16 +43,19 @@ async fn main() -> std::io::Result<()> {
         "dd4c491d53ad6b46cda01ed6cb9bac57615d9eac8d5e4dd1c0363ac8dfd420a7",
     )
     .daemon_url(xmr_daemon_url)
-    .scan_interval(Duration::from_millis(2000))
+    .scan_interval(Duration::from_millis(1000))
     .build();
 
-    payment_gateway.run(10);
+    payment_gateway
+        .run(10)
+        .await
+        .expect("failed to run payment gateway");
 
     // Watch for payment updates and deal with them accordingly.
     let gateway_copy = payment_gateway.clone();
     std::thread::spawn(move || {
         // Watch all payment updates by subscribing to the primary address index (0/0).
-        let mut subscriber = gateway_copy.watch_payment(SubIndex::new(0, 0));
+        let mut subscriber = gateway_copy.subscribe(SubIndex::new(0, 0));
         loop {
             let payment = match subscriber.recv() {
                 Ok(p) => p,

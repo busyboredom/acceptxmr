@@ -25,9 +25,9 @@
 //! That said, this payment gateway should survive unexpected power loss thanks to pending payments
 //! being stored in a database, which is flushed to disk each time new blocks/transactions are
 //! scanned. A best effort is made to keep the scanning thread free any of potential panics, and RPC
-//! calls in the scanning thread are logged and repeated on failure. In the event that an error does
-//! occur, the liberal use of logging within this library should hopefully facilitate a speedy
-//! diagnosis an correction.
+//! calls in the scanning thread are logged on failure and repeated next scan. In the event that an
+//! error does occur, the liberal use of logging within this library will hopefully facilitate a
+//! speedy diagnosis an correction.
 
 #![warn(clippy::pedantic)]
 #![warn(missing_docs)]
@@ -57,6 +57,7 @@ use tokio::{join, time};
 
 use block_cache::BlockCache;
 use payments_db::PaymentsDb;
+use rpc::RpcClient;
 use scanner::Scanner;
 use subaddress_cache::SubaddressCache;
 pub use subscriber::Subscriber;
@@ -64,17 +65,18 @@ use txpool_cache::TxpoolCache;
 pub use util::AcceptXmrError;
 
 const DEFAULT_SCAN_INTERVAL: Duration = Duration::from_millis(1000);
-const DEFAULT_DAEMON: &str = "https://node.moneroworld.com:18089";
+const DEFAULT_DAEMON: &str = "http://node.moneroworld.com:18089";
 const DEFAULT_DB_PATH: &str = "AcceptXMR_DB";
+const DEFAULT_RPC_CONNECTION_TIMEOUT: Duration = Duration::from_millis(2000);
 
-/// The `PaymentGateway` allows you to track new [`Payment`]s, remove old payments from tracking, and
-/// "watch" (or subscribe to) payments that are already pending.
+/// The `PaymentGateway` allows you to track new [Payments](Payment), remove old payments from tracking, and
+/// subscribe to payments that are already pending.
 #[derive(Clone)]
 pub struct PaymentGateway(pub(crate) Arc<PaymentGatewayInner>);
 
 #[doc(hidden)]
 pub struct PaymentGatewayInner {
-    daemon_url: String,
+    rpc_client: RpcClient,
     viewpair: monero::ViewPair,
     scan_interval: Duration,
     payments_db: PaymentsDb,
@@ -98,22 +100,40 @@ impl PaymentGateway {
     }
 
     /// Runs the payment gateway. This function spawns a new thread, which periodically scans new
-    /// blocks and transactions from the configured daemon.
+    /// blocks and transactions from the configured daemon and updates pending [Payments](Payment)
+    /// in the database.
+    ///
+    /// # Errors
+    ///
+    /// Returns an [`AcceptXmrError::PaymentStorage`] error if there was an underlying issue with
+    /// the database, or an [`AcceptXmrError::Rpc`] error if there was an issue getting necessary
+    /// data from the monero daemon.
     ///
     /// # Panics
     ///
-    /// This thread panics if called more than once. Only one payment gateway should be running at a
-    /// time.
-    pub fn run(&self, cache_size: u64) {
+    /// This thread panics if successfully called more than once. Only one payment gateway should be
+    /// running at a time. Note that if the first call resulted in an error, this can safely be
+    /// called a second time.
+    pub async fn run(&self, cache_size: u64) -> Result<(), AcceptXmrError> {
         // Gather info needed by the scanner.
-        let url = self.0.daemon_url.clone();
+        let rpc_client = self.rpc_client.clone();
         let viewpair = monero::ViewPair {
-            view: self.0.viewpair.view,
-            spend: self.0.viewpair.spend,
+            view: self.viewpair.view,
+            spend: self.viewpair.spend,
         };
         let scan_interval = self.scan_interval;
         let atomic_height = self.height.clone();
         let pending_payments = self.payments_db.clone();
+
+        // Create scanner.
+        let mut scanner = Scanner::new(
+            rpc_client,
+            viewpair,
+            pending_payments,
+            cache_size,
+            atomic_height,
+        )
+        .await?;
 
         // Spawn the scanning thread.
         info!("Starting blockchain scanner");
@@ -123,11 +143,6 @@ impl PaymentGateway {
                 // The thread needs a tokio runtime to process async functions.
                 let tokio_runtime = Runtime::new().unwrap();
                 tokio_runtime.block_on(async move {
-                    // Create scanner.
-                    let mut scanner =
-                        Scanner::new(url, viewpair, pending_payments, cache_size, atomic_height)
-                            .await;
-
                     // Scan for transactions once every scan_interval.
                     let mut blockscan_interval = time::interval(scan_interval);
                     loop {
@@ -136,9 +151,10 @@ impl PaymentGateway {
                 });
             })
             .expect("Error spawning scanning thread");
+        Ok(())
     }
 
-    /// Adds a new [`Payment`] to the payment gateway for tracking, and returns a [`Subscriber`] for
+    /// Adds a new [Payment] to the payment gateway for tracking, and returns a [Subscriber] for
     /// receiving updates to that payment as they occur.
     ///
     /// # Errors
@@ -179,7 +195,7 @@ impl PaymentGateway {
 
         // Return a subscriber so the caller can get updates on payment status.
         // TODO: Consider not returning before a flush happens (maybe optionally flush when called?).
-        Ok(self.watch_payment(sub_index))
+        Ok(self.subscribe(sub_index))
     }
 
     /// Remove (i.e. stop tracking) payment, returning the old payment if it existed.
@@ -212,8 +228,8 @@ impl PaymentGateway {
     ///
     /// To subscribe to all payment updates, use the index of the primary address: (0,0).
     #[must_use]
-    pub fn watch_payment(&self, sub_index: SubIndex) -> Subscriber {
-        self.payments_db.watch_payment(sub_index)
+    pub fn subscribe(&self, sub_index: SubIndex) -> Subscriber {
+        self.payments_db.subscribe(sub_index)
     }
 
     /// Get current height of daemon using a monero daemon RPC call.
@@ -223,7 +239,7 @@ impl PaymentGateway {
     /// Returns and error if a connection can not be made to the daemon, or if the daemon's response
     /// cannot be parsed.
     pub async fn daemon_height(&self) -> Result<u64, AcceptXmrError> {
-        Ok(rpc::daemon_height(&self.daemon_url).await?)
+        Ok(self.rpc_client.daemon_height().await?)
     }
 }
 
@@ -252,7 +268,8 @@ impl PaymentGatewayBuilder {
         }
     }
 
-    /// Set the url and port of your preferred monero daemon. Defaults to `"https://node.moneroworld.com:18089"`
+    /// Set the url and port of your preferred monero daemon. Defaults to
+    /// [http://node.moneroworld.com:18089](http://node.moneroworld.com:18089)
     #[must_use]
     pub fn daemon_url(mut self, url: &str) -> PaymentGatewayBuilder {
         reqwest::Url::parse(url).expect("invalid daemon URL");
@@ -268,7 +285,7 @@ impl PaymentGatewayBuilder {
         self
     }
 
-    /// Path to the pending payments database. Defaults to `"AcceptXMR_DB/"`.
+    /// Path to the pending payments database. Defaults to `AcceptXMR_DB/`.
     #[must_use]
     pub fn db_path(mut self, path: &str) -> PaymentGatewayBuilder {
         self.db_path = path.to_string();
@@ -279,9 +296,12 @@ impl PaymentGatewayBuilder {
     ///
     /// # Panics
     ///
-    /// Panics the database cannot be opened at the path specified.
+    /// Panics the database cannot be opened at the path specified, or if the RPC client cannot load
+    /// the system configuration or initialize a TLS backend.
     #[must_use]
     pub fn build(self) -> PaymentGateway {
+        let rpc_client = RpcClient::new(&self.daemon_url, DEFAULT_RPC_CONNECTION_TIMEOUT)
+            .expect("failed to create RPC client during PaymentGateway creation");
         let payments_db =
             PaymentsDb::new(&self.db_path).expect("failed to open pending payments database tree");
         info!("Opened database in \"{}/\"", self.db_path);
@@ -293,7 +313,7 @@ impl PaymentGatewayBuilder {
         debug!("Generated {} initial subaddresses", subaddresses.len());
 
         PaymentGateway(Arc::new(PaymentGatewayInner {
-            daemon_url: self.daemon_url,
+            rpc_client,
             viewpair,
             scan_interval: self.scan_interval,
             payments_db,
@@ -306,8 +326,10 @@ impl PaymentGatewayBuilder {
 /// Representation of a customer's payment. `Payment`s are created by the [`PaymentGateway`], and are
 /// initially unpaid.
 ///
-/// `Payments` have an expiration block, after which they are considered expired. However, note that
+/// `Payment`s have an expiration block, after which they are considered expired. However, note that
 /// the payment gateway by default will continue updating payments even after expiration.
+///
+/// To receive updates for a given `Payment`, use a [Subscriber].
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Payment {
     address: String,

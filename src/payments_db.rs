@@ -86,9 +86,9 @@ impl PaymentsDb {
         }
     }
 
-    pub fn watch_payment(&self, sub_index: SubIndex) -> Subscriber {
+    pub fn subscribe(&self, sub_index: SubIndex) -> Subscriber {
         let mut prefix = Vec::new();
-        // If asked to watch the primary address index, watch everything. Otherwise, watch that specific index.
+        // If asked to subscribe to the primary address index, watch everything. Otherwise, watch that specific index.
         if sub_index != SubIndex::new(0, 0) {
             prefix = [sub_index.major.to_be_bytes(), sub_index.minor.to_be_bytes()].concat();
         }

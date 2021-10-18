@@ -1,227 +1,186 @@
-// TODO: Make this a struct and name it Rpc.
-
-use std::fmt;
-use std::future::Future;
+use std::time::Duration;
+use std::{any, fmt};
 use std::{collections::HashSet, error::Error};
 
-use log::{error, trace};
+use log::trace;
 use monero::consensus::{deserialize, encode};
-use tokio::{join, time};
 
-pub async fn block(url: &str, height: u64) -> Result<(monero::Hash, monero::Block), RpcError> {
-    let client = reqwest::ClientBuilder::new()
-        .connect_timeout(time::Duration::from_millis(2000))
-        .build()?;
+/// Maximum number of transactions to request at once (daemon limits this).
+const MAX_REQUESTED_TRANSACTIONS: usize = 100;
 
-    trace!("Requesting block {}", height);
-    let request_body = r#"{"jsonrpc":"2.0","id":"0","method":"get_block","params":{"height":"#
-        .to_owned()
-        + &height.to_string()
-        + "}}";
-    let res = client
-        .post(url.to_owned() + "/json_rpc")
-        .body(request_body)
-        .send()
-        .await?;
-
-    let block_json = res.json::<serde_json::Value>().await?;
-
-    let block_id_hex = match block_json["result"]["block_header"]["hash"].as_str() {
-        Some(s) => s,
-        None => return Err(RpcError::MissingData),
-    };
-    let block_id = monero::Hash::from_slice(&hex::decode(block_id_hex)?);
-
-    let block_blob = block_json["result"]["blob"]
-        .as_str()
-        .expect("failed to read block blob from json_rpc");
-
-    let block_bytes =
-        hex::decode(block_blob).expect("failed to decode block blob from hex to bytes");
-
-    let block = deserialize(&block_bytes).expect("failed to deserialize block blob");
-
-    Ok((block_id, block))
+#[derive(Debug, Clone)]
+pub(crate) struct RpcClient {
+    client: reqwest::Client,
+    url: String,
 }
 
-pub async fn block_transactions(
-    url: &str,
-    block: &monero::Block,
-) -> Result<Vec<monero::Transaction>, RpcError> {
-    // Get block transactions in sets of 100 or less (the restricted RPC maximum).
-    // TODO: Get them concurrently.
-    let transaction_hashes = &block.tx_hashes;
-    transactions_by_hashes(url, transaction_hashes).await
-}
+impl RpcClient {
+    /// Returns an Rpc client pointing at the specified monero daemon.
+    ///
+    /// # Errors
+    ///
+    /// This method fails if a TLS backend cannot be initialized, or the resolver
+    /// cannot load the system configuration.
+    pub fn new(url: &str, connection_timeout: Duration) -> Result<RpcClient, RpcError> {
+        let client = reqwest::ClientBuilder::new()
+            .connect_timeout(connection_timeout)
+            .build()?;
+        Ok(RpcClient {
+            client,
+            url: url.to_string(),
+        })
+    }
 
-pub async fn txpool(url: &str) -> Result<Vec<monero::Transaction>, RpcError> {
-    let client = reqwest::ClientBuilder::new()
-        .connect_timeout(time::Duration::from_millis(2000))
-        .build()?;
+    pub async fn block(&self, height: u64) -> Result<(monero::Hash, monero::Block), RpcError> {
+        trace!("Requesting block {}", height);
+        let request_body = r#"{"jsonrpc":"2.0","id":"0","method":"get_block","params":{"height":"#
+            .to_owned()
+            + &height.to_string()
+            + "}}";
+        let request_endpoint = "/json_rpc";
 
-    trace!("Requesting txpool");
-    // TODO: Consider using json_rpc method for this.
-    let res = client
-        .post(url.to_owned() + "/get_transaction_pool")
-        .body("")
-        .send()
-        .await?;
-    let res = res.json::<serde_json::Value>().await?;
+        let res: serde_json::Value = self.request(&request_body, request_endpoint).await?;
 
-    let transaction_blobs = res["transactions"].as_array();
-    let mut transactions = Vec::new();
-    if let Some(blobs) = transaction_blobs {
+        let block_hash_str = res["result"]["block_header"]["hash"]
+            .as_str()
+            .ok_or_else(|| {
+                RpcError::MissingData(
+                    "{{ result: {{ block_header: {{ hash: \"...\"}} }} }}".to_string(),
+                )
+            })?;
+        let block_hash_hex = hex::decode(block_hash_str)?;
+        let block_hash = monero::Hash::from_slice(&block_hash_hex);
+
+        let block_str = res["result"]["blob"].as_str().ok_or_else(|| {
+            RpcError::MissingData("{{ result: {{ blob: \"...\" }} }}".to_string())
+        })?;
+        let block_hex = hex::decode(block_str)?;
+        let block = deserialize(&block_hex)?;
+
+        Ok((block_hash, block))
+    }
+
+    pub async fn block_transactions(
+        &self,
+        block: &monero::Block,
+    ) -> Result<Vec<monero::Transaction>, RpcError> {
+        // Get block transactions in sets of 100 or less (the restricted RPC maximum).
+        let transaction_hashes = &block.tx_hashes;
+        self.transactions_by_hashes(transaction_hashes).await
+    }
+
+    pub async fn txpool(&self) -> Result<Vec<monero::Transaction>, RpcError> {
+        trace!("Requesting txpool");
+        let mut transactions = Vec::new();
+        let request_body = "";
+        let request_endpoint = "/get_transaction_pool";
+
+        let res = self.request(request_body, request_endpoint).await?;
+
+        let blobs = res["transactions"]
+            .as_array()
+            .ok_or_else(|| RpcError::MissingData("{{ transactions: [...] }}".to_string()))?;
         for blob in blobs {
-            let tx_str = match blob["tx_blob"].as_str() {
-                Some(s) => s,
-                None => continue,
-            };
+            let tx_str = blob["tx_blob"].as_str().ok_or_else(|| {
+                RpcError::MissingData("{{ transactions: [ {{ tx_blob: \"...\" }} ] }}".to_string())
+            })?;
             let tx_hex = hex::decode(tx_str)?;
-            let tx = deserialize(&tx_hex)?;
+            let tx: monero::Transaction = deserialize(&tx_hex)?;
             transactions.push(tx);
         }
-    };
+        Ok(transactions)
+    }
 
-    Ok(transactions)
-}
+    pub async fn txpool_hashes(&self) -> Result<HashSet<monero::Hash>, RpcError> {
+        trace!("Requesting txpool hashes");
+        let mut transactions = HashSet::new();
+        let request_body = "";
+        let request_endpoint = "/get_transaction_pool_hashes";
 
-pub async fn txpool_hashes(url: &str) -> Result<HashSet<monero::Hash>, RpcError> {
-    let client = reqwest::ClientBuilder::new()
-        .connect_timeout(time::Duration::from_millis(2000))
-        .build()?;
+        let res = self.request(request_body, request_endpoint).await?;
 
-    trace!("Requesting txpool hashes");
-    let res = client
-        .post(url.to_owned() + "/get_transaction_pool_hashes")
-        .body("")
-        .send()
-        .await?;
-    let res = res.json::<serde_json::Value>().await?;
-
-    let transaction_hashes_blobs = res["tx_hashes"].as_array();
-    let mut transactions = HashSet::new();
-    if let Some(blobs) = transaction_hashes_blobs {
+        let blobs = res["tx_hashes"]
+            .as_array()
+            .ok_or_else(|| RpcError::MissingData("{{ tx_hashes: \"...\" }}".to_string()))?;
         for blob in blobs {
-            let tx_hash_str = match blob.as_str() {
-                Some(hs) => hs,
-                None => continue,
-            };
+            let tx_hash_str = blob.as_str().ok_or_else(|| RpcError::DataType {
+                found: blob.clone(),
+                expected: any::type_name::<&str>(),
+            })?;
             let tx_hash_hex = hex::decode(tx_hash_str)?;
             let tx_hash = deserialize(&tx_hash_hex)?;
             transactions.insert(tx_hash);
         }
-    };
+        Ok(transactions)
+    }
 
-    Ok(transactions)
-}
+    pub async fn transactions_by_hashes(
+        &self,
+        hashes: &[monero::Hash],
+    ) -> Result<Vec<monero::Transaction>, RpcError> {
+        let mut transactions = Vec::new();
+        // If passed an empty list, return an empty list.
+        if hashes.is_empty() {
+            return Ok(transactions);
+        }
+        for i in 0..=hashes.len() / MAX_REQUESTED_TRANSACTIONS {
+            // We've gotta grab these in parts to avoid putting too much load on the RPC server, so
+            // these are the start and end indexes of the hashes we're grabbing for now.
+            // TODO: Get them concurrently.
+            let starting_index: usize = i * MAX_REQUESTED_TRANSACTIONS;
+            let ending_index: usize =
+                std::cmp::min(MAX_REQUESTED_TRANSACTIONS * (i + 1), hashes.len());
 
-pub async fn transactions_by_hashes(
-    url: &str,
-    hashes: &[monero::Hash],
-) -> Result<Vec<monero::Transaction>, RpcError> {
-    let client = reqwest::ClientBuilder::new()
-        .connect_timeout(time::Duration::from_millis(2000))
-        .build()?;
-    let mut transactions = Vec::new();
-    for i in 0..=hashes.len() / 100 {
-        // We've gotta grab these in parts to avoid putting too much load on the RPC server, so
-        // these are the start and end indexes of the hashes we're grabbing for now.
-        let starting_index: usize = i * 100;
-        let ending_index: usize = std::cmp::min(100 * (i + 1), hashes.len());
+            // Build a json containing the hashes of the transactions we want.
+            trace!("Requesting {} transactions", hashes.len());
+            let request_body = r#"{"txs_hashes":"#.to_owned()
+                + &serde_json::json!(hashes[starting_index..ending_index]
+                    .iter()
+                    .map(|x| hex::encode(x.as_bytes())) // Convert from monero::Hash to hex.
+                    .collect::<Vec<String>>())
+                .to_string()
+                + "}";
+            let request_endpoint = "/get_transactions";
 
-        // Build a json containing the hashes of the transactions we want.
-        trace!("Requesting {} transactions", hashes.len());
-        let request_body = r#"{"txs_hashes":"#.to_owned()
-            + &serde_json::json!(hashes[starting_index..ending_index]
-                .iter()
-                .map(|x| hex::encode(x.as_bytes())) // Convert from monero::Hash to hex.
-                .collect::<Vec<String>>())
-            .to_string()
-            + "}";
-        let res = client
-            .post(url.to_owned() + "/get_transactions")
-            .body(request_body)
-            .send()
-            .await?;
+            let res = self.request(&request_body, request_endpoint).await?;
 
-        let res = res.json::<serde_json::Value>().await?;
-
-        // Add these transactions to the total list.
-        if let Some(hexes) = res["txs_as_hex"].as_array() {
+            // Add these transactions to the total list.
+            let hexes = res["txs_as_hex"]
+                .as_array()
+                .ok_or_else(|| RpcError::MissingData("{{ txs_as_hex: [...] }}".to_string()))?;
             for tx_json in hexes {
                 let tx_str = tx_json
                     .as_str()
                     .expect("failed to read transaction hex from json");
                 let tx_hex = hex::decode(tx_str)?;
-                let tx = deserialize(&tx_hex)?;
+                let tx: monero::Transaction = deserialize(&tx_hex)?;
                 transactions.push(tx);
             }
         }
+        Ok(transactions)
     }
 
-    Ok(transactions)
-}
+    pub async fn daemon_height(&self) -> Result<u64, RpcError> {
+        let request_body = r#"{"jsonrpc":"2.0","id":"0","method":"get_block_count"}"#;
+        let request_endpoint = "/json_rpc";
 
-pub async fn daemon_height(url: &str) -> Result<u64, RpcError> {
-    let client = reqwest::ClientBuilder::new()
-        .connect_timeout(time::Duration::from_millis(2000))
-        .build()?;
+        let res = self.request(request_body, request_endpoint).await?;
 
-    let request_body = r#"{"jsonrpc":"2.0","id":"0","method":"get_block_count"}"#;
-    let res = client
-        .post(url.to_owned() + "/json_rpc")
-        .body(request_body)
-        .send()
-        .await?;
-    let res = res.json::<serde_json::Value>().await?;
+        let count = res["result"]["count"]
+            .as_u64()
+            .ok_or_else(|| RpcError::MissingData("{{ result: {{ count: \"...\" }}".to_string()))?;
 
-    let count = match res["result"]["count"].as_u64() {
-        Some(c) => c,
-        None => return Err(RpcError::MissingData),
-    };
-    let height = count - 1;
-
-    Ok(height)
-}
-
-pub async fn retry<'a, T, E, Fut>(url: &'a str, retry_millis: u64, f: impl Fn(&'a str) -> Fut) -> T
-where
-    Fut: Future<Output = Result<T, E>>,
-    E: Error,
-{
-    let mut retry_interval = time::interval(time::Duration::from_millis(retry_millis));
-    loop {
-        let (t_or_err, _) = join!(f(url), retry_interval.tick());
-        match t_or_err {
-            Ok(t) => return t,
-            Err(e) => {
-                error!("{}. Retrying in {} ms.", e, retry_millis);
-                continue;
-            }
-        }
+        Ok(count - 1)
     }
-}
 
-pub async fn retry_vec<'a, T, E, X, Fut>(
-    url: &'a str,
-    v: &'a [X],
-    retry_millis: u64,
-    f: impl Fn(&'a str, &'a [X]) -> Fut,
-) -> T
-where
-    Fut: Future<Output = Result<T, E>>,
-    E: Error,
-{
-    let mut retry_interval = time::interval(time::Duration::from_millis(retry_millis));
-    loop {
-        let (t_or_err, _) = join!(f(url, v), retry_interval.tick());
-        match t_or_err {
-            Ok(t) => return t,
-            Err(e) => {
-                error!("{}. Retrying in {} ms.", e, retry_millis);
-                continue;
-            }
-        }
+    async fn request(&self, body: &str, endpoint: &str) -> Result<serde_json::Value, RpcError> {
+        let res = self
+            .client
+            .post(self.url.clone() + endpoint)
+            .body(body.to_owned())
+            .send()
+            .await?;
+        Ok(res.json::<serde_json::Value>().await?)
     }
 }
 
@@ -231,7 +190,11 @@ pub enum RpcError {
     Http(reqwest::Error),
     HexDecode(hex::FromHexError),
     Serialization(encode::Error),
-    MissingData,
+    MissingData(String),
+    DataType {
+        found: serde_json::Value,
+        expected: &'static str,
+    },
 }
 
 impl From<reqwest::Error> for RpcError {
@@ -255,17 +218,28 @@ impl From<encode::Error> for RpcError {
 impl fmt::Display for RpcError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            RpcError::Http(reqwest_error) => {
-                write!(f, "http request error: {}", reqwest_error)
+            RpcError::Http(e) => {
+                write!(f, "http request failed: {}", e)
             }
-            RpcError::HexDecode(hex_error) => {
-                write!(f, "hex decoding error: {}", hex_error)
+            RpcError::HexDecode(e) => {
+                write!(f, "hex decoding failed: {}", e)
             }
-            RpcError::Serialization(ser_error) => {
-                write!(f, "serialization error: {}", ser_error)
+            RpcError::Serialization(e) => {
+                write!(f, "(de)serialization failed: {}", e)
             }
-            RpcError::MissingData => {
-                write!(f, "expected data was not present in RPC response")
+            RpcError::MissingData(s) => {
+                write!(
+                    f,
+                    "expected data was not present in RPC response, or was the wrong data type: {}",
+                    s
+                )
+            }
+            RpcError::DataType { found, expected } => {
+                write!(
+                    f,
+                    "failed to interpret json value \"{}\" from RPC response as {}",
+                    found, expected
+                )
             }
         }
     }

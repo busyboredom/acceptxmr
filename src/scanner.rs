@@ -8,11 +8,10 @@ use monero::cryptonote::hash::Hashable;
 use tokio::join;
 use tokio::sync::Mutex;
 
-use crate::rpc;
-use crate::{BlockCache, PaymentsDb, SubIndex, Transfer, TxpoolCache};
+use crate::AcceptXmrError;
+use crate::{rpc::RpcClient, BlockCache, PaymentsDb, SubIndex, Transfer, TxpoolCache};
 
 pub(crate) struct Scanner {
-    url: String,
     viewpair: monero::ViewPair,
     payments_db: PaymentsDb,
     // Block cache and txpool cache are mutexed to allow concurrent block & txpool scanning. This is
@@ -25,12 +24,12 @@ pub(crate) struct Scanner {
 
 impl Scanner {
     pub async fn new(
-        url: String,
+        rpc_client: RpcClient,
         viewpair: monero::ViewPair,
         payments_db: PaymentsDb,
         block_cache_size: u64,
         atomic_height: Arc<AtomicU64>,
-    ) -> Scanner {
+    ) -> Result<Scanner, AcceptXmrError> {
         // Determine sensible initial height for block cache.
         let height = match payments_db.lowest_height() {
             Ok(Some(h)) => {
@@ -38,7 +37,7 @@ impl Scanner {
                 h
             }
             Ok(None) => {
-                let h = rpc::retry(&url, 2000, rpc::daemon_height).await;
+                let h = rpc_client.daemon_height().await?;
                 info!("No pending payments found in AcceptXMR database. Skipping to blockchain tip: {}", h);
                 h
             }
@@ -53,31 +52,40 @@ impl Scanner {
 
         // Initialize block cache and txpool cache.
         let (block_cache, txpool_cache) = join!(
-            BlockCache::init(&url, block_cache_size, atomic_height),
-            TxpoolCache::init(&url)
+            BlockCache::init(rpc_client.clone(), block_cache_size, atomic_height),
+            TxpoolCache::init(rpc_client.clone())
         );
 
-        Scanner {
-            url,
+        Ok(Scanner {
             viewpair,
             payments_db,
-            block_cache: Mutex::new(block_cache.unwrap()),
-            txpool_cache: Mutex::new(txpool_cache),
+            block_cache: Mutex::new(block_cache?),
+            txpool_cache: Mutex::new(txpool_cache?),
             first_scan: true,
-        }
+        })
     }
 
     /// Scan for payment updates.
     pub async fn scan(&mut self) {
         // Update block cache, and scan both it and the txpool.
-        let (blocks_amounts, txpool_amounts) = join!(self.scan_blocks(), self.scan_txpool());
-        let height = self
-            .block_cache
-            .lock()
-            // TODO: Handle this properly.
-            .await
-            .height
-            .load(Ordering::Relaxed);
+        let (blocks_amounts_or_err, txpool_amounts_or_err) =
+            join!(self.scan_blocks(), self.scan_txpool());
+        let height = self.block_cache.lock().await.height.load(Ordering::Relaxed);
+
+        let blocks_amounts = match blocks_amounts_or_err {
+            Ok(amts) => amts,
+            Err(e) => {
+                error!("Skipping scan! Encountered a problem while updating or scanning the block cache: {}", e);
+                return;
+            }
+        };
+        let txpool_amounts = match txpool_amounts_or_err {
+            Ok(amts) => amts,
+            Err(e) => {
+                error!("Skipping scan! Encountered a problem while updating or scanning the txpool cache: {}", e);
+                return;
+            }
+        };
 
         // Combine transfers into one big vec.
         let mut transfers: Vec<(SubIndex, Transfer)> = blocks_amounts
@@ -176,17 +184,11 @@ impl Scanner {
     /// Update block cache and scan the blocks.
     ///
     /// Returns a vector of tuples of the form (subaddress index, amount, height)
-    async fn scan_blocks(&self) -> Vec<(SubIndex, Transfer)> {
+    async fn scan_blocks(&self) -> Result<Vec<(SubIndex, Transfer)>, AcceptXmrError> {
         let mut block_cache = self.block_cache.lock().await;
 
         // Update block cache.
-        let mut blocks_updated = match block_cache.update(&self.url).await {
-            Ok(num) => num,
-            Err(e) => {
-                error!("Failed to update block cache: {}", e);
-                0
-            }
-        };
+        let mut blocks_updated = block_cache.update().await?;
 
         // If this is the first scan, we want to scan all the blocks in the cache.
         if self.first_scan {
@@ -198,7 +200,7 @@ impl Scanner {
         // Scan updated blocks.
         for i in (0..blocks_updated.try_into().unwrap()).rev() {
             let transactions = &block_cache.blocks[i].3;
-            let amounts_received = self.scan_transactions(transactions);
+            let amounts_received = self.scan_transactions(transactions)?;
             trace!(
                 "Scanned {} transactions from block {}, and found {} transfers for tracked payments",
                 transactions.len(),
@@ -218,23 +220,23 @@ impl Scanner {
             );
         }
 
-        transfers
+        Ok(transfers)
     }
 
     /// Retrieve and scan transaction pool.
     ///
     /// Returns a vector of tuples of the form (subaddress index, amount)
-    async fn scan_txpool(&self) -> Vec<(SubIndex, Transfer)> {
+    async fn scan_txpool(&self) -> Result<Vec<(SubIndex, Transfer)>, AcceptXmrError> {
         // Update txpool.
         let mut txpool_cache = self.txpool_cache.lock().await;
-        let new_transactions = txpool_cache.update(&self.url).await;
+        let new_transactions = txpool_cache.update().await?;
 
         // Transfers previously discovered the txpool (no reason to scan the same transactions
         // twice).
         let discovered_transfers = txpool_cache.discovered_transfers();
 
         // Scan txpool.
-        let amounts_received = self.scan_transactions(&new_transactions);
+        let amounts_received = self.scan_transactions(&new_transactions)?;
         trace!(
             "Scanned {} transactions from txpool, and found {} transfers for tracked payments",
             new_transactions.len(),
@@ -261,46 +263,37 @@ impl Scanner {
         // Add the new transfers to the cache for next scan.
         txpool_cache.insert_transfers(&new_transfers);
 
-        transfers
+        Ok(transfers
             .into_iter()
             .flat_map(|(_, amounts)| amounts)
-            .collect()
+            .collect())
     }
 
     fn scan_transactions(
         &self,
         transactions: &[monero::Transaction],
-    ) -> HashMap<monero::Hash, Vec<(SubIndex, u64)>> {
+    ) -> Result<HashMap<monero::Hash, Vec<(SubIndex, u64)>>, AcceptXmrError> {
         let mut amounts_received = HashMap::new();
         for tx in transactions {
-            // Get transfers.
+            // Scan transaction for owned outputs.
             let transfers = tx.check_outputs(&self.viewpair, 0..2, 0..2).unwrap();
 
             for transfer in &transfers {
                 let sub_index = SubIndex::from(transfer.sub_index());
 
                 // If this payment is being tracked, add the amount and payment ID to the result set.
-                match self.payments_db.contains_key(sub_index) {
-                    Ok(true) => {
-                        let amount = if let Some(amt) = transfers[0].amount() {
-                            amt
-                        } else {
-                            error!("Failed to unblind transaction amount");
-                            continue;
-                        };
-                        amounts_received
-                            .entry(tx.hash())
-                            .or_insert_with(Vec::new)
-                            .push((sub_index, amount));
-                    }
-                    Ok(false) => continue,
-                    Err(e) => {
-                        error!("Failed to determine if database contains subaddress of discovered output: {}", e);
-                    }
+                if self.payments_db.contains_key(sub_index)? {
+                    let amount = transfers[0]
+                        .amount()
+                        .ok_or(AcceptXmrError::Unblind(sub_index))?;
+                    amounts_received
+                        .entry(tx.hash())
+                        .or_insert_with(Vec::new)
+                        .push((sub_index, amount));
                 }
             }
         }
 
-        amounts_received.into_iter().collect()
+        Ok(amounts_received.into_iter().collect())
     }
 }
