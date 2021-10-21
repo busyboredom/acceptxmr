@@ -1,5 +1,3 @@
-const BLOCK_TIME = 2;
-
 function copyPaymentAddress() {
     // Get the text field
     var copyText = document.getElementById("acceptxmr-address");
@@ -9,20 +7,20 @@ function copyPaymentAddress() {
 
     // Provide feedback
     document.getElementById("acceptxmr-address-copy-btn").innerHTML = "Copied!";
-    setTimeout(function(){
-        document.getElementById("acceptxmr-address-copy-btn").innerHTML = "Copy";  
-    },1000);
-} 
+    setTimeout(function () {
+        document.getElementById("acceptxmr-address-copy-btn").innerHTML = "Copy";
+    }, 1000);
+}
 
 var host = window.location.host + window.location.pathname;
 let socket = new WebSocket("ws://" + host + "ws/");
 
-socket.onopen = function(e) {
+socket.onopen = function (e) {
 };
 
-socket.onmessage = function(event) {
+socket.onmessage = function (event) {
     var message = JSON.parse(event.data);
-    
+
     document.getElementById("acceptxmr-paid").innerHTML = picoToXMR(message.amount_paid);
     document.getElementById("acceptxmr-due").innerHTML = picoToXMR(message.amount_requested);
 
@@ -63,11 +61,11 @@ socket.onmessage = function(event) {
     if (newAddressBtnHidden) {
         var address = message.address;
         document.getElementById("acceptxmr-address").innerHTML = address;
-    
-        var qr = qrcode(0, "M");
+
+        var qr = qrCode(0, "M");
         qr.addData(address);
         qr.make();
-        document.getElementById('acceptxmr-qrcode-container').innerHTML = qr.createSvgTag({scalable: true});
+        document.getElementById('acceptxmr-qrcode-container').innerHTML = qr.createSvgTag({ scalable: true });
     } else {
         document.getElementById("acceptxmr-address").innerHTML = "Expiring or expired...";
         document.getElementById('acceptxmr-qrcode-container').innerHTML = "<svg viewBox=\"0 0 100 100\" src=\"\"></svg>";
@@ -75,7 +73,7 @@ socket.onmessage = function(event) {
 
 };
 
-socket.onclose = function(event) {
+socket.onclose = function (event) {
     if (event.code === 1000) {
         console.log(`[close] Connection closed cleanly, code=${event.code} reason=${event.reason}`);
     } else {
@@ -85,7 +83,7 @@ socket.onclose = function(event) {
     }
 };
 
-socket.onerror = function(error) {
+socket.onerror = function (error) {
     alert(`[error] ${error.message}`);
 };
 
