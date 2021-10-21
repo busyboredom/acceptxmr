@@ -40,10 +40,10 @@ the `PaymentGateway`'s `scan_interval` below the default of 1 second:
 use acceptxmr::PaymentGateway;
 use std::time::Duration;
 
-let private_viewkey = "ad2093a5705b9f33e6f0f0c1bc1f5f639c756cdfc168c8f2ac6127ccbdab3a03";
-let public_spendkey = "7388a06bd5455b793a82b90ae801efb9cc0da7156df8af1d5800e4315cc627b4";
+let private_view_key = "ad2093a5705b9f33e6f0f0c1bc1f5f639c756cdfc168c8f2ac6127ccbdab3a03";
+let public_spend_key = "7388a06bd5455b793a82b90ae801efb9cc0da7156df8af1d5800e4315cc627b4";
 
-let payment_gateway = PaymentGateway::builder(private_viewkey, public_spendkey)
+let payment_gateway = PaymentGateway::builder(private_view_key, public_spend_key)
     .scan_interval(Duration::from_millis(100)) // Scan for payment updates every 100 ms.
     .build();
 ```

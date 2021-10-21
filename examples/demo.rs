@@ -22,23 +22,23 @@ const UPDATE_INTERVAL: Duration = Duration::from_millis(100);
 async fn main() -> std::io::Result<()> {
     env::set_var(
         "RUST_LOG",
-        "trace,mio=debug,want=debug,reqwest=info,sled=debug",
+        "trace,mio=debug,want=debug,reqwest=info,sled=debug,hyper=info,tracing=debug",
     );
     env_logger::init();
 
-    // Prepare Viewkey.
-    let private_viewkey_path = Path::new("../secrets/xmr_private_viewkey.txt");
-    let mut viewkey_string = std::fs::read_to_string(private_viewkey_path)
-        .expect("Failed to read private viewkey from file, are you sure it exists?");
-    viewkey_string = viewkey_string // Remove line ending in a cross-platform friendly way.
+    // Prepare view key.
+    let private_view_key_path = Path::new("../secrets/xmr_private_view_key.txt");
+    let mut view_key_string = std::fs::read_to_string(private_view_key_path)
+        .expect("Failed to read private view key from file, are you sure it exists?");
+    view_key_string = view_key_string // Remove line ending in a cross-platform friendly way.
         .strip_suffix("\r\n")
-        .or_else(|| viewkey_string.strip_suffix('\n'))
-        .unwrap_or(&viewkey_string)
+        .or_else(|| view_key_string.strip_suffix('\n'))
+        .unwrap_or(&view_key_string)
         .to_string();
 
     let xmr_daemon_url = "http://busyboredom.com:18081";
     let payment_gateway = PaymentGatewayBuilder::new(
-        &viewkey_string,
+        &view_key_string,
         "dd4c491d53ad6b46cda01ed6cb9bac57615d9eac8d5e4dd1c0363ac8dfd420a7",
     )
     .daemon_url(xmr_daemon_url)
@@ -46,7 +46,7 @@ async fn main() -> std::io::Result<()> {
     .build();
 
     payment_gateway
-        .run(10)
+        .run()
         .await
         .expect("failed to run payment gateway");
 

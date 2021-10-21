@@ -11,7 +11,8 @@
 //!
 //! `AcceptXMR` is non-custodial, and does not require a hot wallet. However, it does require your
 //! private view key and public spend key for scanning outputs. If keeping these private is important
-//! to you, please take appropriate precautions to secure the platform you run your application on.
+//! to you, please take appropriate precautions to secure the platform you run your application on
+//! _and keep your private view key out of your git repository!_.
 //!
 //! Also note that anonymity networks like TOR are not currently supported for RPC calls. This
 //! means that your network traffic will reveal that you are interacting with the monero network.
@@ -37,14 +38,21 @@
 //! To reduce the average latency before receiving payment updates, you may also consider lowering
 //! the [`PaymentGateway`]'s `scan_interval` below the default of 1 second:
 //! ```
+//! # use tempfile::Builder;
 //! use acceptxmr::PaymentGateway;
 //! use std::time::Duration;
 //!
-//! let private_viewkey = "ad2093a5705b9f33e6f0f0c1bc1f5f639c756cdfc168c8f2ac6127ccbdab3a03";
-//! let public_spendkey = "7388a06bd5455b793a82b90ae801efb9cc0da7156df8af1d5800e4315cc627b4";
+//! # let temp_dir = Builder::new()
+//! #   .prefix("temp_db_")
+//! #   .rand_bytes(16)
+//! #   .tempdir().expect("Failed to generate temporary directory");
 //!
-//! let payment_gateway = PaymentGateway::builder(private_viewkey, public_spendkey)
+//! let private_view_key = "ad2093a5705b9f33e6f0f0c1bc1f5f639c756cdfc168c8f2ac6127ccbdab3a03";
+//! let public_spend_key = "7388a06bd5455b793a82b90ae801efb9cc0da7156df8af1d5800e4315cc627b4";
+//!
+//! let payment_gateway = PaymentGateway::builder(private_view_key, public_spend_key)
 //!     .scan_interval(Duration::from_millis(100)) // Scan for payment updates every 100 ms.
+//! #   .db_path(temp_dir.path().to_str().expect("Failed to get temporary directory path"))
 //!     .build();
 //! ```
 //!
@@ -69,15 +77,15 @@ mod util;
 use std::cmp::{self, Ordering};
 use std::ops::Deref;
 use std::str::FromStr;
-use std::sync::{atomic, Arc};
+use std::sync::{atomic, Arc, Mutex, PoisonError};
 use std::time::Duration;
 use std::{fmt, thread, u64};
 
 use log::{debug, info, warn};
 use monero::cryptonote::subaddress;
 use serde::{Deserialize, Serialize};
-use tokio::runtime::{Handle, Runtime};
-use tokio::{join, sync::Mutex, time};
+use tokio::runtime::Runtime;
+use tokio::{join, time};
 
 use block_cache::BlockCache;
 use payments_db::PaymentsDb;
@@ -92,6 +100,7 @@ const DEFAULT_SCAN_INTERVAL: Duration = Duration::from_millis(1000);
 const DEFAULT_DAEMON: &str = "http://node.moneroworld.com:18089";
 const DEFAULT_DB_PATH: &str = "AcceptXMR_DB";
 const DEFAULT_RPC_CONNECTION_TIMEOUT: Duration = Duration::from_millis(2000);
+const DEFAULT_BLOCK_CACHE_SIZE: u64 = 10;
 
 /// The `PaymentGateway` allows you to track new [Payments](Payment), remove old payments from tracking, and
 /// subscribe to payments that are already pending.
@@ -119,8 +128,8 @@ impl Deref for PaymentGateway {
 impl PaymentGateway {
     /// Returns a builder used to create a new payment gateway.
     #[must_use]
-    pub fn builder(private_viewkey: &str, public_spendkey: &str) -> PaymentGatewayBuilder {
-        PaymentGatewayBuilder::new(private_viewkey, public_spendkey)
+    pub fn builder(private_view_key: &str, public_spend_key: &str) -> PaymentGatewayBuilder {
+        PaymentGatewayBuilder::new(private_view_key, public_spend_key)
     }
 
     /// Runs the payment gateway. This function spawns a new thread, which periodically scans new
@@ -138,7 +147,7 @@ impl PaymentGateway {
     /// This thread panics if successfully called more than once. Only one payment gateway should be
     /// running at a time. Note that if the first call resulted in an error, this can safely be
     /// called a second time.
-    pub async fn run(&self, cache_size: u64) -> Result<(), AcceptXmrError> {
+    pub async fn run(&self) -> Result<(), AcceptXmrError> {
         // Gather info needed by the scanner.
         let rpc_client = self.rpc_client.clone();
         let viewpair = monero::ViewPair {
@@ -154,7 +163,7 @@ impl PaymentGateway {
             rpc_client,
             viewpair,
             pending_payments,
-            cache_size,
+            DEFAULT_BLOCK_CACHE_SIZE,
             atomic_height,
         )
         .await?;
@@ -175,6 +184,7 @@ impl PaymentGateway {
                 });
             })
             .expect("Error spawning scanning thread");
+        debug!("Scanner started successfully");
         Ok(())
     }
 
@@ -201,7 +211,11 @@ impl PaymentGateway {
             .as_pico();
 
         // Get subaddress in base58, and subaddress index.
-        let (sub_index, subaddress) = self.subaddresses.lock().await.remove_random();
+        let (sub_index, subaddress) = self
+            .subaddresses
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .remove_random();
 
         // Create payment object.
         let payment = Payment::new(
@@ -236,12 +250,10 @@ impl PaymentGateway {
                     warn!("Removed a payment which was neither expired, nor fully confirmed and a block or more old. Was this intentional?");
                 }
                 // Put the subaddress back in the subaddress cache.
-                Handle::current().block_on(async {
-                    self.subaddresses
-                        .lock()
-                        .await
-                        .insert(sub_index, old.address.clone())
-                });
+                self.subaddresses
+                    .lock()
+                    .unwrap_or_else(PoisonError::into_inner)
+                    .insert(sub_index, old.address.clone());
 
                 Ok(Some(old))
             }
@@ -271,10 +283,33 @@ impl PaymentGateway {
 
 /// A builder for the payment gateway. Used to configure your desired monero daemon, scan interval,
 /// view key, etc.
+///
+/// # Examples
+///
+/// ```
+/// # use tempfile::Builder;
+/// use acceptxmr::PaymentGatewayBuilder;
+/// use std::time::Duration;
+///
+/// # let temp_dir = Builder::new()
+/// #   .prefix("temp_db_")
+/// #   .rand_bytes(16)
+/// #   .tempdir().expect("Failed to generate temporary directory");
+///
+/// let private_view_key = "ad2093a5705b9f33e6f0f0c1bc1f5f639c756cdfc168c8f2ac6127ccbdab3a03";
+/// let public_spend_key = "7388a06bd5455b793a82b90ae801efb9cc0da7156df8af1d5800e4315cc627b4";
+///
+/// // Create a payment gateway with an extra fast scan rate and a custom monero daemon URL.
+/// let payment_gateway = PaymentGatewayBuilder::new(private_view_key, public_spend_key)
+///     .scan_interval(Duration::from_millis(100)) // Scan for payment updates every 100 ms.
+///     .daemon_url("http://example.com:18081") // Set custom monero daemon URL.
+/// #   .db_path(temp_dir.path().to_str().expect("Failed to get temporary directory path"))
+///     .build();
+/// ```
 pub struct PaymentGatewayBuilder {
     daemon_url: String,
-    private_viewkey: monero::PrivateKey,
-    public_spendkey: monero::PublicKey,
+    private_view_key: monero::PrivateKey,
+    public_spend_key: monero::PublicKey,
     scan_interval: Duration,
     db_path: String,
 }
@@ -282,20 +317,42 @@ pub struct PaymentGatewayBuilder {
 impl PaymentGatewayBuilder {
     /// Create a new payment gateway builder.
     #[must_use]
-    pub fn new(private_viewkey: &str, public_spendkey: &str) -> PaymentGatewayBuilder {
+    pub fn new(private_view_key: &str, public_spend_key: &str) -> PaymentGatewayBuilder {
         PaymentGatewayBuilder {
             daemon_url: DEFAULT_DAEMON.to_string(),
-            private_viewkey: monero::PrivateKey::from_str(private_viewkey)
-                .expect("invalid private viewkey"),
-            public_spendkey: monero::PublicKey::from_str(public_spendkey)
-                .expect("invalid public spendkey"),
+            private_view_key: monero::PrivateKey::from_str(private_view_key)
+                .expect("invalid private view key"),
+            public_spend_key: monero::PublicKey::from_str(public_spend_key)
+                .expect("invalid public spend key"),
             scan_interval: DEFAULT_SCAN_INTERVAL,
             db_path: DEFAULT_DB_PATH.to_string(),
         }
     }
 
     /// Set the url and port of your preferred monero daemon. Defaults to
-    /// [http://node.moneroworld.com:18089](http://node.moneroworld.com:18089)
+    /// [http://node.moneroworld.com:18089](http://node.moneroworld.com:18089).
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// #[tokio::main]
+    /// # async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    /// #
+    /// use acceptxmr::PaymentGatewayBuilder;
+    ///
+    /// let private_view_key = "ad2093a5705b9f33e6f0f0c1bc1f5f639c756cdfc168c8f2ac6127ccbdab3a03";
+    /// let public_spend_key = "7388a06bd5455b793a82b90ae801efb9cc0da7156df8af1d5800e4315cc627b4";
+    ///
+    /// // Create a payment gateway with a custom monero daemon URL.
+    /// let payment_gateway = PaymentGatewayBuilder::new(private_view_key, public_spend_key)
+    ///     .daemon_url("http://example.com:18081") // Set custom monero daemon URL.
+    ///     .build();
+    ///
+    /// // The payment gateway will now use the daemon specified.
+    /// payment_gateway.run().await?;
+    /// #   Ok(())
+    /// # }
+    /// ```
     #[must_use]
     pub fn daemon_url(mut self, url: &str) -> PaymentGatewayBuilder {
         reqwest::Url::parse(url).expect("invalid daemon URL");
@@ -332,8 +389,8 @@ impl PaymentGatewayBuilder {
             PaymentsDb::new(&self.db_path).expect("failed to open pending payments database tree");
         info!("Opened database in \"{}/\"", self.db_path);
         let viewpair = monero::ViewPair {
-            view: self.private_viewkey,
-            spend: self.public_spendkey,
+            view: self.private_view_key,
+            spend: self.public_spend_key,
         };
         let subaddresses = SubaddressCache::init(&payments_db, viewpair);
         debug!("Generated {} initial subaddresses", subaddresses.len());
@@ -407,7 +464,7 @@ impl Payment {
     #[must_use]
     pub fn is_expired(&self) -> bool {
         // At or passed the expiration block, AND not paid in full.
-        self.current_height >= self.expiration_at && self.paid_at.is_none()
+        (self.current_height >= self.expiration_at) && self.paid_at.is_none()
     }
 
     /// Returns the base 58 encoded subaddress of this `Payment`.
@@ -607,5 +664,113 @@ impl Transfer {
                 None => cmp::Ordering::Equal,
             },
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::env;
+    use std::fs;
+
+    use httpmock::MockServer;
+    use log::trace;
+    use serde_json::{from_str, Value};
+    use tempfile::Builder;
+    use tokio::runtime::Runtime;
+
+    use crate::PaymentGatewayBuilder;
+
+    const PRIVATE_VIEW_KEY: &str =
+        "ad2093a5705b9f33e6f0f0c1bc1f5f639c756cdfc168c8f2ac6127ccbdab3a03";
+    const PUBLIC_SPEND_KEY: &str =
+        "7388a06bd5455b793a82b90ae801efb9cc0da7156df8af1d5800e4315cc627b4";
+
+    fn new_mock_daemon() -> MockServer {
+        let mock_daemon = MockServer::start();
+        // Mock daemon height request.
+        mock_daemon.mock(|when, then| {
+            when.path("/json_rpc")
+                .body(r#"{"jsonrpc":"2.0","id":"0","method":"get_block_count"}"#);
+            then.status(200)
+                .header("content-type", "application/json")
+                .body_from_file("tests/rpc_resources/2429479/daemon_height.json");
+        });
+        // Mock txpool request.
+        mock_daemon.mock(|when, then| {
+            when.path("/get_transaction_pool").body("");
+            then.status(200)
+                .header("content-type", "application/json")
+                .body_from_file("tests/rpc_resources/txpool.json");
+        });
+        for i in 2429470..2429480 {
+            // Mock block requests.
+            mock_daemon.mock(|when, then| {
+                when.path("/json_rpc").body(
+                    r#"{"jsonrpc":"2.0","id":"0","method":"get_block","params":{"height":"#
+                        .to_owned()
+                        + &i.to_string()
+                        + "}}",
+                );
+                then.status(200)
+                    .header("content-type", "application/json")
+                    .body_from_file(
+                        "tests/rpc_resources/".to_owned() + &i.to_string() + "/block.json",
+                    );
+            });
+            // Mock block transaction requests.
+            mock_daemon.mock(|when, then| {
+                let when_body = fs::read_to_string(
+                    "tests/rpc_resources/".to_owned() + &i.to_string() + "/txs_hashes.json",
+                )
+                .expect("failed to read transaction request from file when preparing mock");
+                trace!("Building mock for request body: {}", when_body);
+
+                when.path("/get_transactions").json_body(
+                    from_str::<Value>(&when_body).expect("failed to parse file as json"),
+                );
+                then.status(200)
+                    .header("content-type", "application/json")
+                    .body_from_file(
+                        "tests/rpc_resources/".to_owned() + &i.to_string() + "/transactions.json",
+                    );
+            });
+        }
+        mock_daemon
+    }
+
+    #[test]
+    fn test_daemon_url() {
+        env::set_var(
+            "RUST_LOG",
+            "debug,mio=debug,want=debug,reqwest=info,sled=info,hyper=info,tracing=debug,httpmock=info,isahc=info",
+        );
+        env_logger::init();
+
+        let rt = Runtime::new().expect("failed to create tokio runtime");
+
+        let temp_dir = Builder::new()
+            .prefix("temp_db_")
+            .rand_bytes(16)
+            .tempdir()
+            .expect("failed to generate temporary directory");
+
+        let mock_daemon = new_mock_daemon();
+
+        let payment_gateway = PaymentGatewayBuilder::new(PRIVATE_VIEW_KEY, PUBLIC_SPEND_KEY)
+            .db_path(
+                temp_dir
+                    .path()
+                    .to_str()
+                    .expect("failed to get temporary directory path"),
+            )
+            .daemon_url(&mock_daemon.url(""))
+            .build();
+
+        rt.block_on(async {
+            payment_gateway
+                .run()
+                .await
+                .expect("failed to run payment gateway");
+        })
     }
 }

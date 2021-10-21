@@ -2,7 +2,7 @@ use std::time::Duration;
 use std::{any, fmt};
 use std::{collections::HashSet, error::Error};
 
-use log::trace;
+use log::{trace, warn};
 use monero::consensus::{deserialize, encode};
 
 /// Maximum number of transactions to request at once (daemon limits this).
@@ -99,9 +99,12 @@ impl RpcClient {
 
         let res = self.request(request_body, request_endpoint).await?;
 
-        let blobs = res["tx_hashes"]
-            .as_array()
-            .ok_or_else(|| RpcError::MissingData("{{ tx_hashes: \"...\" }}".to_string()))?;
+        let blobs = if let Some(h) = res["tx_hashes"].as_array() {
+            h
+        } else {
+            // If there are no tx hashes, just return an empty list.
+            return Ok(transactions);
+        };
         for blob in blobs {
             let tx_hash_str = blob.as_str().ok_or_else(|| RpcError::DataType {
                 found: blob.clone(),
@@ -145,10 +148,20 @@ impl RpcClient {
 
             let res = self.request(&request_body, request_endpoint).await?;
 
-            // Add these transactions to the total list.
             let hexes = res["txs_as_hex"]
                 .as_array()
                 .ok_or_else(|| RpcError::MissingData("{{ txs_as_hex: [...] }}".to_string()))?;
+            if ending_index - starting_index == hexes.len() {
+                trace!("Received {} transactions", hexes.len());
+            } else {
+                warn!(
+                    "Received {} transactions, requested {}",
+                    hexes.len(),
+                    ending_index - starting_index
+                );
+            }
+
+            // Add these transactions to the total list.
             for tx_json in hexes {
                 let tx_str = tx_json
                     .as_str()
