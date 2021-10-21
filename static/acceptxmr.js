@@ -62,7 +62,7 @@ socket.onmessage = function (event) {
         var address = message.address;
         document.getElementById("acceptxmr-address").innerHTML = address;
 
-        var qr = qrCode(0, "M");
+        var qr = qrcode(0, "M");
         qr.addData(address);
         qr.make();
         document.getElementById('acceptxmr-qrcode-container').innerHTML = qr.createSvgTag({ scalable: true });
