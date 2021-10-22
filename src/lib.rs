@@ -279,6 +279,12 @@ impl PaymentGateway {
     pub async fn daemon_height(&self) -> Result<u64, AcceptXmrError> {
         Ok(self.rpc_client.daemon_height().await?)
     }
+
+    /// Returns URL of configured daemon.
+    #[must_use]
+    pub fn daemon_url(&self) -> String {
+        self.rpc_client.url()
+    }
 }
 
 /// A builder for the payment gateway. Used to configure your desired monero daemon, scan interval,
@@ -670,91 +676,37 @@ impl Transfer {
 #[cfg(test)]
 mod tests {
     use std::env;
-    use std::fs;
 
-    use httpmock::MockServer;
-    use log::trace;
-    use serde_json::{from_str, Value};
-    use tempfile::Builder;
-    use tokio::runtime::Runtime;
+    use tempfile::{Builder, TempDir};
 
     use crate::PaymentGatewayBuilder;
+
+    fn init_logger() {
+        env::set_var(
+            "RUST_LOG",
+            "debug,mio=debug,want=debug,reqwest=info,sled=info,hyper=info,tracing=debug,httpmock=info,isahc=info",
+        );
+        env_logger::init();
+    }
+
+    fn new_temp_dir() -> TempDir {
+        Builder::new()
+            .prefix("temp_db_")
+            .rand_bytes(16)
+            .tempdir()
+            .expect("failed to generate temporary directory")
+    }
 
     const PRIVATE_VIEW_KEY: &str =
         "ad2093a5705b9f33e6f0f0c1bc1f5f639c756cdfc168c8f2ac6127ccbdab3a03";
     const PUBLIC_SPEND_KEY: &str =
         "7388a06bd5455b793a82b90ae801efb9cc0da7156df8af1d5800e4315cc627b4";
 
-    fn new_mock_daemon() -> MockServer {
-        let mock_daemon = MockServer::start();
-        // Mock daemon height request.
-        mock_daemon.mock(|when, then| {
-            when.path("/json_rpc")
-                .body(r#"{"jsonrpc":"2.0","id":"0","method":"get_block_count"}"#);
-            then.status(200)
-                .header("content-type", "application/json")
-                .body_from_file("tests/rpc_resources/2429479/daemon_height.json");
-        });
-        // Mock txpool request.
-        mock_daemon.mock(|when, then| {
-            when.path("/get_transaction_pool").body("");
-            then.status(200)
-                .header("content-type", "application/json")
-                .body_from_file("tests/rpc_resources/txpool.json");
-        });
-        for i in 2429470..2429480 {
-            // Mock block requests.
-            mock_daemon.mock(|when, then| {
-                when.path("/json_rpc").body(
-                    r#"{"jsonrpc":"2.0","id":"0","method":"get_block","params":{"height":"#
-                        .to_owned()
-                        + &i.to_string()
-                        + "}}",
-                );
-                then.status(200)
-                    .header("content-type", "application/json")
-                    .body_from_file(
-                        "tests/rpc_resources/".to_owned() + &i.to_string() + "/block.json",
-                    );
-            });
-            // Mock block transaction requests.
-            mock_daemon.mock(|when, then| {
-                let when_body = fs::read_to_string(
-                    "tests/rpc_resources/".to_owned() + &i.to_string() + "/txs_hashes.json",
-                )
-                .expect("failed to read transaction request from file when preparing mock");
-                trace!("Building mock for request body: {}", when_body);
-
-                when.path("/get_transactions").json_body(
-                    from_str::<Value>(&when_body).expect("failed to parse file as json"),
-                );
-                then.status(200)
-                    .header("content-type", "application/json")
-                    .body_from_file(
-                        "tests/rpc_resources/".to_owned() + &i.to_string() + "/transactions.json",
-                    );
-            });
-        }
-        mock_daemon
-    }
-
     #[test]
     fn test_daemon_url() {
-        env::set_var(
-            "RUST_LOG",
-            "debug,mio=debug,want=debug,reqwest=info,sled=info,hyper=info,tracing=debug,httpmock=info,isahc=info",
-        );
-        env_logger::init();
-
-        let rt = Runtime::new().expect("failed to create tokio runtime");
-
-        let temp_dir = Builder::new()
-            .prefix("temp_db_")
-            .rand_bytes(16)
-            .tempdir()
-            .expect("failed to generate temporary directory");
-
-        let mock_daemon = new_mock_daemon();
+        // Setup.
+        init_logger();
+        let temp_dir = new_temp_dir();
 
         let payment_gateway = PaymentGatewayBuilder::new(PRIVATE_VIEW_KEY, PUBLIC_SPEND_KEY)
             .db_path(
@@ -763,14 +715,9 @@ mod tests {
                     .to_str()
                     .expect("failed to get temporary directory path"),
             )
-            .daemon_url(&mock_daemon.url(""))
+            .daemon_url("http://example.com:18081")
             .build();
 
-        rt.block_on(async {
-            payment_gateway
-                .run()
-                .await
-                .expect("failed to run payment gateway");
-        })
+        assert_eq!(payment_gateway.rpc_client.url(), "http://example.com:18081");
     }
 }

@@ -196,6 +196,10 @@ impl RpcClient {
             .await?;
         Ok(res.json::<serde_json::Value>().await?)
     }
+
+    pub fn url(&self) -> String {
+        self.url.clone()
+    }
 }
 
 #[allow(clippy::module_name_repetitions)]
