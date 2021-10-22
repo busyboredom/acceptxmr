@@ -72,5 +72,5 @@ pub fn init_logger() {
         "RUST_LOG",
         "debug,mio=debug,want=debug,reqwest=info,sled=info,hyper=info,tracing=debug,httpmock=info,isahc=info",
     );
-    env_logger::init();
+    let _ = env_logger::builder().is_test(true).try_init();
 }

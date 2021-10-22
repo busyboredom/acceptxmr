@@ -195,20 +195,13 @@ impl PaymentGateway {
     ///
     /// Returns an error if there are any underlying issues modifying data in the
     /// database.
-    ///
-    /// # Panics
-    ///
-    /// Panics if `xmr` is negative, or larger than `u64::MAX`.
     pub async fn new_payment(
         &self,
-        xmr: f64,
+        piconeros: u64,
         confirmations_required: u64,
         expiration_in: u64,
     ) -> Result<Subscriber, AcceptXmrError> {
-        // Convert xmr to picos.
-        let amount = monero::Amount::from_xmr(xmr)
-            .expect("amount due must be positive and less than u64::MAX")
-            .as_pico();
+        let amount = piconeros;
 
         // Get subaddress in base58, and subaddress index.
         let (sub_index, subaddress) = self
@@ -686,7 +679,7 @@ mod tests {
             "RUST_LOG",
             "debug,mio=debug,want=debug,reqwest=info,sled=info,hyper=info,tracing=debug,httpmock=info,isahc=info",
         );
-        env_logger::init();
+        let _ = env_logger::builder().is_test(true).try_init();
     }
 
     fn new_temp_dir() -> TempDir {
