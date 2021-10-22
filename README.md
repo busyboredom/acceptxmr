@@ -51,3 +51,20 @@ let payment_gateway = PaymentGateway::builder(private_view_key, public_spend_key
 Please note that `scan_interval` is the minimum time between scanning for updates. If your
 daemon's response time is already greater than your `scan_interval`, or if your CPU is unable to
 scan new transactions fast enough, reducing your `scan_interval` will do nothing.
+
+## License
+
+Licensed under either of
+
+ * Apache License, Version 2.0
+   ([LICENSE-APACHE](LICENSE-APACHE) or http://www.apache.org/licenses/LICENSE-2.0)
+ * MIT license
+   ([LICENSE-MIT](LICENSE-MIT) or http://opensource.org/licenses/MIT)
+
+at your option.
+
+## Contribution
+
+Unless you explicitly state otherwise, any contribution intentionally submitted
+for inclusion in the work by you, as defined in the Apache-2.0 license, shall be
+dual licensed as above, without any additional terms or conditions.
