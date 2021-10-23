@@ -141,18 +141,14 @@ impl PaymentGateway {
     /// blocks and transactions from the configured daemon and updates pending [Payments](Payment)
     /// in the database.
     ///
+    /// This method should only be called once.
+    ///
     /// # Errors
     ///
     /// Returns an [`AcceptXmrError::PaymentStorage`] error if there was an underlying issue with
     /// the database, or an [`AcceptXmrError::Rpc`] error if there was an issue getting necessary
     /// data from the monero daemon.
-    ///
-    /// # Panics
-    ///
-    /// This thread panics if successfully called more than once. Only one payment gateway should be
-    /// running at a time. Note that if the first call resulted in an error, this can safely be
-    /// called a second time.
-    #[allow(clippy::range_plus_one)]
+    #[allow(clippy::range_plus_one, clippy::missing_panics_doc)]
     pub async fn run(&self) -> Result<(), AcceptXmrError> {
         // Gather info needed by the scanner.
         let rpc_client = self.rpc_client.clone();
