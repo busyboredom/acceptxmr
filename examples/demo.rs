@@ -84,7 +84,7 @@ async fn main() -> std::io::Result<()> {
         App::new()
             .app_data(shared_payment_gateway.clone())
             .service(websocket)
-            .service(actix_files::Files::new("", "./static").index_file("index.html"))
+            .service(actix_files::Files::new("", "./examples/static").index_file("index.html"))
     })
     .bind("0.0.0.0:8080")?
     .run()
