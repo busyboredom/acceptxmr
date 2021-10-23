@@ -29,6 +29,8 @@ calls in the scanning thread are logged on failure and repeated next scan. In th
 error does occur, the liberal use of logging within this library will hopefully facilitate a
 speedy diagnosis an correction.
 
+Use this library at your own risk.
+
 ## Performance
 
 For maximum performance, please host your own monero daemon the same local network. Network and

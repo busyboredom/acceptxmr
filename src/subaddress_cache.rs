@@ -1,5 +1,7 @@
 use std::cmp;
 use std::ops::Range;
+use std::sync::atomic::{AtomicU32, Ordering};
+use std::sync::Arc;
 
 use indexmap::{IndexMap, IndexSet};
 use rand::Rng;
@@ -12,13 +14,17 @@ use crate::{PaymentsDb, SubIndex};
 const MIN_AVAILABLE_SUBADDRESSES: u32 = 100;
 
 pub(crate) struct SubaddressCache {
-    highest_index: SubIndex,
+    highest_minor_index: Arc<AtomicU32>,
     available_subaddresses: IndexMap<SubIndex, String>,
     viewpair: ViewPair,
 }
 
 impl SubaddressCache {
-    pub fn init(payments_db: &PaymentsDb, viewpair: monero::ViewPair) -> SubaddressCache {
+    pub fn init(
+        payments_db: &PaymentsDb,
+        viewpair: monero::ViewPair,
+        highest_minor_index: Arc<AtomicU32>,
+    ) -> SubaddressCache {
         // Get currently used subindexes from database, so they won't be put in the list of
         // available subindexes.
         let used_sub_indexes: IndexSet<SubIndex> = payments_db
@@ -49,7 +55,7 @@ impl SubaddressCache {
 
         // Generate enough subaddresses to cover all pending payments.
         let minor_index_range = 0..cmp::max(MIN_AVAILABLE_SUBADDRESSES, max_used + 1);
-        let highest_index = SubIndex::new(1, minor_index_range.end - 1);
+        highest_minor_index.store(minor_index_range.end - 1, Ordering::Relaxed);
         let mut available_subaddresses: IndexMap<SubIndex, String> =
             SubaddressCache::generate_range(1..2, minor_index_range, &viewpair)
                 .into_iter()
@@ -59,7 +65,7 @@ impl SubaddressCache {
         available_subaddresses.retain(|sub_index, _| !used_sub_indexes.contains(sub_index));
 
         SubaddressCache {
-            highest_index,
+            highest_minor_index,
             available_subaddresses,
             viewpair,
         }
@@ -95,24 +101,25 @@ impl SubaddressCache {
     /// subaddress cache.
     ///
     /// If adding `n` additional subaddresses would extend the cache beyond the maximum index of
-    /// `(1, u32::MAX)`, generation stop prematurely.
+    /// `(1, u32::MAX)`, generation stops prematurely.
     ///
     /// Returns the number of subaddresses appended to the subaddress cache.
     pub fn extend_by(&mut self, n: u32) -> u32 {
         // TODO: Change this to use generate_range().
         let mut count = 0;
         for _ in 0..n {
-            if self.highest_index.minor == u32::MAX {
+            if self.highest_minor_index.load(Ordering::Relaxed) == u32::MAX {
                 // We're at the max, time to quit.
                 return count;
             }
-            let sub_index = SubIndex::new(1, self.highest_index.minor + 1);
+            let sub_index = SubIndex::new(1, self.highest_minor_index.load(Ordering::Relaxed) + 1);
             let subaddress = format!(
                 "{}",
                 subaddress::get_subaddress(&self.viewpair, sub_index.into(), None)
             );
             self.available_subaddresses.insert(sub_index, subaddress);
-            self.highest_index = sub_index;
+            self.highest_minor_index
+                .store(sub_index.minor, Ordering::Relaxed);
             count += 1;
         }
         count

@@ -26,24 +26,20 @@ async fn main() -> std::io::Result<()> {
     );
     env_logger::init();
 
-    // Prepare view key.
-    let private_view_key_path = Path::new("../secrets/xmr_private_view_key.txt");
-    let mut view_key_string = std::fs::read_to_string(private_view_key_path)
-        .expect("Failed to read private view key from file, are you sure it exists?");
-    view_key_string = view_key_string // Remove line ending in a cross-platform friendly way.
-        .strip_suffix("\r\n")
-        .or_else(|| view_key_string.strip_suffix('\n'))
-        .unwrap_or(&view_key_string)
-        .to_string();
+    // Read view key from file outside of git repository.
+    let private_view_key =
+        std::fs::read_to_string(Path::new("../secrets/xmr_private_view_key.txt"))
+            .expect("Failed to read private view key from file, are you sure it exists?")
+            .trim() // Remove line ending.
+            .to_owned();
 
-    let xmr_daemon_url = "http://busyboredom.com:18081";
-    let payment_gateway = PaymentGatewayBuilder::new(
-        &view_key_string,
-        "dd4c491d53ad6b46cda01ed6cb9bac57615d9eac8d5e4dd1c0363ac8dfd420a7",
-    )
-    .daemon_url(xmr_daemon_url)
-    .scan_interval(Duration::from_millis(1000))
-    .build();
+    // No need to keep the public spend key secret.
+    let public_spend_key = "dd4c491d53ad6b46cda01ed6cb9bac57615d9eac8d5e4dd1c0363ac8dfd420a7";
+
+    let payment_gateway = PaymentGatewayBuilder::new(&private_view_key, public_spend_key)
+        .daemon_url("http://busyboredom.com:18081")
+        .scan_interval(Duration::from_millis(1000))
+        .build();
 
     payment_gateway
         .run()

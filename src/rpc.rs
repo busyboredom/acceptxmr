@@ -102,8 +102,8 @@ impl RpcClient {
 
         let res = self.request(request_body, request_endpoint).await?;
 
-        let blobs = if let Some(h) = res["tx_hashes"].as_array() {
-            h
+        let blobs = if let Some(tx_hashes) = res["tx_hashes"].as_array() {
+            tx_hashes
         } else {
             // If there are no tx hashes, just return an empty list.
             return Ok(transactions);

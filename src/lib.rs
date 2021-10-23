@@ -30,6 +30,8 @@
 //! error does occur, the liberal use of logging within this library will hopefully facilitate a
 //! speedy diagnosis an correction.
 //!
+//! Use this library at your own risk.
+//!
 //! ## Performance
 //!
 //! For maximum performance, host your own monero daemon on the same local network. Network and
@@ -77,6 +79,7 @@ mod util;
 use std::cmp::{self, Ordering};
 use std::ops::Deref;
 use std::str::FromStr;
+use std::sync::atomic::{AtomicU32, AtomicU64};
 use std::sync::{atomic, Arc, Mutex, PoisonError};
 use std::time::Duration;
 use std::{fmt, thread, u64};
@@ -114,7 +117,8 @@ pub struct PaymentGatewayInner {
     scan_interval: Duration,
     payments_db: PaymentsDb,
     subaddresses: Mutex<SubaddressCache>,
-    height: Arc<atomic::AtomicU64>,
+    highest_minor_index: Arc<AtomicU32>,
+    height: Arc<AtomicU64>,
 }
 
 impl Deref for PaymentGateway {
@@ -155,6 +159,7 @@ impl PaymentGateway {
             spend: self.viewpair.spend,
         };
         let scan_interval = self.scan_interval;
+        let highest_minor_index = self.highest_minor_index.clone();
         let atomic_height = self.height.clone();
         let pending_payments = self.payments_db.clone();
 
@@ -163,6 +168,7 @@ impl PaymentGateway {
             rpc_client,
             viewpair,
             pending_payments,
+            highest_minor_index,
             DEFAULT_BLOCK_CACHE_SIZE,
             atomic_height,
         )
@@ -391,7 +397,9 @@ impl PaymentGatewayBuilder {
             view: self.private_view_key,
             spend: self.public_spend_key,
         };
-        let subaddresses = SubaddressCache::init(&payments_db, viewpair);
+        let highest_minor_index = Arc::new(AtomicU32::new(0));
+        let subaddresses =
+            SubaddressCache::init(&payments_db, viewpair, highest_minor_index.clone());
         debug!("Generated {} initial subaddresses", subaddresses.len());
 
         PaymentGateway(Arc::new(PaymentGatewayInner {
@@ -400,6 +408,7 @@ impl PaymentGatewayBuilder {
             scan_interval: self.scan_interval,
             payments_db,
             subaddresses: Mutex::new(subaddresses),
+            highest_minor_index,
             height: Arc::new(atomic::AtomicU64::new(0)),
         }))
     }
