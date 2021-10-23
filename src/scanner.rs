@@ -1,10 +1,10 @@
 use std::collections::HashMap;
 use std::convert::TryInto;
-use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 
 use log::{error, info, trace};
-use monero::cryptonote::hash::Hashable;
+use monero::cryptonote::{hash::Hashable, onetime_key::SubKeyChecker};
 use tokio::join;
 use tokio::sync::Mutex;
 
@@ -12,9 +12,7 @@ use crate::AcceptXmrError;
 use crate::{rpc::RpcClient, BlockCache, PaymentsDb, SubIndex, Transfer, TxpoolCache};
 
 pub(crate) struct Scanner {
-    viewpair: monero::ViewPair,
     payments_db: PaymentsDb,
-    highest_minor_index: Arc<AtomicU32>,
     // Block cache and txpool cache are mutexed to allow concurrent block & txpool scanning. This is
     // necessary even though txpool scanning doesn't use the block cache, and vice versa, because
     // rust doesn't allow mutably borrowing only part of "self".
@@ -26,9 +24,7 @@ pub(crate) struct Scanner {
 impl Scanner {
     pub async fn new(
         rpc_client: RpcClient,
-        viewpair: monero::ViewPair,
         payments_db: PaymentsDb,
-        highest_minor_index: Arc<AtomicU32>,
         block_cache_size: u64,
         atomic_height: Arc<AtomicU64>,
     ) -> Result<Scanner, AcceptXmrError> {
@@ -59,9 +55,7 @@ impl Scanner {
         );
 
         Ok(Scanner {
-            viewpair,
             payments_db,
-            highest_minor_index,
             block_cache: Mutex::new(block_cache?),
             txpool_cache: Mutex::new(txpool_cache?),
             first_scan: true,
@@ -69,10 +63,12 @@ impl Scanner {
     }
 
     /// Scan for payment updates.
-    pub async fn scan(&mut self) {
+    pub async fn scan(&mut self, sub_key_checker: &SubKeyChecker<'_>) {
         // Update block cache, and scan both it and the txpool.
-        let (blocks_amounts_or_err, txpool_amounts_or_err) =
-            join!(self.scan_blocks(), self.scan_txpool());
+        let (blocks_amounts_or_err, txpool_amounts_or_err) = join!(
+            self.scan_blocks(sub_key_checker),
+            self.scan_txpool(sub_key_checker)
+        );
         let height = self.block_cache.lock().await.height.load(Ordering::Relaxed);
 
         let blocks_amounts = match blocks_amounts_or_err {
@@ -187,7 +183,10 @@ impl Scanner {
     /// Update block cache and scan the blocks.
     ///
     /// Returns a vector of tuples of the form (subaddress index, amount, height)
-    async fn scan_blocks(&self) -> Result<Vec<(SubIndex, Transfer)>, AcceptXmrError> {
+    async fn scan_blocks(
+        &self,
+        sub_key_checker: &SubKeyChecker<'_>,
+    ) -> Result<Vec<(SubIndex, Transfer)>, AcceptXmrError> {
         let mut block_cache = self.block_cache.lock().await;
 
         // Update block cache.
@@ -203,7 +202,7 @@ impl Scanner {
         // Scan updated blocks.
         for i in (0..blocks_updated.try_into().unwrap()).rev() {
             let transactions = &block_cache.blocks[i].3;
-            let amounts_received = self.scan_transactions(transactions)?;
+            let amounts_received = self.scan_transactions(transactions, sub_key_checker)?;
             trace!(
                 "Scanned {} transactions from block {}, and found {} transfers for tracked payments",
                 transactions.len(),
@@ -229,7 +228,10 @@ impl Scanner {
     /// Retrieve and scan transaction pool.
     ///
     /// Returns a vector of tuples of the form (subaddress index, amount)
-    async fn scan_txpool(&self) -> Result<Vec<(SubIndex, Transfer)>, AcceptXmrError> {
+    async fn scan_txpool(
+        &self,
+        sub_key_checker: &SubKeyChecker<'_>,
+    ) -> Result<Vec<(SubIndex, Transfer)>, AcceptXmrError> {
         // Update txpool.
         let mut txpool_cache = self.txpool_cache.lock().await;
         let new_transactions = txpool_cache.update().await?;
@@ -239,7 +241,7 @@ impl Scanner {
         let discovered_transfers = txpool_cache.discovered_transfers();
 
         // Scan txpool.
-        let amounts_received = self.scan_transactions(&new_transactions)?;
+        let amounts_received = self.scan_transactions(&new_transactions, sub_key_checker)?;
         trace!(
             "Scanned {} transactions from txpool, and found {} transfers for tracked payments",
             new_transactions.len(),
@@ -275,17 +277,12 @@ impl Scanner {
     fn scan_transactions(
         &self,
         transactions: &[monero::Transaction],
+        sub_key_checker: &SubKeyChecker,
     ) -> Result<HashMap<monero::Hash, Vec<(SubIndex, u64)>>, AcceptXmrError> {
         let mut amounts_received = HashMap::new();
         for tx in transactions {
             // Scan transaction for owned outputs.
-            let transfers = tx
-                .check_outputs(
-                    &self.viewpair,
-                    1..2,
-                    0..self.highest_minor_index.load(Ordering::Relaxed),
-                )
-                .unwrap();
+            let transfers = tx.check_outputs_with(sub_key_checker).unwrap();
 
             for transfer in &transfers {
                 let sub_index = SubIndex::from(transfer.sub_index());

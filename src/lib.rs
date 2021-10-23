@@ -85,6 +85,7 @@ use std::time::Duration;
 use std::{fmt, thread, u64};
 
 use log::{debug, info, warn};
+use monero::cryptonote::onetime_key::SubKeyChecker;
 use monero::cryptonote::subaddress;
 use serde::{Deserialize, Serialize};
 use tokio::runtime::Runtime;
@@ -151,13 +152,11 @@ impl PaymentGateway {
     /// This thread panics if successfully called more than once. Only one payment gateway should be
     /// running at a time. Note that if the first call resulted in an error, this can safely be
     /// called a second time.
+    #[allow(clippy::range_plus_one)]
     pub async fn run(&self) -> Result<(), AcceptXmrError> {
         // Gather info needed by the scanner.
         let rpc_client = self.rpc_client.clone();
-        let viewpair = monero::ViewPair {
-            view: self.viewpair.view,
-            spend: self.viewpair.spend,
-        };
+        let viewpair = self.viewpair;
         let scan_interval = self.scan_interval;
         let highest_minor_index = self.highest_minor_index.clone();
         let atomic_height = self.height.clone();
@@ -166,9 +165,7 @@ impl PaymentGateway {
         // Create scanner.
         let mut scanner = Scanner::new(
             rpc_client,
-            viewpair,
             pending_payments,
-            highest_minor_index,
             DEFAULT_BLOCK_CACHE_SIZE,
             atomic_height,
         )
@@ -182,10 +179,27 @@ impl PaymentGateway {
                 // The thread needs a tokio runtime to process async functions.
                 let tokio_runtime = Runtime::new().unwrap();
                 tokio_runtime.block_on(async move {
+                    // Create persistent sub key checker for efficient tx output checking.
+                    let mut sub_key_checker = SubKeyChecker::new(
+                        &viewpair,
+                        1..2,
+                        0..highest_minor_index.load(atomic::Ordering::Relaxed) + 1,
+                    );
                     // Scan for transactions once every scan_interval.
                     let mut blockscan_interval = time::interval(scan_interval);
                     loop {
-                        join!(blockscan_interval.tick(), scanner.scan());
+                        // Update sub key checker if necessary.
+                        if sub_key_checker.table.len()
+                            <= highest_minor_index.load(atomic::Ordering::Relaxed) as usize
+                        {
+                            sub_key_checker = SubKeyChecker::new(
+                                &viewpair,
+                                1..2,
+                                0..highest_minor_index.load(atomic::Ordering::Relaxed) + 1,
+                            );
+                        }
+                        // Scan!
+                        join!(blockscan_interval.tick(), scanner.scan(&sub_key_checker));
                     }
                 });
             })
