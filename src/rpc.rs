@@ -77,9 +77,12 @@ impl RpcClient {
 
         let res = self.request(request_body, request_endpoint).await?;
 
-        let blobs = res["transactions"]
-            .as_array()
-            .ok_or_else(|| RpcError::MissingData("{{ transactions: [...] }}".to_string()))?;
+        let blobs = if let Some(txs) = res["transactions"].as_array() {
+            txs
+        } else {
+            // If there are no transactions in the txpool, just return an empty list.
+            return Ok(transactions);
+        };
         for blob in blobs {
             let tx_str = blob["tx_blob"].as_str().ok_or_else(|| {
                 RpcError::MissingData("{{ transactions: [ {{ tx_blob: \"...\" }} ] }}".to_string())
