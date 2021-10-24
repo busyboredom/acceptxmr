@@ -82,8 +82,8 @@ fn new_payment() {
         assert_eq!(update.amount_paid(), 0);
         assert!(!update.is_expired());
         assert!(!update.is_confirmed());
-        assert_eq!(update.expiration_at() - update.started_at(), 10);
-        assert_eq!(update.started_at(), update.current_height());
+        assert_eq!(update.expiration_height() - update.creation_height(), 10);
+        assert_eq!(update.creation_height(), update.current_height());
         assert_eq!(update.confirmations_required(), 5);
         assert_eq!(update.confirmations(), None);
     })
@@ -136,8 +136,8 @@ fn track_parallel_payments() {
         assert_eq!(update.amount_paid(), 0);
         assert!(!update.is_expired());
         assert!(!update.is_confirmed());
-        assert_eq!(update.expiration_at() - update.started_at(), 7);
-        assert_eq!(update.started_at(), update.current_height());
+        assert_eq!(update.expiration_height() - update.creation_height(), 7);
+        assert_eq!(update.creation_height(), update.current_height());
         assert_eq!(update.confirmations_required(), 2);
         assert_eq!(update.confirmations(), None);
 
@@ -158,8 +158,8 @@ fn track_parallel_payments() {
         assert_eq!(update.amount_paid(), 0);
         assert!(!update.is_expired());
         assert!(!update.is_confirmed());
-        assert_eq!(update.expiration_at() - update.started_at(), 7);
-        assert_eq!(update.started_at(), update.current_height());
+        assert_eq!(update.expiration_height() - update.creation_height(), 7);
+        assert_eq!(update.creation_height(), update.current_height());
         assert_eq!(update.confirmations_required(), 2);
         assert_eq!(update.confirmations(), None);
 
@@ -180,8 +180,8 @@ fn track_parallel_payments() {
         assert_eq!(update.amount_paid(), 37419570);
         assert!(!update.is_expired());
         assert!(!update.is_confirmed());
-        assert_eq!(update.expiration_at() - update.started_at(), 7);
-        assert_eq!(update.started_at(), update.current_height());
+        assert_eq!(update.expiration_height() - update.creation_height(), 7);
+        assert_eq!(update.creation_height(), update.current_height());
         assert_eq!(update.confirmations_required(), 2);
         assert_eq!(update.confirmations(), None);
 
@@ -196,8 +196,8 @@ fn track_parallel_payments() {
         assert_eq!(update.amount_paid(), 37419570);
         assert!(!update.is_expired());
         assert!(!update.is_confirmed());
-        assert_eq!(update.expiration_at() - update.started_at(), 7);
-        assert_eq!(update.started_at(), update.current_height());
+        assert_eq!(update.expiration_height() - update.creation_height(), 7);
+        assert_eq!(update.creation_height(), update.current_height());
         assert_eq!(update.confirmations_required(), 2);
         assert_eq!(update.confirmations(), None);
 
@@ -218,7 +218,7 @@ fn track_parallel_payments() {
             assert_eq!(update.amount_paid(), 37419570);
             assert!(!update.is_expired());
             assert!(!update.is_confirmed());
-            assert_eq!(update.expiration_at() - update.started_at(), 7);
+            assert_eq!(update.expiration_height() - update.creation_height(), 7);
             assert_eq!(update.current_height(), height);
             assert_eq!(update.confirmations_required(), 2);
             assert_eq!(update.confirmations(), None);
@@ -232,7 +232,7 @@ fn track_parallel_payments() {
             assert_eq!(update.amount_paid(), 37419570);
             assert!(!update.is_expired());
             assert!(!update.is_confirmed());
-            assert_eq!(update.expiration_at() - update.started_at(), 7);
+            assert_eq!(update.expiration_height() - update.creation_height(), 7);
             assert_eq!(update.current_height(), height);
             assert_eq!(update.confirmations_required(), 2);
             assert_eq!(update.confirmations(), None);
@@ -258,7 +258,7 @@ fn track_parallel_payments() {
         assert_eq!(update.amount_paid(), 74839140);
         assert!(!update.is_expired());
         assert!(!update.is_confirmed());
-        assert_eq!(update.expiration_at() - update.started_at(), 7);
+        assert_eq!(update.expiration_height() - update.creation_height(), 7);
         assert_eq!(update.current_height(), 2477661);
         assert_eq!(update.confirmations_required(), 2);
         assert_eq!(update.confirmations(), Some(0));
@@ -285,7 +285,7 @@ fn track_parallel_payments() {
         assert_eq!(update.amount_paid(), 74839140);
         assert!(!update.is_expired());
         assert!(!update.is_confirmed());
-        assert_eq!(update.expiration_at() - update.started_at(), 7);
+        assert_eq!(update.expiration_height() - update.creation_height(), 7);
         assert_eq!(update.current_height(), 2477662);
         assert_eq!(update.confirmations_required(), 2);
         assert_eq!(update.confirmations(), Some(1));
@@ -299,7 +299,7 @@ fn track_parallel_payments() {
         assert_eq!(update.amount_paid(), 37419570);
         assert!(!update.is_expired());
         assert!(!update.is_confirmed());
-        assert_eq!(update.expiration_at() - update.started_at(), 7);
+        assert_eq!(update.expiration_height() - update.creation_height(), 7);
         assert_eq!(update.current_height(), 2477662);
         assert_eq!(update.confirmations_required(), 2);
         assert_eq!(update.confirmations(), None);
@@ -321,7 +321,7 @@ fn track_parallel_payments() {
         assert_eq!(update.amount_paid(), 74839140);
         assert!(!update.is_expired());
         assert!(update.is_confirmed());
-        assert_eq!(update.expiration_at() - update.started_at(), 7);
+        assert_eq!(update.expiration_height() - update.creation_height(), 7);
         assert_eq!(update.current_height(), 2477663);
         assert_eq!(update.confirmations_required(), 2);
         assert_eq!(update.confirmations(), Some(2));
@@ -335,7 +335,7 @@ fn track_parallel_payments() {
         assert_eq!(update.amount_paid(), 37419570);
         assert!(update.is_expired());
         assert!(!update.is_confirmed());
-        assert_eq!(update.expiration_at() - update.started_at(), 7);
+        assert_eq!(update.expiration_height() - update.creation_height(), 7);
         assert_eq!(update.current_height(), 2477663);
         assert_eq!(update.confirmations_required(), 2);
         assert_eq!(update.confirmations(), None);

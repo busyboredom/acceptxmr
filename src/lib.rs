@@ -106,8 +106,8 @@ const DEFAULT_DB_PATH: &str = "AcceptXMR_DB";
 const DEFAULT_RPC_CONNECTION_TIMEOUT: Duration = Duration::from_millis(2000);
 const DEFAULT_BLOCK_CACHE_SIZE: u64 = 10;
 
-/// The `PaymentGateway` allows you to track new [Payments](Payment), remove old payments from tracking, and
-/// subscribe to payments that are already pending.
+/// The `PaymentGateway` allows you to track new [`Payment`s](Payment), remove old `Payment`s from tracking, and
+/// subscribe to `Payment`s that are already pending.
 #[derive(Clone)]
 pub struct PaymentGateway(pub(crate) Arc<PaymentGatewayInner>);
 
@@ -254,7 +254,8 @@ impl PaymentGateway {
     pub fn remove_payment(&self, sub_index: SubIndex) -> Result<Option<Payment>, AcceptXmrError> {
         match self.payments_db.remove(sub_index)? {
             Some(old) => {
-                if !(old.is_expired() || old.is_confirmed() && old.started_at < old.current_height)
+                if !(old.is_expired()
+                    || old.is_confirmed() && old.creation_height < old.current_height)
                 {
                     warn!("Removed a payment which was neither expired, nor fully confirmed and a block or more old. Was this intentional?");
                 }
@@ -283,7 +284,7 @@ impl PaymentGateway {
     ///
     /// # Errors
     ///
-    /// Returns and error if a connection can not be made to the daemon, or if the daemon's response
+    /// Returns an error if a connection can not be made to the daemon, or if the daemon's response
     /// cannot be parsed.
     pub async fn daemon_height(&self) -> Result<u64, AcceptXmrError> {
         Ok(self.rpc_client.daemon_height().await?)
@@ -352,7 +353,7 @@ impl PaymentGatewayBuilder {
     /// # Examples
     ///
     /// ```no_run
-    /// #[tokio::main]
+    /// # #[tokio::main]
     /// # async fn main() -> Result<(), Box<dyn std::error::Error>> {
     /// #
     /// use acceptxmr::PaymentGatewayBuilder;
@@ -450,13 +451,13 @@ impl PaymentGatewayBuilder {
 pub struct Payment {
     address: String,
     index: SubIndex,
-    started_at: u64,
+    creation_height: u64,
     amount_requested: u64,
     amount_paid: u64,
-    paid_at: Option<u64>,
+    paid_height: Option<u64>,
     confirmations_required: u64,
     current_height: u64,
-    expiration_at: u64,
+    expiration_height: u64,
     transfers: Vec<Transfer>,
 }
 
@@ -464,24 +465,24 @@ impl Payment {
     fn new(
         address: &str,
         index: SubIndex,
-        started_at: u64,
+        creation_height: u64,
         amount_requested: u64,
         confirmations_required: u64,
         expiration_in: u64,
     ) -> Payment {
-        let expiration_at = started_at + expiration_in;
+        let expiration_height = creation_height + expiration_in;
         Payment {
             address: address.to_string(),
             index,
-            started_at,
+            creation_height,
             amount_requested,
             amount_paid: 0,
             /// The height at which the `Payment` was fully paid. Will be `None` if not yet fully
             /// paid, or if the required XMR is still in the txpool (which has no height).
-            paid_at: None,
+            paid_height: None,
             confirmations_required,
             current_height: 0,
-            expiration_at,
+            expiration_height,
             transfers: Vec::new(),
         }
     }
@@ -499,7 +500,7 @@ impl Payment {
     #[must_use]
     pub fn is_expired(&self) -> bool {
         // At or passed the expiration block, AND not paid in full.
-        (self.current_height >= self.expiration_at) && self.paid_at.is_none()
+        (self.current_height >= self.expiration_height) && self.paid_height.is_none()
     }
 
     /// Returns the base 58 encoded subaddress of this `Payment`.
@@ -516,8 +517,8 @@ impl Payment {
 
     /// Returns the blockchain height at which the `Payment` was created.
     #[must_use]
-    pub fn started_at(&self) -> u64 {
-        self.started_at
+    pub fn creation_height(&self) -> u64 {
+        self.creation_height
     }
 
     /// Returns the amount of monero requested, in piconeros.
@@ -543,7 +544,7 @@ impl Payment {
     #[must_use]
     pub fn confirmations(&self) -> Option<u64> {
         if self.amount_paid > self.amount_requested {
-            self.paid_at.map_or(Some(0), |paid_at| {
+            self.paid_height.map_or(Some(0), |paid_at| {
                 Some(self.current_height.saturating_sub(paid_at) + 1)
             })
         } else {
@@ -559,8 +560,39 @@ impl Payment {
 
     /// Returns the height at which this `Payment` will expire.
     #[must_use]
-    pub fn expiration_at(&self) -> u64 {
-        self.expiration_at
+    pub fn expiration_height(&self) -> u64 {
+        self.expiration_height
+    }
+
+    /// Returns the number of blocks before expiration.
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// # #[tokio::main]
+    /// # async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    /// #
+    /// # use acceptxmr::PaymentGatewayBuilder;
+    /// #
+    /// # let private_view_key = "ad2093a5705b9f33e6f0f0c1bc1f5f639c756cdfc168c8f2ac6127ccbdab3a03";
+    /// # let public_spend_key = "7388a06bd5455b793a82b90ae801efb9cc0da7156df8af1d5800e4315cc627b4";
+    /// #
+    /// # let payment_gateway = PaymentGatewayBuilder::new(private_view_key, public_spend_key)
+    /// #    .build();
+    /// #
+    /// # payment_gateway.run().await?;
+    /// #
+    /// // Create a new `payment` requiring 3 confirmations, and expiring in 5 blocks.
+    /// let mut subscriber = payment_gateway.new_payment(10000, 3, 5).await?;
+    /// let payment = subscriber.recv()?;
+    ///
+    /// assert_eq!(payment.expiration_in(), 5);
+    /// #   Ok(())
+    /// # }
+    /// ```
+    #[must_use]
+    pub fn expiration_in(&self) -> u64 {
+        self.expiration_height.saturating_sub(self.current_height)
     }
 }
 
@@ -583,9 +615,9 @@ impl fmt::Display for Payment {
             monero::Amount::from_pico(self.amount_paid).as_xmr(),
             monero::Amount::from_pico(self.amount_requested).as_xmr(),
             confirmations,
-            self.started_at,
+            self.creation_height,
             self.current_height,
-            self.expiration_at,
+            self.expiration_height,
         );
         for transfer in &self.transfers {
             let height = match transfer.height {

@@ -128,7 +128,8 @@ impl Scanner {
 
             // Add transfers from blocks and txpool.
             for (sub_index, owned_transfer) in &transfers {
-                if sub_index == &payment.index && owned_transfer.newer_than(payment.started_at) {
+                if sub_index == &payment.index && owned_transfer.newer_than(payment.creation_height)
+                {
                     payment.transfers.push(*owned_transfer);
                 }
             }
@@ -141,14 +142,15 @@ impl Scanner {
             // No need to recalculate total paid_amount or paid_at unless something changed.
             if payment != old_payment {
                 // Zero it out first.
-                payment.paid_at = None;
+                payment.paid_height = None;
                 payment.amount_paid = 0;
                 // Now add up the transfers.
                 for transfer in &payment.transfers {
                     payment.amount_paid += transfer.amount;
-                    if payment.amount_paid >= payment.amount_requested && payment.paid_at.is_none()
+                    if payment.amount_paid >= payment.amount_requested
+                        && payment.paid_height.is_none()
                     {
-                        payment.paid_at = transfer.height;
+                        payment.paid_height = transfer.height;
                     }
                 }
 

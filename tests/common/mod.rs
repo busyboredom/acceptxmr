@@ -80,7 +80,11 @@ impl MockDaemon {
 
     pub fn mock_daemon_height(&self, height: u64) -> Mock {
         // Use mock ID to delete old daemon height mock.
-        if let Some(id) = *self.daemon_height_id.lock().unwrap() {
+        if let Some(id) = *self
+            .daemon_height_id
+            .lock()
+            .expect("PoisonError when reading daemon height mock ID")
+        {
             Mock::new(id, self).delete();
         };
 
@@ -99,13 +103,20 @@ impl MockDaemon {
                     }
                 }));
         });
-        *self.daemon_height_id.lock().unwrap() = Some(mock.id);
+        *self
+            .daemon_height_id
+            .lock()
+            .expect("PoisonError when writing daemon height mock ID") = Some(mock.id);
         mock
     }
 
     pub fn mock_txpool(&self, path: &str) -> Mock {
         // Use ID to delete old mock.
-        if let Some(id) = *self.txpool_id.lock().unwrap() {
+        if let Some(id) = *self
+            .txpool_id
+            .lock()
+            .expect("PoisonError when reading txpool mock ID")
+        {
             Mock::new(id, self).delete();
         };
 
@@ -116,7 +127,10 @@ impl MockDaemon {
                 .header("content-type", "application/json")
                 .body_from_file(path);
         });
-        *self.txpool_id.lock().unwrap() = Some(mock.id);
+        *self
+            .txpool_id
+            .lock()
+            .expect("PoisonError when writing txpool mock ID") = Some(mock.id);
         mock
     }
 
@@ -159,7 +173,11 @@ impl MockDaemon {
 
     pub fn mock_txpool_hashes(&self, response_path: &str) -> Mock {
         // Use ID to delete old mock.
-        if let Some(id) = *self.txpool_hashes_id.lock().unwrap() {
+        if let Some(id) = *self
+            .txpool_hashes_id
+            .lock()
+            .expect("PoisonError when reading txpool hashes mock ID")
+        {
             Mock::new(id, self).delete();
         };
 
@@ -170,17 +188,27 @@ impl MockDaemon {
                 .header("content-type", "application/json")
                 .body_from_file(response_path);
         });
-        *self.txpool_hashes_id.lock().unwrap() = Some(mock.id);
+        *self
+            .txpool_hashes_id
+            .lock()
+            .expect("PoisonError when writing txpool hashes mock ID") = Some(mock.id);
         mock
     }
 
     pub fn mock_txpool_transactions(&self, request_path: &str, response_path: &str) -> Mock {
         // Use ID to delete old mock.
-        if let Some(id) = *self.txpool_transactions_id.lock().unwrap() {
+        if let Some(id) = *self
+            .txpool_transactions_id
+            .lock()
+            .expect("PoisonError when reading txpool transactions mock ID")
+        {
             Mock::new(id, self).delete();
         };
         let mock = self.mock_transactions(request_path, response_path);
-        *self.txpool_transactions_id.lock().unwrap() = Some(mock.id);
+        *self
+            .txpool_transactions_id
+            .lock()
+            .expect("PoisonError when writing txpool transactions mock ID") = Some(mock.id);
         mock
     }
 }
