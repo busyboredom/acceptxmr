@@ -543,11 +543,9 @@ impl Payment {
     #[must_use]
     pub fn confirmations(&self) -> Option<u64> {
         if self.amount_paid > self.amount_requested {
-            if let Some(paid_at) = self.paid_at {
+            self.paid_at.map_or(Some(0), |paid_at| {
                 Some(self.current_height.saturating_sub(paid_at) + 1)
-            } else {
-                Some(0) // Paid but still in txpool is zero conf.
-            }
+            })
         } else {
             None
         }

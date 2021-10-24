@@ -127,7 +127,7 @@ impl Scanner {
                 .retain(|transfer| transfer.older_than(deepest_update));
 
             // Add transfers from blocks and txpool.
-            for (sub_index, owned_transfer) in transfers.iter() {
+            for (sub_index, owned_transfer) in &transfers {
                 if sub_index == &payment.index && owned_transfer.newer_than(payment.started_at) {
                     payment.transfers.push(*owned_transfer);
                 }
