@@ -19,6 +19,7 @@ dependencies = [
  "log",
  "monero",
  "rand",
+ "rand_chacha",
  "reqwest",
  "serde",
  "serde_json",

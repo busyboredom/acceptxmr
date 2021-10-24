@@ -1,0 +1,47 @@
+{
+    "id": "0",
+    "jsonrpc": "2.0",
+    "result": {
+        "blob": "0e0ebaebd28b0603838aca6078ad88d8cda50cba02e353c80b335fedae86db8b4af3ff454655e30de40500029c9d970101ffe09c9701018e8bdf9bf0170213c38926c06a42b966db05c073358ebcd4d0c190e6e79f30ba0126b47c827991340148f426eb8a43e6ff5029c2ef97106891563472b7a85cdef416c0f60d190b00fc02110000014921a591000000000000000000000008c87ae6c879ef6a0e7becf6432e142beba59295b37063203e8d3383aec7724c466bfe4482954f095e401f78ea620294adafce109bc2785a738c8493c84ae910aabfb0856d8b38f9c228058a2f8f5f9ef916ccf1cedd045acc646fd4bc52d990a23a539b33b37f610145a81b4109b43e283e4b053fe04f42760ad86b1896c767a5c6f69ee5e26768d7ed23e5305105c16b57c99c8a6f97b5e23b4692b7cc564e487e54489866faf07fd380dd70a6554c6ee67ef5c6f80cca90bb2032c20968813046cfc5ab658b9e20dff600f5e8e54fdf1eea1e933d0404aeeefda74fc7de3cefda4ab528dd0e4b05d6645c468484c3a4dfebf0a821f724f77838ad300961f2d3",
+        "block_header": {
+            "block_size": 20087,
+            "block_weight": 20087,
+            "cumulative_difficulty": 142790001993864033,
+            "cumulative_difficulty_top64": 0,
+            "depth": 31,
+            "difficulty": 338332791427,
+            "difficulty_top64": 0,
+            "hash": "27fa2c42da15830433bdc1c31706b6e58fe61f44ad25cf2d95e7085b7f93f035",
+            "height": 2477664,
+            "long_term_weight": 20087,
+            "major_version": 14,
+            "miner_tx_hash": "37d81be3276275548d9628d3747358772e3c4f9e03a6517d84ab073480b03ffa",
+            "minor_version": 14,
+            "nonce": 386061,
+            "num_txes": 8,
+            "orphan_status": false,
+            "pow_hash": "",
+            "prev_hash": "03838aca6078ad88d8cda50cba02e353c80b335fedae86db8b4af3ff454655e3",
+            "reward": 820396934542,
+            "timestamp": 1635038650,
+            "wide_cumulative_difficulty": "0x1fb4ac012525361",
+            "wide_difficulty": "0x4ec634b283"
+        },
+        "credits": 0,
+        "json": "{\n  \"major_version\": 14, \n  \"minor_version\": 14, \n  \"timestamp\": 1635038650, \n  \"prev_id\": \"03838aca6078ad88d8cda50cba02e353c80b335fedae86db8b4af3ff454655e3\", \n  \"nonce\": 386061, \n  \"miner_tx\": {\n    \"version\": 2, \n    \"unlock_time\": 2477724, \n    \"vin\": [ {\n        \"gen\": {\n          \"height\": 2477664\n        }\n      }\n    ], \n    \"vout\": [ {\n        \"amount\": 820396934542, \n        \"target\": {\n          \"key\": \"13c38926c06a42b966db05c073358ebcd4d0c190e6e79f30ba0126b47c827991\"\n        }\n      }\n    ], \n    \"extra\": [ 1, 72, 244, 38, 235, 138, 67, 230, 255, 80, 41, 194, 239, 151, 16, 104, 145, 86, 52, 114, 183, 168, 92, 222, 244, 22, 192, 246, 13, 25, 11, 0, 252, 2, 17, 0, 0, 1, 73, 33, 165, 145, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0\n    ], \n    \"rct_signatures\": {\n      \"type\": 0\n    }\n  }, \n  \"tx_hashes\": [ \"c87ae6c879ef6a0e7becf6432e142beba59295b37063203e8d3383aec7724c46\", \"6bfe4482954f095e401f78ea620294adafce109bc2785a738c8493c84ae910aa\", \"bfb0856d8b38f9c228058a2f8f5f9ef916ccf1cedd045acc646fd4bc52d990a2\", \"3a539b33b37f610145a81b4109b43e283e4b053fe04f42760ad86b1896c767a5\", \"c6f69ee5e26768d7ed23e5305105c16b57c99c8a6f97b5e23b4692b7cc564e48\", \"7e54489866faf07fd380dd70a6554c6ee67ef5c6f80cca90bb2032c209688130\", \"46cfc5ab658b9e20dff600f5e8e54fdf1eea1e933d0404aeeefda74fc7de3cef\", \"da4ab528dd0e4b05d6645c468484c3a4dfebf0a821f724f77838ad300961f2d3\"\n  ]\n}",
+        "miner_tx_hash": "37d81be3276275548d9628d3747358772e3c4f9e03a6517d84ab073480b03ffa",
+        "status": "OK",
+        "top_hash": "",
+        "tx_hashes": [
+            "c87ae6c879ef6a0e7becf6432e142beba59295b37063203e8d3383aec7724c46",
+            "6bfe4482954f095e401f78ea620294adafce109bc2785a738c8493c84ae910aa",
+            "bfb0856d8b38f9c228058a2f8f5f9ef916ccf1cedd045acc646fd4bc52d990a2",
+            "3a539b33b37f610145a81b4109b43e283e4b053fe04f42760ad86b1896c767a5",
+            "c6f69ee5e26768d7ed23e5305105c16b57c99c8a6f97b5e23b4692b7cc564e48",
+            "7e54489866faf07fd380dd70a6554c6ee67ef5c6f80cca90bb2032c209688130",
+            "46cfc5ab658b9e20dff600f5e8e54fdf1eea1e933d0404aeeefda74fc7de3cef",
+            "da4ab528dd0e4b05d6645c468484c3a4dfebf0a821f724f77838ad300961f2d3"
+        ],
+        "untrusted": false
+    }
+}

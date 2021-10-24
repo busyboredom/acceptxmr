@@ -4,7 +4,8 @@ use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::Arc;
 
 use indexmap::{IndexMap, IndexSet};
-use rand::Rng;
+use rand::{Rng, SeedableRng};
+use rand_chacha::ChaCha12Rng;
 
 use log::{debug, error};
 use monero::{cryptonote::subaddress, ViewPair};
@@ -17,6 +18,7 @@ pub(crate) struct SubaddressCache {
     highest_minor_index: Arc<AtomicU32>,
     available_subaddresses: IndexMap<SubIndex, String>,
     viewpair: ViewPair,
+    rng: ChaCha12Rng,
 }
 
 impl SubaddressCache {
@@ -24,6 +26,7 @@ impl SubaddressCache {
         payments_db: &PaymentsDb,
         viewpair: monero::ViewPair,
         highest_minor_index: Arc<AtomicU32>,
+        seed: Option<u64>,
     ) -> SubaddressCache {
         // Get currently used subindexes from database, so they won't be put in the list of
         // available subindexes.
@@ -64,16 +67,22 @@ impl SubaddressCache {
         // Remove subaddresses that are present in the database.
         available_subaddresses.retain(|sub_index, _| !used_sub_indexes.contains(sub_index));
 
+        // If a seed is supplied, seed the random number generator with it.
+        let mut rng = ChaCha12Rng::from_entropy();
+        if let Some(s) = seed {
+            rng = ChaCha12Rng::seed_from_u64(s);
+        }
+
         SubaddressCache {
             highest_minor_index,
             available_subaddresses,
             viewpair,
+            rng,
         }
     }
 
     pub fn remove_random(&mut self) -> (SubIndex, String) {
-        let mut rng = rand::thread_rng();
-        let map_index = rng.gen_range(0..self.available_subaddresses.len());
+        let map_index = self.rng.gen_range(0..self.available_subaddresses.len());
 
         if let Some((sub_index, subaddress)) =
             self.available_subaddresses.shift_remove_index(map_index)

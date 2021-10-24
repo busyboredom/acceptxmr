@@ -14,6 +14,8 @@ pub enum AcceptXmrError {
     PaymentStorage(PaymentStorageError),
     /// [`Subscriber`](crate::Subscriber) failed to retrieve update.
     SubscriberRecv,
+    /// [`Subscriber`](crate::Subscriber) timed out before receiving update.
+    SubscriberRecvTimeout,
     /// Failure to unblind the amount of an owned output.
     Unblind(SubIndex),
 }
@@ -43,7 +45,14 @@ impl fmt::Display for AcceptXmrError {
                 f,
                 "subscriber cannot receive further updates, likely because the scanning thread has panicked"
             ),
-            AcceptXmrError::Unblind(index) => write!(f, "unable to unblind amount of owned output sent to subaddress index {}", index),
+            AcceptXmrError::SubscriberRecvTimeout => write!(
+                f,
+                "subscriber recv timeout"
+            ),
+            AcceptXmrError::Unblind(index) => write!(
+                f,
+                "unable to unblind amount of owned output sent to subaddress index {}", index
+            ),
         }
     }
 }

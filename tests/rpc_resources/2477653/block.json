@@ -1,0 +1,49 @@
+{
+    "id": "0",
+    "jsonrpc": "2.0",
+    "result": {
+        "blob": "0e0ef5e2d28b06a68a7faebcd026d5b04d507af67a7d760d2e9228d81f01efa6ca59dcd8de75f147a6000002919d970101ffd59c970101a2e7bb98f01702941255631e62f146f831634dfecbeaba8f05d51290704ed291abb0ef66005a052b01c4dee7329d6736dad725300be0ca73d95acb180110359544cfa898dd83a19ffe02081123988352fdfc00000a262e7acab0c19c259a0511f8d81a31bec27e387570403d24fe571c8022df78c30e6d364e56660e6913d2f888f957de8baa13f7acb13cc223fac86ade3fd195c5a1af8cbadfb05fd401530a0e0985e19b5015a4050d7b47a0f347cc961afe926847e5549c11d96219c3bc44e6779693ccc027f0c804a592cfe00795f8667a9197a221d4da62082657a57382cf13fddc0a0946a632378313765e57234f756bcd17c11f3d5f46829da5651a2b5c4b49ec3159d2d41b06da986a61df48cc6386f6bb750556498d14288363ac24aaf7abe778d6a8f2a6e347610469c2ea922bcb5274dcdb43a7d1415eb3e0ea16e9236cfb2a3d4e42e86bb615e655b5d2514bc36f30a44fe4398639f1771add88dd7a207e18a92dde786c11c6f3595104cfc77da06df4aa20e4064412289224f6a1388538e11a0a688dbb65f29ffd5da4bdf7c1ca81",
+        "block_header": {
+            "block_size": 15674,
+            "block_weight": 15674,
+            "cumulative_difficulty": 142786284472991437,
+            "cumulative_difficulty_top64": 0,
+            "depth": 42,
+            "difficulty": 335153540893,
+            "difficulty_top64": 0,
+            "hash": "21022798acbc3482068ad1a3f539465c90f26622ab2040355db15e58439cbdbf",
+            "height": 2477653,
+            "long_term_weight": 15674,
+            "major_version": 14,
+            "miner_tx_hash": "da967159f790ed0b564d55793c44287e8c4a07a56922ffa3f58f4e8c5db7c516",
+            "minor_version": 14,
+            "nonce": 42567,
+            "num_txes": 10,
+            "orphan_status": false,
+            "pow_hash": "",
+            "prev_hash": "a68a7faebcd026d5b04d507af67a7d760d2e9228d81f01efa6ca59dcd8de75f1",
+            "reward": 820390065058,
+            "timestamp": 1635037557,
+            "wide_cumulative_difficulty": "0x1fb475e84cf7ecd",
+            "wide_difficulty": "0x4e08b52f1d"
+        },
+        "credits": 0,
+        "json": "{\n  \"major_version\": 14, \n  \"minor_version\": 14, \n  \"timestamp\": 1635037557, \n  \"prev_id\": \"a68a7faebcd026d5b04d507af67a7d760d2e9228d81f01efa6ca59dcd8de75f1\", \n  \"nonce\": 42567, \n  \"miner_tx\": {\n    \"version\": 2, \n    \"unlock_time\": 2477713, \n    \"vin\": [ {\n        \"gen\": {\n          \"height\": 2477653\n        }\n      }\n    ], \n    \"vout\": [ {\n        \"amount\": 820390065058, \n        \"target\": {\n          \"key\": \"941255631e62f146f831634dfecbeaba8f05d51290704ed291abb0ef66005a05\"\n        }\n      }\n    ], \n    \"extra\": [ 1, 196, 222, 231, 50, 157, 103, 54, 218, 215, 37, 48, 11, 224, 202, 115, 217, 90, 203, 24, 1, 16, 53, 149, 68, 207, 168, 152, 221, 131, 161, 159, 254, 2, 8, 17, 35, 152, 131, 82, 253, 252, 0\n    ], \n    \"rct_signatures\": {\n      \"type\": 0\n    }\n  }, \n  \"tx_hashes\": [ \"262e7acab0c19c259a0511f8d81a31bec27e387570403d24fe571c8022df78c3\", \"0e6d364e56660e6913d2f888f957de8baa13f7acb13cc223fac86ade3fd195c5\", \"a1af8cbadfb05fd401530a0e0985e19b5015a4050d7b47a0f347cc961afe9268\", \"47e5549c11d96219c3bc44e6779693ccc027f0c804a592cfe00795f8667a9197\", \"a221d4da62082657a57382cf13fddc0a0946a632378313765e57234f756bcd17\", \"c11f3d5f46829da5651a2b5c4b49ec3159d2d41b06da986a61df48cc6386f6bb\", \"750556498d14288363ac24aaf7abe778d6a8f2a6e347610469c2ea922bcb5274\", \"dcdb43a7d1415eb3e0ea16e9236cfb2a3d4e42e86bb615e655b5d2514bc36f30\", \"a44fe4398639f1771add88dd7a207e18a92dde786c11c6f3595104cfc77da06d\", \"f4aa20e4064412289224f6a1388538e11a0a688dbb65f29ffd5da4bdf7c1ca81\"\n  ]\n}",
+        "miner_tx_hash": "da967159f790ed0b564d55793c44287e8c4a07a56922ffa3f58f4e8c5db7c516",
+        "status": "OK",
+        "top_hash": "",
+        "tx_hashes": [
+            "262e7acab0c19c259a0511f8d81a31bec27e387570403d24fe571c8022df78c3",
+            "0e6d364e56660e6913d2f888f957de8baa13f7acb13cc223fac86ade3fd195c5",
+            "a1af8cbadfb05fd401530a0e0985e19b5015a4050d7b47a0f347cc961afe9268",
+            "47e5549c11d96219c3bc44e6779693ccc027f0c804a592cfe00795f8667a9197",
+            "a221d4da62082657a57382cf13fddc0a0946a632378313765e57234f756bcd17",
+            "c11f3d5f46829da5651a2b5c4b49ec3159d2d41b06da986a61df48cc6386f6bb",
+            "750556498d14288363ac24aaf7abe778d6a8f2a6e347610469c2ea922bcb5274",
+            "dcdb43a7d1415eb3e0ea16e9236cfb2a3d4e42e86bb615e655b5d2514bc36f30",
+            "a44fe4398639f1771add88dd7a207e18a92dde786c11c6f3595104cfc77da06d",
+            "f4aa20e4064412289224f6a1388538e11a0a688dbb65f29ffd5da4bdf7c1ca81"
+        ],
+        "untrusted": false
+    }
+}

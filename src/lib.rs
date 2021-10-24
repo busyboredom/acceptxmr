@@ -327,6 +327,7 @@ pub struct PaymentGatewayBuilder {
     public_spend_key: monero::PublicKey,
     scan_interval: Duration,
     db_path: String,
+    seed: Option<u64>,
 }
 
 impl PaymentGatewayBuilder {
@@ -341,6 +342,7 @@ impl PaymentGatewayBuilder {
                 .expect("invalid public spend key"),
             scan_interval: DEFAULT_SCAN_INTERVAL,
             db_path: DEFAULT_DB_PATH.to_string(),
+            seed: None,
         }
     }
 
@@ -390,6 +392,15 @@ impl PaymentGatewayBuilder {
         self
     }
 
+    /// Seed for random number generator. Use only for reproducible testing. Do not set in a
+    /// production environment.
+    #[must_use]
+    pub fn seed(mut self, seed: u64) -> PaymentGatewayBuilder {
+        warn!("Seed set to {}. Some operations intended to be random (like the order in which subaddresses are used) will be predictable.", seed);
+        self.seed = Some(seed);
+        self
+    }
+
     /// Build the payment gateway.
     ///
     /// # Panics
@@ -408,8 +419,12 @@ impl PaymentGatewayBuilder {
             spend: self.public_spend_key,
         };
         let highest_minor_index = Arc::new(AtomicU32::new(0));
-        let subaddresses =
-            SubaddressCache::init(&payments_db, viewpair, highest_minor_index.clone());
+        let subaddresses = SubaddressCache::init(
+            &payments_db,
+            viewpair,
+            highest_minor_index.clone(),
+            self.seed,
+        );
         debug!("Generated {} initial subaddresses", subaddresses.len());
 
         PaymentGateway(Arc::new(PaymentGatewayInner {
@@ -461,6 +476,8 @@ impl Payment {
             started_at,
             amount_requested,
             amount_paid: 0,
+            /// The height at which the `Payment` was fully paid. Will be `None` if not yet fully
+            /// paid, or if the required XMR is still in the txpool (which has no height).
             paid_at: None,
             confirmations_required,
             current_height: 0,
@@ -522,11 +539,18 @@ impl Payment {
     }
 
     /// Returns the number of confirmations this `Payment` has received since it was paid in full.
-    /// Returns None if the `Payment` has not yet been paid in full.
+    /// Returns `None` if the `Payment` has not yet been paid in full.
     #[must_use]
     pub fn confirmations(&self) -> Option<u64> {
-        self.paid_at
-            .map(|paid_at| self.current_height.saturating_sub(paid_at) + 1)
+        if self.amount_paid > self.amount_requested {
+            if let Some(paid_at) = self.paid_at {
+                Some(self.current_height.saturating_sub(paid_at) + 1)
+            } else {
+                Some(0) // Paid but still in txpool is zero conf.
+            }
+        } else {
+            None
+        }
     }
 
     /// Returns the last height at which this `payment` was updated.

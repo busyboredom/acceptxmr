@@ -55,7 +55,7 @@ impl RpcClient {
             RpcError::MissingData("{{ result: {{ blob: \"...\" }} }}".to_string())
         })?;
         let block_hex = hex::decode(block_str)?;
-        let block = deserialize(&block_hex)?;
+        let block: monero::Block = deserialize(&block_hex)?;
 
         Ok((block_hash, block))
     }

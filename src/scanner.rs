@@ -87,7 +87,7 @@ impl Scanner {
         };
 
         // Combine transfers into one big vec.
-        let mut transfers: Vec<(SubIndex, Transfer)> = blocks_amounts
+        let transfers: Vec<(SubIndex, Transfer)> = blocks_amounts
             .into_iter()
             .chain(txpool_amounts.into_iter())
             .collect();
@@ -127,11 +127,9 @@ impl Scanner {
                 .retain(|transfer| transfer.older_than(deepest_update));
 
             // Add transfers from blocks and txpool.
-            for i in 0..transfers.len() {
-                let (sub_index, owned_transfer) = transfers[i];
-                if sub_index == payment.index && owned_transfer.newer_than(payment.started_at) {
-                    transfers.remove(i);
-                    payment.transfers.push(owned_transfer);
+            for (sub_index, owned_transfer) in transfers.iter() {
+                if sub_index == &payment.index && owned_transfer.newer_than(payment.started_at) {
+                    payment.transfers.push(*owned_transfer);
                 }
             }
 
@@ -204,7 +202,7 @@ impl Scanner {
             let transactions = &block_cache.blocks[i].3;
             let amounts_received = self.scan_transactions(transactions, sub_key_checker)?;
             trace!(
-                "Scanned {} transactions from block {}, and found {} transfers for tracked payments",
+                "Scanned {} transactions from block {}, and found {} transactions to tracked payments",
                 transactions.len(),
                 block_cache.blocks[i].1,
                 amounts_received.len()
