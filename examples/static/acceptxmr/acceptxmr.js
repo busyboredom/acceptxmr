@@ -4,7 +4,7 @@ function start() {
         .then(data => data.text())
         .then(html => document.getElementById('acceptxmr-content').innerHTML = html)
 
-        let socket = new WebSocket("ws://localhost:8080/ws/");
+    let socket = new WebSocket("ws://localhost:8080/ws/");
 
     socket.onmessage = function (event) {
         var message = JSON.parse(event.data);
