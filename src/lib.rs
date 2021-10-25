@@ -3,9 +3,8 @@
 //! This library aims to provide a simple, reliable, and efficient means to track monero payments.
 //!
 //! To track payments, the [`PaymentGateway`] generates subaddresses using your private view key and
-//! public spend key. It then watches for monero sent to that subaddress by periodically querying a
-//! monero daemon of your choosing, and scanning newly received transactions for relevant outputs
-//! using your private view key and public spend key.
+//! public spend key. It then watches for monero sent to that subaddress using a monero daemon of
+//! your choosing, your private view key and your public spend key.
 //!
 //! ## Security
 //!
@@ -23,7 +22,7 @@
 //! young and unproven, and relies on several crates which are undergoing rapid changes themselves
 //! (for example, the database used ([Sled](sled)) is still in beta).
 //!
-//! That said, this payment gateway should survive unexpected power loss thanks to pending payments
+//! That said, this payment gateway should survive unexpected power loss thanks to pending invoices
 //! being stored in a database, which is flushed to disk each time new blocks/transactions are
 //! scanned. A best effort is made to keep the scanning thread free any of potential panics, and RPC
 //! calls in the scanning thread are logged on failure and repeated next scan. In the event that an
@@ -35,9 +34,9 @@
 //! ## Performance
 //!
 //! For maximum performance, host your own monero daemon on the same local network. Network and
-//! daemon slowness are primary cause of high payment update latency in the majority of use cases.
+//! daemon slowness are primary cause of high invoice update latency in the majority of use cases.
 //!
-//! To reduce the average latency before receiving payment updates, you may also consider lowering
+//! To reduce the average latency before receiving invoice updates, you may also consider lowering
 //! the [`PaymentGateway`]'s `scan_interval` below the default of 1 second:
 //! ```
 //! # use tempfile::Builder;
@@ -53,7 +52,7 @@
 //! let public_spend_key = "7388a06bd5455b793a82b90ae801efb9cc0da7156df8af1d5800e4315cc627b4";
 //!
 //! let payment_gateway = PaymentGateway::builder(private_view_key, public_spend_key)
-//!     .scan_interval(Duration::from_millis(100)) // Scan for payment updates every 100 ms.
+//!     .scan_interval(Duration::from_millis(100)) // Scan for invoice updates every 100 ms.
 //! #   .db_path(temp_dir.path().to_str().expect("Failed to get temporary directory path"))
 //!     .build();
 //! ```
@@ -68,7 +67,7 @@
 #![allow(clippy::multiple_crate_versions)]
 
 mod block_cache;
-mod payments_db;
+mod invoices_db;
 mod rpc;
 mod scanner;
 mod subaddress_cache;
@@ -92,7 +91,7 @@ use tokio::runtime::Runtime;
 use tokio::{join, time};
 
 use block_cache::BlockCache;
-use payments_db::PaymentsDb;
+use invoices_db::InvoicesDb;
 use rpc::RpcClient;
 use scanner::Scanner;
 use subaddress_cache::SubaddressCache;
@@ -106,8 +105,8 @@ const DEFAULT_DB_PATH: &str = "AcceptXMR_DB";
 const DEFAULT_RPC_CONNECTION_TIMEOUT: Duration = Duration::from_millis(2000);
 const DEFAULT_BLOCK_CACHE_SIZE: u64 = 10;
 
-/// The `PaymentGateway` allows you to track new [`Payment`s](Payment), remove old `Payment`s from tracking, and
-/// subscribe to `Payment`s that are already pending.
+/// The `PaymentGateway` allows you to track new [`Invoice`s](Invoice), remove old `Invoice`s from tracking, and
+/// subscribe to `Invoice`s that are already pending.
 #[derive(Clone)]
 pub struct PaymentGateway(pub(crate) Arc<PaymentGatewayInner>);
 
@@ -116,7 +115,7 @@ pub struct PaymentGatewayInner {
     rpc_client: RpcClient,
     viewpair: monero::ViewPair,
     scan_interval: Duration,
-    payments_db: PaymentsDb,
+    invoices_db: InvoicesDb,
     subaddresses: Mutex<SubaddressCache>,
     highest_minor_index: Arc<AtomicU32>,
     height: Arc<AtomicU64>,
@@ -138,14 +137,14 @@ impl PaymentGateway {
     }
 
     /// Runs the payment gateway. This function spawns a new thread, which periodically scans new
-    /// blocks and transactions from the configured daemon and updates pending [Payments](Payment)
+    /// blocks and transactions from the configured daemon and updates pending [`Invoice`s](Invoice)
     /// in the database.
     ///
     /// This method should only be called once.
     ///
     /// # Errors
     ///
-    /// Returns an [`AcceptXmrError::PaymentStorage`] error if there was an underlying issue with
+    /// Returns an [`AcceptXmrError::InvoiceStorage`] error if there was an underlying issue with
     /// the database, or an [`AcceptXmrError::Rpc`] error if there was an issue getting necessary
     /// data from the monero daemon.
     #[allow(clippy::range_plus_one, clippy::missing_panics_doc)]
@@ -156,12 +155,12 @@ impl PaymentGateway {
         let scan_interval = self.scan_interval;
         let highest_minor_index = self.highest_minor_index.clone();
         let atomic_height = self.height.clone();
-        let pending_payments = self.payments_db.clone();
+        let pending_invoices = self.invoices_db.clone();
 
         // Create scanner.
         let mut scanner = Scanner::new(
             rpc_client,
-            pending_payments,
+            pending_invoices,
             DEFAULT_BLOCK_CACHE_SIZE,
             atomic_height,
         )
@@ -204,14 +203,14 @@ impl PaymentGateway {
         Ok(())
     }
 
-    /// Adds a new [Payment] to the payment gateway for tracking, and returns a [Subscriber] for
-    /// receiving updates to that payment as they occur.
+    /// Adds a new [`Invoice`] to the payment gateway for tracking, and returns a [Subscriber] for
+    /// receiving updates to that invoice as they occur.
     ///
     /// # Errors
     ///
     /// Returns an error if there are any underlying issues modifying data in the
     /// database.
-    pub async fn new_payment(
+    pub async fn new_invoice(
         &self,
         piconeros: u64,
         confirmations_required: u64,
@@ -226,8 +225,8 @@ impl PaymentGateway {
             .unwrap_or_else(PoisonError::into_inner)
             .remove_random();
 
-        // Create payment object.
-        let payment = Payment::new(
+        // Create invoice object.
+        let invoice = Invoice::new(
             &subaddress,
             sub_index,
             self.height.load(atomic::Ordering::Relaxed),
@@ -236,28 +235,28 @@ impl PaymentGateway {
             expiration_in,
         );
 
-        // Insert payment into database for tracking.
-        self.payments_db.insert(&payment)?;
-        debug!("Now tracking payment to subaddress index {}", payment.index);
+        // Insert invoice into database for tracking.
+        self.invoices_db.insert(&invoice)?;
+        debug!("Now tracking invoice to subaddress index {}", invoice.index);
 
-        // Return a subscriber so the caller can get updates on payment status.
+        // Return a subscriber so the caller can get updates on invoice status.
         // TODO: Consider not returning before a flush happens (maybe optionally flush when called?).
         Ok(self.subscribe(sub_index))
     }
 
-    /// Remove (i.e. stop tracking) payment, returning the old payment if it existed.
+    /// Remove (i.e. stop tracking) invoice, returning the old invoice if it existed.
     ///
     /// # Errors
     ///
     /// Returns an error if there are any underlying issues modifying/retrieving data in the
     /// database.
-    pub fn remove_payment(&self, sub_index: SubIndex) -> Result<Option<Payment>, AcceptXmrError> {
-        match self.payments_db.remove(sub_index)? {
+    pub fn remove_invoice(&self, sub_index: SubIndex) -> Result<Option<Invoice>, AcceptXmrError> {
+        match self.invoices_db.remove(sub_index)? {
             Some(old) => {
                 if !(old.is_expired()
                     || old.is_confirmed() && old.creation_height < old.current_height)
                 {
-                    warn!("Removed a payment which was neither expired, nor fully confirmed and a block or more old. Was this intentional?");
+                    warn!("Removed an invoice which was neither expired, nor fully confirmed and a block or more old. Was this intentional?");
                 }
                 // Put the subaddress back in the subaddress cache.
                 self.subaddresses
@@ -271,13 +270,13 @@ impl PaymentGateway {
         }
     }
 
-    /// Returns a `Subscriber` for the given subaddress index. If a tracked payment exists for that
-    /// subaddress, the subscriber can be used to receive updates to for that payment.
+    /// Returns a `Subscriber` for the given subaddress index. If a tracked invoice exists for that
+    /// subaddress, the subscriber can be used to receive updates to for that invoice.
     ///
-    /// To subscribe to all payment updates, use the index of the primary address: (0,0).
+    /// To subscribe to all invoice updates, use the index of the primary address: (0,0).
     #[must_use]
     pub fn subscribe(&self, sub_index: SubIndex) -> Subscriber {
-        self.payments_db.subscribe(sub_index)
+        self.invoices_db.subscribe(sub_index)
     }
 
     /// Get current height of daemon using a monero daemon RPC call.
@@ -317,7 +316,7 @@ impl PaymentGateway {
 ///
 /// // Create a payment gateway with an extra fast scan rate and a custom monero daemon URL.
 /// let payment_gateway = PaymentGatewayBuilder::new(private_view_key, public_spend_key)
-///     .scan_interval(Duration::from_millis(100)) // Scan for payment updates every 100 ms.
+///     .scan_interval(Duration::from_millis(100)) // Scan for invoice updates every 100 ms.
 ///     .daemon_url("http://example.com:18081") // Set custom monero daemon URL.
 /// #   .db_path(temp_dir.path().to_str().expect("Failed to get temporary directory path"))
 ///     .build();
@@ -386,7 +385,7 @@ impl PaymentGatewayBuilder {
         self
     }
 
-    /// Path to the pending payments database. Defaults to `AcceptXMR_DB/`.
+    /// Path to the pending invoices database. Defaults to `AcceptXMR_DB/`.
     #[must_use]
     pub fn db_path(mut self, path: &str) -> PaymentGatewayBuilder {
         self.db_path = path.to_string();
@@ -412,8 +411,8 @@ impl PaymentGatewayBuilder {
     pub fn build(self) -> PaymentGateway {
         let rpc_client = RpcClient::new(&self.daemon_url, DEFAULT_RPC_CONNECTION_TIMEOUT)
             .expect("failed to create RPC client during PaymentGateway creation");
-        let payments_db =
-            PaymentsDb::new(&self.db_path).expect("failed to open pending payments database tree");
+        let invoices_db =
+            InvoicesDb::new(&self.db_path).expect("failed to open pending invoices database tree");
         info!("Opened database in \"{}/\"", self.db_path);
         let viewpair = monero::ViewPair {
             view: self.private_view_key,
@@ -421,7 +420,7 @@ impl PaymentGatewayBuilder {
         };
         let highest_minor_index = Arc::new(AtomicU32::new(0));
         let subaddresses = SubaddressCache::init(
-            &payments_db,
+            &invoices_db,
             viewpair,
             highest_minor_index.clone(),
             self.seed,
@@ -432,7 +431,7 @@ impl PaymentGatewayBuilder {
             rpc_client,
             viewpair,
             scan_interval: self.scan_interval,
-            payments_db,
+            invoices_db,
             subaddresses: Mutex::new(subaddresses),
             highest_minor_index,
             height: Arc::new(atomic::AtomicU64::new(0)),
@@ -440,15 +439,15 @@ impl PaymentGatewayBuilder {
     }
 }
 
-/// Representation of a customer's payment. `Payment`s are created by the [`PaymentGateway`], and are
+/// Representation of an invoice. `Invoice`s are created by the [`PaymentGateway`], and are
 /// initially unpaid.
 ///
-/// `Payment`s have an expiration block, after which they are considered expired. However, note that
-/// the payment gateway by default will continue updating payments even after expiration.
+/// `Invoice`s have an expiration block, after which they are considered expired. However, note that
+/// the payment gateway by default will continue updating invoices even after expiration.
 ///
-/// To receive updates for a given `Payment`, use a [Subscriber].
+/// To receive updates for a given `Invoice`, use a [Subscriber].
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct Payment {
+pub struct Invoice {
     address: String,
     index: SubIndex,
     creation_height: u64,
@@ -461,7 +460,7 @@ pub struct Payment {
     transfers: Vec<Transfer>,
 }
 
-impl Payment {
+impl Invoice {
     fn new(
         address: &str,
         index: SubIndex,
@@ -469,15 +468,15 @@ impl Payment {
         amount_requested: u64,
         confirmations_required: u64,
         expiration_in: u64,
-    ) -> Payment {
+    ) -> Invoice {
         let expiration_height = creation_height + expiration_in;
-        Payment {
+        Invoice {
             address: address.to_string(),
             index,
             creation_height,
             amount_requested,
             amount_paid: 0,
-            /// The height at which the `Payment` was fully paid. Will be `None` if not yet fully
+            /// The height at which the `Invoice` was fully paid. Will be `None` if not yet fully
             /// paid, or if the required XMR is still in the txpool (which has no height).
             paid_height: None,
             confirmations_required,
@@ -487,7 +486,7 @@ impl Payment {
         }
     }
 
-    /// Returns `true` if the `Payment` has received the required number of confirmations.
+    /// Returns `true` if the `Invoice` has received the required number of confirmations.
     #[must_use]
     pub fn is_confirmed(&self) -> bool {
         self.confirmations().map_or(false, |confirmations| {
@@ -495,7 +494,7 @@ impl Payment {
         })
     }
 
-    /// Returns `true` if the `Payment`'s current block is greater than or equal to its expiration
+    /// Returns `true` if the `Invoice`'s current block is greater than or equal to its expiration
     /// block.
     #[must_use]
     pub fn is_expired(&self) -> bool {
@@ -503,19 +502,19 @@ impl Payment {
         (self.current_height >= self.expiration_height) && self.paid_height.is_none()
     }
 
-    /// Returns the base 58 encoded subaddress of this `Payment`.
+    /// Returns the base 58 encoded subaddress of this `Invoice`.
     #[must_use]
     pub fn address(&self) -> String {
         self.address.clone()
     }
 
-    /// Returns the [subaddress index](SubIndex) of this `Payment`.
+    /// Returns the [subaddress index](SubIndex) of this `Invoice`.
     #[must_use]
     pub fn index(&self) -> SubIndex {
         self.index
     }
 
-    /// Returns the blockchain height at which the `Payment` was created.
+    /// Returns the blockchain height at which the `Invoice` was created.
     #[must_use]
     pub fn creation_height(&self) -> u64 {
         self.creation_height
@@ -533,14 +532,14 @@ impl Payment {
         self.amount_paid
     }
 
-    /// Returns the number of confirmations this `Payment` requires before it is considered fully confirmed.
+    /// Returns the number of confirmations this `Invoice` requires before it is considered fully confirmed.
     #[must_use]
     pub fn confirmations_required(&self) -> u64 {
         self.confirmations_required
     }
 
-    /// Returns the number of confirmations this `Payment` has received since it was paid in full.
-    /// Returns `None` if the `Payment` has not yet been paid in full.
+    /// Returns the number of confirmations this `Invoice` has received since it was paid in full.
+    /// Returns `None` if the `Invoice` has not yet been paid in full.
     #[must_use]
     pub fn confirmations(&self) -> Option<u64> {
         if self.amount_paid > self.amount_requested {
@@ -552,13 +551,13 @@ impl Payment {
         }
     }
 
-    /// Returns the last height at which this `payment` was updated.
+    /// Returns the last height at which this `Invoice` was updated.
     #[must_use]
     pub fn current_height(&self) -> u64 {
         self.current_height
     }
 
-    /// Returns the height at which this `Payment` will expire.
+    /// Returns the height at which this `Invoice` will expire.
     #[must_use]
     pub fn expiration_height(&self) -> u64 {
         self.expiration_height
@@ -582,11 +581,11 @@ impl Payment {
     /// #
     /// # payment_gateway.run().await?;
     /// #
-    /// // Create a new `payment` requiring 3 confirmations, and expiring in 5 blocks.
-    /// let mut subscriber = payment_gateway.new_payment(10000, 3, 5).await?;
-    /// let payment = subscriber.recv()?;
+    /// // Create a new `Invoice` requiring 3 confirmations, and expiring in 5 blocks.
+    /// let mut subscriber = payment_gateway.new_invoice(10000, 3, 5).await?;
+    /// let invoice = subscriber.recv()?;
     ///
-    /// assert_eq!(payment.expiration_in(), 5);
+    /// assert_eq!(invoice.expiration_in(), 5);
     /// #   Ok(())
     /// # }
     /// ```
@@ -596,7 +595,7 @@ impl Payment {
     }
 }
 
-impl fmt::Display for Payment {
+impl fmt::Display for Invoice {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let confirmations = match self.confirmations() {
             Some(height) => height.to_string(),
@@ -695,8 +694,8 @@ impl From<SubIndex> for subaddress::Index {
     }
 }
 
-/// A `Transfer` represents a sum of owned outputs at a given height. When part of a `Payment`, it
-/// specifically represents the sum of owned outputs for that payment's subaddress, at a given
+/// A `Transfer` represents a sum of owned outputs at a given height. When part of an `Invoice`, it
+/// specifically represents the sum of owned outputs for that invoice's subaddress, at a given
 /// height.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Copy)]
 pub struct Transfer {

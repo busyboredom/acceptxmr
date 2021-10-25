@@ -10,7 +10,7 @@ use rand_chacha::ChaCha12Rng;
 use log::{debug, error};
 use monero::{cryptonote::subaddress, ViewPair};
 
-use crate::{PaymentsDb, SubIndex};
+use crate::{InvoicesDb, SubIndex};
 
 const MIN_AVAILABLE_SUBADDRESSES: u32 = 100;
 
@@ -23,21 +23,21 @@ pub(crate) struct SubaddressCache {
 
 impl SubaddressCache {
     pub fn init(
-        payments_db: &PaymentsDb,
+        invoices_db: &InvoicesDb,
         viewpair: monero::ViewPair,
         highest_minor_index: Arc<AtomicU32>,
         seed: Option<u64>,
     ) -> SubaddressCache {
         // Get currently used subindexes from database, so they won't be put in the list of
         // available subindexes.
-        let used_sub_indexes: IndexSet<SubIndex> = payments_db
+        let used_sub_indexes: IndexSet<SubIndex> = invoices_db
             .iter()
-            .map(|payment_or_err| match payment_or_err {
-                Ok(payment) => payment.index,
+            .map(|invoice_or_err| match invoice_or_err {
+                Ok(invoice) => invoice.index,
                 Err(e) => {
                     // TODO: Ideally, we'd carry on after logging this error.
                     panic!(
-                        "failed to read used subindex from payment in database: {}",
+                        "failed to read used subindex from invoice in database: {}",
                         e
                     );
                 }
@@ -56,7 +56,7 @@ impl SubaddressCache {
             0
         };
 
-        // Generate enough subaddresses to cover all pending payments.
+        // Generate enough subaddresses to cover all pending invoices.
         let minor_index_range = 0..cmp::max(MIN_AVAILABLE_SUBADDRESSES, max_used + 1);
         highest_minor_index.store(minor_index_range.end - 1, Ordering::Relaxed);
         let mut available_subaddresses: IndexMap<SubIndex, String> =

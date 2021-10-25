@@ -1,7 +1,7 @@
 use std::error::Error;
 use std::fmt;
 
-use crate::payments_db::PaymentStorageError;
+use crate::invoices_db::InvoiceStorageError;
 use crate::rpc::RpcError;
 use crate::SubIndex;
 
@@ -10,8 +10,8 @@ use crate::SubIndex;
 pub enum AcceptXmrError {
     /// An error originating from a daemon RPC call.
     Rpc(RpcError),
-    /// An error storing/retrieving [`Payment`](crate::Payment)s.
-    PaymentStorage(PaymentStorageError),
+    /// An error storing/retrieving [`Invoice`](crate::Invoice)s.
+    InvoiceStorage(InvoiceStorageError),
     /// [`Subscriber`](crate::Subscriber) failed to retrieve update.
     SubscriberRecv,
     /// [`Subscriber`](crate::Subscriber) timed out before receiving update.
@@ -26,9 +26,9 @@ impl From<RpcError> for AcceptXmrError {
     }
 }
 
-impl From<PaymentStorageError> for AcceptXmrError {
-    fn from(e: PaymentStorageError) -> Self {
-        Self::PaymentStorage(e)
+impl From<InvoiceStorageError> for AcceptXmrError {
+    fn from(e: InvoiceStorageError) -> Self {
+        Self::InvoiceStorage(e)
     }
 }
 
@@ -38,8 +38,8 @@ impl fmt::Display for AcceptXmrError {
             AcceptXmrError::Rpc(e) => {
                 write!(f, "RPC error: {}", e)
             }
-            AcceptXmrError::PaymentStorage(e) => {
-                write!(f, "payment storage error: {}", e)
+            AcceptXmrError::InvoiceStorage(e) => {
+                write!(f, "invoice storage error: {}", e)
             }
             AcceptXmrError::SubscriberRecv => write!(
                 f,

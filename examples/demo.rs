@@ -16,7 +16,7 @@ use acceptxmr::{AcceptXmrError, PaymentGateway, PaymentGatewayBuilder, SubIndex,
 const HEARTBEAT_INTERVAL: Duration = Duration::from_secs(4);
 /// How long before lack of client response causes a timeout
 const CLIENT_TIMEOUT: Duration = Duration::from_secs(10);
-/// Minimum interval for a websocket to send a payment update.
+/// Minimum interval for a websocket to send an invoice update.
 const UPDATE_INTERVAL: Duration = Duration::from_millis(100);
 
 #[actix_web::main]
@@ -47,30 +47,30 @@ async fn main() -> std::io::Result<()> {
         .await
         .expect("failed to run payment gateway");
 
-    // Watch for payment updates and deal with them accordingly.
+    // Watch for invoice updates and deal with them accordingly.
     let gateway_copy = payment_gateway.clone();
     std::thread::spawn(move || {
-        // Watch all payment updates by subscribing to the primary address index (0/0).
+        // Watch all invoice updates by subscribing to the primary address index (0/0).
         let mut subscriber = gateway_copy.subscribe(SubIndex::new(0, 0));
         loop {
-            let payment = match subscriber.recv() {
+            let invoice = match subscriber.recv() {
                 Ok(p) => p,
                 Err(AcceptXmrError::SubscriberRecv) => panic!("Blockchain scanner crashed!"),
                 Err(e) => {
-                    error!("Error retrieving payment update: {}", e);
+                    error!("Error retrieving invoice update: {}", e);
                     continue;
                 }
             };
             // If it's confirmed or expired, we probably shouldn't bother tracking it anymore.
-            if (payment.is_confirmed() && payment.creation_height() < payment.current_height())
-                || payment.is_expired()
+            if (invoice.is_confirmed() && invoice.creation_height() < invoice.current_height())
+                || invoice.is_expired()
             {
                 debug!(
-                    "Payment to index {} is either confirmed or expired. Removing payment now",
-                    payment.index()
+                    "Invoice to index {} is either confirmed or expired. Removing invoice now",
+                    invoice.index()
                 );
-                if let Err(e) = gateway_copy.remove_payment(payment.index()) {
-                    error!("Failed to remove fully confirmed payment: {}", e);
+                if let Err(e) = gateway_copy.remove_invoice(invoice.index()) {
+                    error!("Failed to remove fully confirmed invoice: {}", e);
                 };
             }
         }
@@ -96,62 +96,62 @@ async fn websocket(
     payment_gateway: web::Data<PaymentGateway>,
 ) -> Result<HttpResponse, actix_web::Error> {
     // TODO: Use cookies to determine if a purchase is already pending, and avoid creating a new one.
-    let subscriber = payment_gateway.new_payment(100, 2, 3).await.unwrap();
+    let subscriber = payment_gateway.new_invoice(100, 2, 3).await.unwrap();
     ws::start(WebSocket::new(subscriber), &req, stream)
 }
 
 /// Define websocket HTTP actor
 struct WebSocket {
     heartbeat: Instant,
-    payment_subscriber: Subscriber,
+    invoice_subscriber: Subscriber,
 }
 
 impl WebSocket {
-    fn new(payment_subscriber: Subscriber) -> Self {
+    fn new(invoice_subscriber: Subscriber) -> Self {
         Self {
             heartbeat: Instant::now(),
-            payment_subscriber,
+            invoice_subscriber,
         }
     }
 
-    /// Check subscriber for payment update, and send result to user if applicable.
+    /// Check subscriber for invoice update, and send result to user if applicable.
     fn check_update(&self, ctx: &mut <Self as Actor>::Context) {
         ctx.run_interval(UPDATE_INTERVAL, |act, ctx| {
-            match act.payment_subscriber.next() {
+            match act.invoice_subscriber.next() {
                 // Send an update of we got one.
-                Some(Ok(payment_update)) => {
+                Some(Ok(invoice_update)) => {
                     // Send the update to the user.
                     ctx.text(ByteString::from(
                         json!(
                             {
-                                "address": payment_update.address(),
-                                "amount_paid": payment_update.amount_paid(),
-                                "amount_requested": payment_update.amount_requested(),
-                                "confirmations": payment_update.confirmations(),
-                                "confirmations_required": payment_update.confirmations_required(),
-                                "expiration_in": payment_update.expiration_in(),
+                                "address": invoice_update.address(),
+                                "amount_paid": invoice_update.amount_paid(),
+                                "amount_requested": invoice_update.amount_requested(),
+                                "confirmations": invoice_update.confirmations(),
+                                "confirmations_required": invoice_update.confirmations_required(),
+                                "expiration_in": invoice_update.expiration_in(),
                             }
                         )
                         .to_string(),
                     ));
-                    // If the payment is confirmed or expired, stop checking for updates.
-                    if payment_update.is_confirmed() {
+                    // If the invoice is confirmed or expired, stop checking for updates.
+                    if invoice_update.is_confirmed() {
                         ctx.close(Some(ws::CloseReason::from((
                             ws::CloseCode::Normal,
-                            "Payment Complete",
+                            "Invoice Complete",
                         ))));
                         ctx.stop();
-                    } else if payment_update.is_expired() {
+                    } else if invoice_update.is_expired() {
                         ctx.close(Some(ws::CloseReason::from((
                             ws::CloseCode::Normal,
-                            "Payment Expired",
+                            "Invoice Expired",
                         ))));
                         ctx.stop();
                     }
                 }
                 // Otherwise, handle the error.
                 Some(Err(e)) => {
-                    error!("Failed to receive payment update: {}", e);
+                    error!("Failed to receive invoice update: {}", e);
                 }
                 // Or do nothing if nothing was received.
                 None => {}

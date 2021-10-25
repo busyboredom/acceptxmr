@@ -38,7 +38,7 @@ fn run_payment_gateway() {
 }
 
 #[test]
-fn new_payment() {
+fn new_invoice() {
     // Setup.
     common::init_logger();
     let temp_dir = common::new_temp_dir();
@@ -66,16 +66,16 @@ fn new_payment() {
             .await
             .expect("failed to run payment gateway");
 
-        // Add the payment.
+        // Add the invoice.
         let mut subscriber = payment_gateway
-            .new_payment(1, 5, 10)
+            .new_invoice(1, 5, 10)
             .await
-            .expect("failed to add new payment to payment gateway for tracking");
+            .expect("failed to add new invoice to payment gateway for tracking");
 
         // Get initial update.
         let update = subscriber
             .recv_timeout(Duration::from_millis(2000))
-            .expect("failed to retrieve payment update");
+            .expect("failed to retrieve invoice update");
 
         // Check that it is as expected.
         assert_eq!(update.amount_requested(), 1);
@@ -90,7 +90,7 @@ fn new_payment() {
 }
 
 #[test]
-fn track_parallel_payments() {
+fn track_parallel_invoices() {
     // Setup.
     common::init_logger();
     let temp_dir = common::new_temp_dir();
@@ -119,16 +119,16 @@ fn track_parallel_payments() {
             .await
             .expect("failed to run payment gateway");
 
-        // Add the payment.
+        // Add the invoice.
         let mut subscriber_1 = payment_gateway
-            .new_payment(70000000, 2, 7)
+            .new_invoice(70000000, 2, 7)
             .await
-            .expect("failed to add new payment to payment gateway for tracking");
+            .expect("failed to add new invoice to payment gateway for tracking");
 
         // Get initial update.
         let update = subscriber_1
             .recv_timeout(Duration::from_millis(2000))
-            .expect("failed to retrieve payment update");
+            .expect("failed to retrieve invoice update");
 
         // Check that it is as expected.
         assert_eq!(update.amount_requested(), 70000000);
@@ -141,16 +141,16 @@ fn track_parallel_payments() {
         assert_eq!(update.confirmations_required(), 2);
         assert_eq!(update.confirmations(), None);
 
-        // Add the payment.
+        // Add the invoice.
         let mut subscriber_2 = payment_gateway
-            .new_payment(70000000, 2, 7)
+            .new_invoice(70000000, 2, 7)
             .await
-            .expect("failed to add new payment to payment gateway for tracking");
+            .expect("failed to add new invoice to payment gateway for tracking");
 
         // Get initial update.
         let update = subscriber_2
             .recv_timeout(Duration::from_millis(2000))
-            .expect("failed to retrieve payment update");
+            .expect("failed to retrieve invoice update");
 
         // Check that it is as expected.
         assert_eq!(update.amount_requested(), 70000000);
@@ -172,7 +172,7 @@ fn track_parallel_payments() {
         // Get update.
         let update = subscriber_1
             .recv_timeout(Duration::from_millis(2000))
-            .expect("failed to retrieve payment update");
+            .expect("failed to retrieve invoice update");
 
         // Check that it is as expected.
         assert_eq!(update.amount_requested(), 70000000);
@@ -188,7 +188,7 @@ fn track_parallel_payments() {
         // Get update.
         let update = subscriber_2
             .recv_timeout(Duration::from_millis(2000))
-            .expect("failed to retrieve payment update");
+            .expect("failed to retrieve invoice update");
 
         // Check that it is as expected.
         assert_eq!(update.amount_requested(), 70000000);
@@ -211,7 +211,7 @@ fn track_parallel_payments() {
 
             let update = subscriber_1
                 .recv_timeout(Duration::from_millis(2000))
-                .expect("failed to retrieve payment update");
+                .expect("failed to retrieve invoice update");
 
             assert_eq!(update.amount_requested(), 70000000);
             assert_eq!(update.index(), SubIndex::new(1, 97));
@@ -225,7 +225,7 @@ fn track_parallel_payments() {
 
             let update = subscriber_2
                 .recv_timeout(Duration::from_millis(2000))
-                .expect("failed to retrieve payment update");
+                .expect("failed to retrieve invoice update");
 
             assert_eq!(update.amount_requested(), 70000000);
             assert_eq!(update.index(), SubIndex::new(1, 138));
@@ -248,10 +248,10 @@ fn track_parallel_payments() {
             "tests/rpc_resources/transactions_with_payment_2.json",
         );
 
-        // Payment 1 should be paid now.
+        // Invoice 1 should be paid now.
         let update = subscriber_1
             .recv_timeout(Duration::from_millis(1000))
-            .expect("failed to retrieve payment update");
+            .expect("failed to retrieve invoice update");
 
         assert_eq!(update.amount_requested(), 70000000);
         assert_eq!(update.index(), SubIndex::new(1, 97));
@@ -263,7 +263,7 @@ fn track_parallel_payments() {
         assert_eq!(update.confirmations_required(), 2);
         assert_eq!(update.confirmations(), Some(0));
 
-        // Payment 2 should not have an update.
+        // Invoice 2 should not have an update.
         subscriber_2
             .recv_timeout(Duration::from_millis(1000))
             .expect_err("should not have received an update, but did");
@@ -278,7 +278,7 @@ fn track_parallel_payments() {
 
         let update = subscriber_1
             .recv_timeout(Duration::from_millis(2000))
-            .expect("failed to retrieve payment update");
+            .expect("failed to retrieve invoice update");
 
         assert_eq!(update.amount_requested(), 70000000);
         assert_eq!(update.index(), SubIndex::new(1, 97));
@@ -292,7 +292,7 @@ fn track_parallel_payments() {
 
         let update = subscriber_2
             .recv_timeout(Duration::from_millis(2000))
-            .expect("failed to retrieve payment update");
+            .expect("failed to retrieve invoice update");
 
         assert_eq!(update.amount_requested(), 70000000);
         assert_eq!(update.index(), SubIndex::new(1, 138));
@@ -314,7 +314,7 @@ fn track_parallel_payments() {
 
         let update = subscriber_1
             .recv_timeout(Duration::from_millis(2000))
-            .expect("failed to retrieve payment update");
+            .expect("failed to retrieve invoice update");
 
         assert_eq!(update.amount_requested(), 70000000);
         assert_eq!(update.index(), SubIndex::new(1, 97));
@@ -328,7 +328,7 @@ fn track_parallel_payments() {
 
         let update = subscriber_2
             .recv_timeout(Duration::from_millis(2000))
-            .expect("failed to retrieve payment update");
+            .expect("failed to retrieve invoice update");
 
         assert_eq!(update.amount_requested(), 70000000);
         assert_eq!(update.index(), SubIndex::new(1, 138));
@@ -375,16 +375,16 @@ fn reproducible_seed() {
             .await
             .expect("failed to run payment gateway");
 
-        // Add the payment.
+        // Add the invoice.
         let mut subscriber = payment_gateway
-            .new_payment(1, 5, 10)
+            .new_invoice(1, 5, 10)
             .await
-            .expect("failed to add new payment to payment gateway for tracking");
+            .expect("failed to add new invoice to payment gateway for tracking");
 
         // Get initial update.
         let update = subscriber
             .recv_timeout(Duration::from_millis(2000))
-            .expect("failed to retrieve payment update");
+            .expect("failed to retrieve invoice update");
 
         // Check that it is as expected.
         assert_eq!(update.index(), SubIndex::new(1, 97));

@@ -9,10 +9,10 @@ use tokio::join;
 use tokio::sync::Mutex;
 
 use crate::AcceptXmrError;
-use crate::{rpc::RpcClient, BlockCache, PaymentsDb, SubIndex, Transfer, TxpoolCache};
+use crate::{rpc::RpcClient, BlockCache, InvoicesDb, SubIndex, Transfer, TxpoolCache};
 
 pub(crate) struct Scanner {
-    payments_db: PaymentsDb,
+    invoices_db: InvoicesDb,
     // Block cache and txpool cache are mutexed to allow concurrent block & txpool scanning. This is
     // necessary even though txpool scanning doesn't use the block cache, and vice versa, because
     // rust doesn't allow mutably borrowing only part of "self".
@@ -24,23 +24,23 @@ pub(crate) struct Scanner {
 impl Scanner {
     pub async fn new(
         rpc_client: RpcClient,
-        payments_db: PaymentsDb,
+        invoices_db: InvoicesDb,
         block_cache_size: u64,
         atomic_height: Arc<AtomicU64>,
     ) -> Result<Scanner, AcceptXmrError> {
         // Determine sensible initial height for block cache.
-        let height = match payments_db.lowest_height() {
+        let height = match invoices_db.lowest_height() {
             Ok(Some(h)) => {
-                info!("Pending payments found in AcceptXMR database. Resuming from last block scanned: {}", h);
+                info!("Pending invoices found in AcceptXMR database. Resuming from last block scanned: {}", h);
                 h
             }
             Ok(None) => {
                 let h = rpc_client.daemon_height().await?;
-                info!("No pending payments found in AcceptXMR database. Skipping to blockchain tip: {}", h);
+                info!("No pending invoices found in AcceptXMR database. Skipping to blockchain tip: {}", h);
                 h
             }
             Err(e) => {
-                panic!("failed to determine suitable initial height for block cache from pending payments database: {}", e);
+                panic!("failed to determine suitable initial height for block cache from pending invoices database: {}", e);
             }
         };
 
@@ -55,14 +55,14 @@ impl Scanner {
         );
 
         Ok(Scanner {
-            payments_db,
+            invoices_db,
             block_cache: Mutex::new(block_cache?),
             txpool_cache: Mutex::new(txpool_cache?),
             first_scan: true,
         })
     }
 
-    /// Scan for payment updates.
+    /// Scan for invoice updates.
     pub async fn scan(&mut self, sub_key_checker: &SubKeyChecker<'_>) {
         // Update block cache, and scan both it and the txpool.
         let (blocks_amounts_or_err, txpool_amounts_or_err) = join!(
@@ -103,81 +103,81 @@ impl Scanner {
                 transfer.height.unwrap_or(height + 1)
             });
 
-        // A place to keep track of what payments are changing, so we can log updates later.
-        let mut updated_payments = Vec::new();
+        // A place to keep track of what invoices are changing, so we can log updates later.
+        let mut updated_invoices = Vec::new();
 
-        // Prepare updated payments.
+        // Prepare updated invoices.
         // TODO: Break this out into its own function.
-        for payment_or_err in self.payments_db.iter() {
-            // Retrieve old payment object.
-            let old_payment = match payment_or_err {
+        for invoice_or_err in self.invoices_db.iter() {
+            // Retrieve old invoice object.
+            let old_invoice = match invoice_or_err {
                 Ok(p) => p,
                 Err(e) => {
                     error!(
-                        "Failed to retrieve old payment object from database while iterating through database: {}", e
+                        "Failed to retrieve old invoice object from database while iterating through database: {}", e
                     );
                     continue;
                 }
             };
-            let mut payment = old_payment.clone();
+            let mut invoice = old_invoice.clone();
 
             // Remove transfers occurring later than the deepest block update.
-            payment
+            invoice
                 .transfers
                 .retain(|transfer| transfer.older_than(deepest_update));
 
             // Add transfers from blocks and txpool.
             for (sub_index, owned_transfer) in &transfers {
-                if sub_index == &payment.index && owned_transfer.newer_than(payment.creation_height)
+                if sub_index == &invoice.index && owned_transfer.newer_than(invoice.creation_height)
                 {
-                    payment.transfers.push(*owned_transfer);
+                    invoice.transfers.push(*owned_transfer);
                 }
             }
 
-            // Update payment's current_block.
-            if payment.current_height != height {
-                payment.current_height = height;
+            // Update invoice's current_block.
+            if invoice.current_height != height {
+                invoice.current_height = height;
             }
 
             // No need to recalculate total paid_amount or paid_at unless something changed.
-            if payment != old_payment {
+            if invoice != old_invoice {
                 // Zero it out first.
-                payment.paid_height = None;
-                payment.amount_paid = 0;
+                invoice.paid_height = None;
+                invoice.amount_paid = 0;
                 // Now add up the transfers.
-                for transfer in &payment.transfers {
-                    payment.amount_paid += transfer.amount;
-                    if payment.amount_paid >= payment.amount_requested
-                        && payment.paid_height.is_none()
+                for transfer in &invoice.transfers {
+                    invoice.amount_paid += transfer.amount;
+                    if invoice.amount_paid >= invoice.amount_requested
+                        && invoice.paid_height.is_none()
                     {
-                        payment.paid_height = transfer.height;
+                        invoice.paid_height = transfer.height;
                     }
                 }
 
-                // This payment has been updated. We can now add it in with the other
-                // updated_payments.
-                updated_payments.push(payment);
+                // This invoice has been updated. We can now add it in with the other
+                // updated_invoices.
+                updated_invoices.push(invoice);
             }
         }
 
         // Save and log updates.
-        for payment in &updated_payments {
+        for invoice in &updated_invoices {
             trace!(
-                "Payment update for subaddress index {}: \
+                "Invoice update for subaddress index {}: \
                     \n{}",
-                payment.index,
-                payment
+                invoice.index,
+                invoice
             );
-            if let Err(e) = self.payments_db.update(payment.index, payment) {
+            if let Err(e) = self.invoices_db.update(invoice.index, invoice) {
                 error!(
-                    "Failed to save update to payment for index {} to database: {}",
-                    payment.index, e
+                    "Failed to save update to invoice for index {} to database: {}",
+                    invoice.index, e
                 );
             }
         }
 
         // Flush changes to the database.
-        self.payments_db.flush();
+        self.invoices_db.flush();
     }
 
     /// Update block cache and scan the blocks.
@@ -204,7 +204,7 @@ impl Scanner {
             let transactions = &block_cache.blocks[i].3;
             let amounts_received = self.scan_transactions(transactions, sub_key_checker)?;
             trace!(
-                "Scanned {} transactions from block {}, and found {} transactions to tracked payments",
+                "Scanned {} transactions from block {}, and found {} transactions to tracked invoices",
                 transactions.len(),
                 block_cache.blocks[i].1,
                 amounts_received.len()
@@ -243,7 +243,7 @@ impl Scanner {
         // Scan txpool.
         let amounts_received = self.scan_transactions(&new_transactions, sub_key_checker)?;
         trace!(
-            "Scanned {} transactions from txpool, and found {} transfers for tracked payments",
+            "Scanned {} transactions from txpool, and found {} transfers for tracked invoices",
             new_transactions.len(),
             amounts_received.len()
         );
@@ -287,8 +287,8 @@ impl Scanner {
             for transfer in &transfers {
                 let sub_index = SubIndex::from(transfer.sub_index());
 
-                // If this payment is being tracked, add the amount and payment ID to the result set.
-                if self.payments_db.contains_key(sub_index)? {
+                // If this invoice is being tracked, add the amount and subindex to the result set.
+                if self.invoices_db.contains_key(sub_index)? {
                     let amount = transfers[0]
                         .amount()
                         .ok_or(AcceptXmrError::Unblind(sub_index))?;

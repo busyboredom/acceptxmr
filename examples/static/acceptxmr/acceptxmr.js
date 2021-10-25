@@ -18,7 +18,7 @@ function start() {
         document.getElementById("acceptxmr-confirmations").innerHTML = confirmations;
         document.getElementById("acceptxmr-confirmations-required").innerHTML = message.confirmations_required;
 
-        // Show instructive text depending on payment state.
+        // Show instructive text depending on invoice state.
         var instructionString = "Loading...";
         var instructionClass = "acceptxmr-instruction";
         var newAddressBtnHidden = true;
@@ -66,7 +66,7 @@ function start() {
         } else {
             // Server process killed or network down.
             // Event.code is usually 1006 in this case.
-            alert('Connection died. If you have made your payment already, rest assured that it will still be processed.');
+            alert('Connection died. If you have paid already, rest assured that it will still be processed.');
         }
     };
 
@@ -83,7 +83,7 @@ function picoToXMR(amount) {
 }
 
 // Make the copy button work.
-function copyPaymentAddress() {
+function copyInvoiceAddress() {
     // Get the text field
     var copyText = document.getElementById("acceptxmr-address");
 

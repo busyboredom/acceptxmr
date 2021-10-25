@@ -64,7 +64,7 @@ impl TxpoolCache {
     ) {
         self.discovered_transfers.extend(transfers.clone());
         trace!(
-            "Txpool contains {} transfers for tracked payments",
+            "Txpool contains {} transfers for tracked invoices",
             self.discovered_transfers.len(),
         );
     }
