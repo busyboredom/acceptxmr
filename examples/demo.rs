@@ -88,6 +88,18 @@ async fn main() -> std::io::Result<()> {
     .await
 }
 
+/// WebSocket rout.
+#[get("/ws/")]
+async fn websocket(
+    req: HttpRequest,
+    stream: web::Payload,
+    payment_gateway: web::Data<PaymentGateway>,
+) -> Result<HttpResponse, actix_web::Error> {
+    // TODO: Use cookies to determine if a purchase is already pending, and avoid creating a new one.
+    let subscriber = payment_gateway.new_payment(100, 2, 3).await.unwrap();
+    ws::start(WebSocket::new(subscriber), &req, stream)
+}
+
 /// Define websocket HTTP actor
 struct WebSocket {
     heartbeat: Instant,
@@ -116,6 +128,7 @@ impl WebSocket {
                                 "amount_paid": payment_update.amount_paid(),
                                 "amount_requested": payment_update.amount_requested(),
                                 "confirmations": payment_update.confirmations(),
+                                "confirmations_required": payment_update.confirmations_required(),
                                 "expiration_in": payment_update.expiration_in(),
                             }
                         )
@@ -194,16 +207,4 @@ impl StreamHandler<Result<ws::Message, ws::ProtocolError>> for WebSocket {
             Err(e) => warn!("Received error from websocket client: {:?}", e),
         }
     }
-}
-
-/// WebSocket handler.
-#[get("/ws/")]
-async fn websocket(
-    req: HttpRequest,
-    stream: web::Payload,
-    payment_gateway: web::Data<PaymentGateway>,
-) -> Result<HttpResponse, actix_web::Error> {
-    // TODO: Use cookies to determine if a purchase is already pending, and avoid creating a new one.
-    let subscriber = payment_gateway.new_payment(100, 2, 3).await.unwrap();
-    ws::start(WebSocket::new(subscriber), &req, stream)
 }

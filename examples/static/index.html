@@ -3,33 +3,24 @@
 
 <div class="acceptxmr-container">
     <div class="acceptxmr-instruction-container">
-        <p id="acceptxmr-instruction">Loading...</p>
+        <p id="acceptxmr-instruction">AcceptXMR Demo</p>
         <button id="acceptxmr-new-address-btn" hidden>New Address</button>
     </div>
     <hr/>
-    <div class="acceptxmr-content">
-        <div class="acceptxmr-qrcode-container" id="acceptxmr-qrcode-container">
-            <svg viewBox="0 0 100 100" id="acceptxmr-qrcode" src=""></svg>
+    <div id="acceptxmr-content">
+        <div class="message-container">
+            <label for="message">Message (Optional)</label>
+            <textarea type="text" id="message" name="message" rows="1" placeholder="Have anything you'd like to say?"></textarea>
         </div>
-        <div class="acceptxmr-details">
-            <label>Address</label>
-            <div class="acceptxmr-address-container">
-                <p id="acceptxmr-address"></p>
-                <button id="acceptxmr-address-copy-btn" onclick="copyPaymentAddress()">Copy</button>
-            </div>
-            <label>Status</label>
-            <p class="acceptxmr-status">
-                Paid: <span id="acceptxmr-paid">0.00000000</span> / <span id="acceptxmr-due">0.00000000</span> XMR<br/>
-                Confirmations: 
-                <span id="acceptxmr-confirmations">0</span> / <span id="acceptxmr-confirmations-required">0</span><br/>
-            </p>
-            <div class="acceptxmr-message">
-                <label for="message">Message (Optional)</label>
-                <textarea type="text" id="message" name="message" rows="1" placeholder="Have anything you'd like to say?"></textarea>
-            </div>
-        </div>
+        <button onclick="start()">Try me!</button>
     </div>
 </div>
-<script type="text/javascript" src="qrcode.js"></script>
-<script type="text/javascript" src="acceptxmr.js"></script>
-<link rel="stylesheet" href="acceptxmr.css">
+<script type="text/javascript" src="acceptxmr/qrcode.js"></script>
+<script type="text/javascript" src="acceptxmr/acceptxmr.js"></script>
+<link rel="stylesheet" href="acceptxmr/acceptxmr.css">
+
+<style>
+body {
+    background-color: #4d4d4d;
+}
+</style>
