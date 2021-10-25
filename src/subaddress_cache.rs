@@ -33,7 +33,7 @@ impl SubaddressCache {
         let used_sub_indexes: IndexSet<SubIndex> = invoices_db
             .iter()
             .map(|invoice_or_err| match invoice_or_err {
-                Ok(invoice) => invoice.index,
+                Ok(invoice) => invoice.index(),
                 Err(e) => {
                     // TODO: Ideally, we'd carry on after logging this error.
                     panic!(

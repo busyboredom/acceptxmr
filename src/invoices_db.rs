@@ -24,8 +24,8 @@ impl InvoicesDb {
     pub fn insert(&self, invoice: &Invoice) -> Result<Option<Invoice>, InvoiceStorageError> {
         // Prepare key (subaddress index).
         let key = [
-            invoice.index.major.to_be_bytes(),
-            invoice.index.minor.to_be_bytes(),
+            invoice.index().major.to_be_bytes(),
+            invoice.index().minor.to_be_bytes(),
         ]
         .concat();
 
@@ -121,12 +121,12 @@ impl InvoicesDb {
                     invoice_1
                         .as_ref()
                         .unwrap()
-                        .current_height
-                        .cmp(&invoice_2.as_ref().unwrap().current_height)
+                        .current_height()
+                        .cmp(&invoice_2.as_ref().unwrap().current_height())
                 }
             })
             .transpose()
-            .map(|maybe_invoice| maybe_invoice.map(|invoice| invoice.current_height))
+            .map(|maybe_invoice| maybe_invoice.map(|invoice| invoice.current_height()))
     }
 
     fn update_merge(_key: &[u8], old_value: Option<&[u8]>, new_value: &[u8]) -> Option<Vec<u8>> {

@@ -4,7 +4,8 @@ use log::trace;
 use monero::cryptonote::hash::Hashable;
 use tokio::join;
 
-use crate::{rpc::RpcClient, AcceptXmrError, SubIndex, Transfer};
+use crate::invoice::Transfer;
+use crate::{rpc::RpcClient, AcceptXmrError, SubIndex};
 
 pub(crate) struct TxpoolCache {
     rpc_client: RpcClient,

@@ -8,8 +8,9 @@ use monero::cryptonote::{hash::Hashable, onetime_key::SubKeyChecker};
 use tokio::join;
 use tokio::sync::Mutex;
 
-use crate::AcceptXmrError;
-use crate::{rpc::RpcClient, BlockCache, InvoicesDb, SubIndex, Transfer, TxpoolCache};
+use crate::invoice::Transfer;
+use crate::rpc::RpcClient;
+use crate::{AcceptXmrError, BlockCache, InvoicesDb, SubIndex, TxpoolCache};
 
 pub(crate) struct Scanner {
     invoices_db: InvoicesDb,
@@ -98,7 +99,7 @@ impl Scanner {
 
         let deepest_update = transfers
             .iter()
-            .min_by(|(_, transfer_1), (_, transfer_2)| transfer_1.cmp_by_age(transfer_2))
+            .min_by(|(_, transfer_1), (_, transfer_2)| transfer_1.cmp_by_height(transfer_2))
             .map_or(height + 1, |(_, transfer)| {
                 transfer.height.unwrap_or(height + 1)
             });
@@ -121,14 +122,19 @@ impl Scanner {
             };
             let mut invoice = old_invoice.clone();
 
-            // Remove transfers occurring later than the deepest block update.
-            invoice
-                .transfers
-                .retain(|transfer| transfer.older_than(deepest_update));
+            // Remove transfers occurring in or after the deepest block update.
+            invoice.transfers.retain(|transfer| {
+                transfer
+                    .cmp_by_height(&Transfer::new(0, Some(deepest_update)))
+                    .is_lt()
+            });
 
             // Add transfers from blocks and txpool.
             for (sub_index, owned_transfer) in &transfers {
-                if sub_index == &invoice.index && owned_transfer.newer_than(invoice.creation_height)
+                if sub_index == &invoice.index()
+                    && owned_transfer
+                        .cmp_by_height(&Transfer::new(0, Some(invoice.creation_height())))
+                        .is_gt()
                 {
                     invoice.transfers.push(*owned_transfer);
                 }
@@ -147,7 +153,7 @@ impl Scanner {
                 // Now add up the transfers.
                 for transfer in &invoice.transfers {
                     invoice.amount_paid += transfer.amount;
-                    if invoice.amount_paid >= invoice.amount_requested
+                    if invoice.amount_paid >= invoice.amount_requested()
                         && invoice.paid_height.is_none()
                     {
                         invoice.paid_height = transfer.height;
@@ -165,13 +171,14 @@ impl Scanner {
             trace!(
                 "Invoice update for subaddress index {}: \
                     \n{}",
-                invoice.index,
+                invoice.index(),
                 invoice
             );
-            if let Err(e) = self.invoices_db.update(invoice.index, invoice) {
+            if let Err(e) = self.invoices_db.update(invoice.index(), invoice) {
                 error!(
                     "Failed to save update to invoice for index {} to database: {}",
-                    invoice.index, e
+                    invoice.index(),
+                    e
                 );
             }
         }
