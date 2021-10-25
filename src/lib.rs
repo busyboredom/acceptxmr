@@ -66,14 +66,12 @@
 #![warn(clippy::cargo)]
 #![allow(clippy::multiple_crate_versions)]
 
-mod block_cache;
+mod caching;
 mod invoice;
 mod invoices_db;
 mod rpc;
 mod scanner;
-mod subaddress_cache;
 mod subscriber;
-mod txpool_cache;
 mod util;
 
 use std::ops::Deref;
@@ -88,14 +86,12 @@ use monero::cryptonote::onetime_key::SubKeyChecker;
 use tokio::runtime::Runtime;
 use tokio::{join, time};
 
-use block_cache::BlockCache;
+use caching::{BlockCache, SubaddressCache, TxpoolCache};
 pub use invoice::{Invoice, SubIndex};
 use invoices_db::InvoicesDb;
 use rpc::RpcClient;
 use scanner::Scanner;
-use subaddress_cache::SubaddressCache;
 pub use subscriber::Subscriber;
-use txpool_cache::TxpoolCache;
 pub use util::AcceptXmrError;
 
 const DEFAULT_SCAN_INTERVAL: Duration = Duration::from_millis(1000);
