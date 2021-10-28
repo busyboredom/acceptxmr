@@ -25,12 +25,16 @@
     background-color: #979797;
 }
 
-.acceptxmr-container .message-container {
+.acceptxmr-container #acceptxmr-message-container {
     margin: 1em;
     flex: 2 1 20em;
 }
 
-.acceptxmr-container #acceptxmr-content button {
+.acceptxmr-container #acceptxmr-payment-content {
+    display: none;
+}
+
+.acceptxmr-container .acceptxmr-content button {
     margin: 1em;
     flex: 1 2 10ch;
     padding: 0.5em 0.5em;
@@ -80,7 +84,7 @@
     margin: 0;
 }
 
-#acceptxmr-content {
+.acceptxmr-content {
     width: 100%;
     display: flex;
     flex-flow: row wrap;

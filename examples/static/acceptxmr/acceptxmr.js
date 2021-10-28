@@ -1,9 +1,10 @@
 function start() {
+    // Hide prep stuff, show payment stuff.
     document.getElementById("acceptxmr-instruction").innerHTML = "Loading...";
-    fetch("acceptxmr/acceptxmr.html")
-        .then(data => data.text())
-        .then(html => document.getElementById('acceptxmr-content').innerHTML = html)
+    document.getElementById("acceptxmr-preperation-content").style.display = "None";
+    document.getElementById("acceptxmr-payment-content").style.display = "inherit"
 
+    // Start websocket.
     let socket = new WebSocket("ws://localhost:8080/ws/");
 
     socket.onmessage = function (event) {
