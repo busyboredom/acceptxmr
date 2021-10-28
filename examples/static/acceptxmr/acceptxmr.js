@@ -1,4 +1,6 @@
 function start() {
+    var message = document.getElementById("acceptxmr-message").value;
+
     // Hide prep stuff, show payment stuff.
     document.getElementById("acceptxmr-instruction").innerHTML = "Loading...";
     document.getElementById("acceptxmr-preperation-content").style.display = "None";
@@ -7,30 +9,35 @@ function start() {
     // Start websocket.
     let socket = new WebSocket("ws://localhost:8080/ws/");
 
+    // Send message.
+    socket.onopen = function (event) {
+        socket.send(message);
+    }
+
     socket.onmessage = function (event) {
-        var message = JSON.parse(event.data);
+        var invoiceUpdate = JSON.parse(event.data);
 
         // Show paid/due.
-        document.getElementById("acceptxmr-paid").innerHTML = picoToXMR(message.amount_paid);
-        document.getElementById("acceptxmr-due").innerHTML = picoToXMR(message.amount_requested);
+        document.getElementById("acceptxmr-paid").innerHTML = picoToXMR(invoiceUpdate.amount_paid);
+        document.getElementById("acceptxmr-due").innerHTML = picoToXMR(invoiceUpdate.amount_requested);
 
         // Show confirmations/required.
-        var confirmations = Math.max(0, message.confirmations);
+        var confirmations = Math.max(0, invoiceUpdate.confirmations);
         document.getElementById("acceptxmr-confirmations").innerHTML = confirmations;
-        document.getElementById("acceptxmr-confirmations-required").innerHTML = message.confirmations_required;
+        document.getElementById("acceptxmr-confirmations-required").innerHTML = invoiceUpdate.confirmations_required;
 
         // Show instructive text depending on invoice state.
         var instructionString = "Loading...";
         var instructionClass = "acceptxmr-instruction";
         var newAddressBtnHidden = true;
-        if (confirmations >= message.confirmations_required) {
+        if (confirmations >= invoiceUpdate.confirmations_required) {
             instructionString = "Paid! Thank you"
             socket.close();
-        } else if (message.amount_paid > message.amount_requested) {
+        } else if (invoiceUpdate.amount_paid > invoiceUpdate.amount_requested) {
             instructionString = "Paid! Waiting for Confirmation..."
-        } else if (message.expiration_in > 2) {
+        } else if (invoiceUpdate.expiration_in > 2) {
             instructionString = "Send Monero to Address Below"
-        } else if (message.expiration_in > 0) {
+        } else if (invoiceUpdate.expiration_in > 0) {
             instructionString = "Address Expiring Soon";
             instructionClass += " acceptxmr-warning";
             newAddressBtnHidden = false;
@@ -46,7 +53,7 @@ function start() {
         document.getElementById("acceptxmr-new-address-btn").hidden = newAddressBtnHidden;
         document.getElementById("acceptxmr-address-copy-btn").disabled = !newAddressBtnHidden;
         if (newAddressBtnHidden) {
-            var address = message.address;
+            var address = invoiceUpdate.address;
             document.getElementById("acceptxmr-address").innerHTML = address;
 
             var qr = qrcode(0, "M");
