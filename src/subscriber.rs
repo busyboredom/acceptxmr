@@ -1,7 +1,9 @@
-use std::{
-    sync::mpsc::RecvTimeoutError,
-    time::{Duration, Instant},
-};
+//! Subscribers should be used to receive invoice updates.
+
+use std::error::Error;
+use std::fmt;
+use std::sync::mpsc::{RecvTimeoutError, TryRecvError};
+use std::time::{Duration, Instant};
 
 use sled::Event;
 
@@ -27,7 +29,30 @@ impl Subscriber {
             Some(Event::Insert { value, .. }) => bincode::deserialize(&value)
                 .map_err(|e| AcceptXmrError::from(InvoiceStorageError::from(e))),
             Some(Event::Remove { .. }) => self.recv(),
-            None => Err(AcceptXmrError::SubscriberRecv),
+            None => Err(AcceptXmrError::Subscriber(SubscriberError::Recv)),
+        }
+    }
+
+    /// Attempts to wait for a invoice update from this subscriber without blocking. Returns
+    /// immediately if no update is available.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the channel is closed, if there is no update, or if there is an error
+    /// deserializing the update.
+    pub fn try_recv(&mut self) -> Result<Invoice, AcceptXmrError> {
+        // TODO: This shouldn't be using a timeout, but I am unaware of a better way to do it
+        // given the limited options made available by sled.
+        match self.0.next_timeout(Duration::from_nanos(0)) {
+            Ok(Event::Insert { value, .. }) => bincode::deserialize(&value)
+                .map_err(|e| AcceptXmrError::from(InvoiceStorageError::from(e))),
+            Ok(Event::Remove { .. }) => self.try_recv(),
+            Err(RecvTimeoutError::Timeout) => Err(AcceptXmrError::from(SubscriberError::TryRecv(
+                TryRecvError::Empty,
+            ))),
+            Err(RecvTimeoutError::Disconnected) => Err(AcceptXmrError::from(
+                SubscriberError::TryRecv(TryRecvError::Disconnected),
+            )),
         }
     }
 
@@ -48,10 +73,7 @@ impl Subscriber {
                         .map_err(|e| AcceptXmrError::from(InvoiceStorageError::from(e)))
                 }
                 Ok(Event::Remove { .. }) => continue,
-                Err(RecvTimeoutError::Timeout) => {
-                    return Err(AcceptXmrError::SubscriberRecvTimeout)
-                }
-                Err(RecvTimeoutError::Disconnected) => return Err(AcceptXmrError::SubscriberRecv),
+                Err(e) => return Err(AcceptXmrError::Subscriber(SubscriberError::RecvTimeout(e))),
             }
         }
     }
@@ -72,3 +94,36 @@ impl Iterator for Subscriber {
         }
     }
 }
+
+/// An error occurring while receiving invoice updates.
+#[allow(clippy::module_name_repetitions)]
+#[derive(Debug)]
+pub enum SubscriberError {
+    /// Failed to retrieve update.
+    Recv,
+    /// Timed out before receiving update.
+    RecvTimeout(RecvTimeoutError),
+    /// Subscriber is either empty or disconnected.
+    TryRecv(TryRecvError),
+}
+
+impl fmt::Display for SubscriberError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            SubscriberError::Recv => write!(
+                f,
+                "subscriber cannot receive further updates, likely because the scanning thread has panicked"
+            ),
+            SubscriberError::RecvTimeout(e) => write!(
+                f,
+                "subscriber recv timeout: {}", e
+            ),
+            SubscriberError::TryRecv(e) => write!(
+                f,
+                "subscriber try recv failed: {}", e
+            ),
+        }
+    }
+}
+
+impl Error for SubscriberError {}

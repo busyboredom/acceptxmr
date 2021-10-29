@@ -1,5 +1,6 @@
 use std::env;
 use std::path::Path;
+use std::sync::mpsc::TryRecvError;
 use std::time::{Duration, Instant};
 
 use actix::{Actor, ActorContext, AsyncContext, StreamHandler};
@@ -7,10 +8,11 @@ use actix_web::web::Data;
 use actix_web::{get, web, App, HttpRequest, HttpResponse, HttpServer};
 use actix_web_actors::ws;
 use bytestring::ByteString;
-use log::{debug, error, trace, warn};
+use log::{debug, error, warn};
 use serde_json::json;
 
-use acceptxmr::{AcceptXmrError, PaymentGateway, PaymentGatewayBuilder, SubIndex, Subscriber};
+use acceptxmr::subscriber::{Subscriber, SubscriberError};
+use acceptxmr::{AcceptXmrError, PaymentGateway, PaymentGatewayBuilder, SubIndex};
 
 /// How often heartbeat pings are sent
 const HEARTBEAT_INTERVAL: Duration = Duration::from_secs(4);
@@ -55,7 +57,7 @@ async fn main() -> std::io::Result<()> {
         loop {
             let invoice = match subscriber.recv() {
                 Ok(p) => p,
-                Err(AcceptXmrError::SubscriberRecv) => panic!("Blockchain scanner crashed!"),
+                Err(AcceptXmrError::Subscriber(_)) => panic!("Blockchain scanner crashed!"),
                 Err(e) => {
                     error!("Error retrieving invoice update: {}", e);
                     continue;
@@ -117,9 +119,9 @@ impl WebSocket {
     /// Check subscriber for invoice update, and send result to user if applicable.
     fn check_update(&self, ctx: &mut <Self as Actor>::Context) {
         ctx.run_interval(UPDATE_INTERVAL, |act, ctx| {
-            match act.invoice_subscriber.next() {
+            match act.invoice_subscriber.try_recv() {
                 // Send an update of we got one.
-                Some(Ok(invoice_update)) => {
+                Ok(invoice_update) => {
                     // Send the update to the user.
                     ctx.text(ByteString::from(
                         json!(
@@ -149,12 +151,12 @@ impl WebSocket {
                         ctx.stop();
                     }
                 }
+                // Do nothing if nothing was received.
+                Err(AcceptXmrError::Subscriber(SubscriberError::TryRecv(TryRecvError::Empty))) => {}
                 // Otherwise, handle the error.
-                Some(Err(e)) => {
+                Err(e) => {
                     error!("Failed to receive invoice update: {}", e);
                 }
-                // Or do nothing if nothing was received.
-                None => {}
             }
         });
     }
@@ -164,7 +166,7 @@ impl WebSocket {
         ctx.run_interval(HEARTBEAT_INTERVAL, |act, ctx| {
             // Check client heartbeats.
             if Instant::now().duration_since(act.heartbeat) > CLIENT_TIMEOUT {
-                warn!("Websocket Client heartbeat failed, disconnecting!");
+                warn!("Websocket heartbeat failed. Closing websocket.");
                 ctx.stop();
             } else {
                 ctx.ping(b"");
@@ -186,12 +188,7 @@ impl Actor for WebSocket {
 /// Handle incoming websocket messages.
 impl StreamHandler<Result<ws::Message, ws::ProtocolError>> for WebSocket {
     fn handle(&mut self, msg: Result<ws::Message, ws::ProtocolError>, ctx: &mut Self::Context) {
-        trace!("WebSocket message: {:?}", msg);
         match msg {
-            Ok(ws::Message::Ping(msg)) => {
-                self.heartbeat = Instant::now();
-                ctx.pong(&msg);
-            }
             Ok(ws::Message::Pong(_)) => {
                 self.heartbeat = Instant::now();
             }

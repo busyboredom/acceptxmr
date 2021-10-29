@@ -71,7 +71,7 @@ mod invoice;
 mod invoices_db;
 mod rpc;
 mod scanner;
-mod subscriber;
+pub mod subscriber;
 mod util;
 
 use std::ops::Deref;
@@ -91,7 +91,7 @@ pub use invoice::{Invoice, SubIndex};
 use invoices_db::InvoicesDb;
 use rpc::RpcClient;
 use scanner::Scanner;
-pub use subscriber::Subscriber;
+use subscriber::Subscriber;
 pub use util::AcceptXmrError;
 
 const DEFAULT_SCAN_INTERVAL: Duration = Duration::from_millis(1000);

@@ -1,34 +1,34 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>AcceptXMR Demo</title>
 
-<div class="acceptxmr-container">
-    <div class="acceptxmr-instruction-container">
-        <p id="acceptxmr-instruction">AcceptXMR Demo</p>
-        <button id="acceptxmr-new-address-btn" hidden>New Address</button>
+<div class="acceptxmr">
+    <div class="instruction-container">
+        <p id="instruction">AcceptXMR Demo</p>
+        <button id="new-address-btn" hidden>New Address</button>
     </div>
     <hr/>
-    <div id="acceptxmr-preperation-content" class="acceptxmr-content">
-        <div id="acceptxmr-message-container">
+    <div id="preperation-content" class="content">
+        <div id="message-container">
             <label for="message">Message (Optional)</label>
-            <textarea type="text" id="acceptxmr-message" name="message" rows="1" placeholder="Have anything you'd like to say?"></textarea>
+            <textarea type="text" id="message" name="message" rows="2" placeholder="Have anything you'd like to say?"></textarea>
         </div>
         <button onclick="start()">Next</button>
     </div>
-    <div id="acceptxmr-payment-content" class="acceptxmr-content">
-        <div class="acceptxmr-qrcode-container" id="acceptxmr-qrcode-container">
-            <svg viewBox="0 0 100 100" id="acceptxmr-qrcode" src=""></svg>
+    <div id="payment-content" class="content">
+        <div class="qrcode-container" id="qrcode-container">
+            <svg viewBox="0 0 100 100" id="qrcode" src=""></svg>
         </div>
-        <div class="acceptxmr-details">
+        <div class="details">
             <label>Address</label>
-            <div id="acceptxmr-address-container">
-                <p id="acceptxmr-address"></p>
-                <button id="acceptxmr-address-copy-btn" onclick="copyInvoiceAddress()">Copy</button>
+            <div id="address-container">
+                <p id="address"></p>
+                <button id="address-copy-btn" onclick="copyInvoiceAddress()">Copy</button>
             </div>
             <label>Status</label>
-            <p class="acceptxmr-status">
-                Paid: <span id="acceptxmr-paid">0.00000000</span> / <span id="acceptxmr-due">0.00000000</span> XMR<br/>
+            <p class="status">
+                Paid: <span id="paid">0.00000000</span> / <span id="due">0.00000000</span> XMR<br/>
                 Confirmations: 
-                <span id="acceptxmr-confirmations">0</span> / <span id="acceptxmr-confirmations-required">0</span><br/>
+                <span id="confirmations">0</span> / <span id="confirmations-required">0</span><br/>
             </p>
         </div>
     </div>

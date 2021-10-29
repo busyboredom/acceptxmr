@@ -1,10 +1,10 @@
 function start() {
-    var message = document.getElementById("acceptxmr-message").value;
+    var message = document.getElementById("message").value;
 
     // Hide prep stuff, show payment stuff.
-    document.getElementById("acceptxmr-instruction").innerHTML = "Loading...";
-    document.getElementById("acceptxmr-preperation-content").style.display = "None";
-    document.getElementById("acceptxmr-payment-content").style.display = "inherit"
+    document.getElementById("instruction").innerHTML = "Loading...";
+    document.getElementById("preperation-content").style.display = "None";
+    document.getElementById("payment-content").style.display = "inherit"
 
     // Start websocket.
     let socket = new WebSocket("ws://localhost:8080/ws/");
@@ -18,13 +18,13 @@ function start() {
         var invoiceUpdate = JSON.parse(event.data);
 
         // Show paid/due.
-        document.getElementById("acceptxmr-paid").innerHTML = picoToXMR(invoiceUpdate.amount_paid);
-        document.getElementById("acceptxmr-due").innerHTML = picoToXMR(invoiceUpdate.amount_requested);
+        document.getElementById("paid").innerHTML = picoToXMR(invoiceUpdate.amount_paid);
+        document.getElementById("due").innerHTML = picoToXMR(invoiceUpdate.amount_requested);
 
         // Show confirmations/required.
         var confirmations = Math.max(0, invoiceUpdate.confirmations);
-        document.getElementById("acceptxmr-confirmations").innerHTML = confirmations;
-        document.getElementById("acceptxmr-confirmations-required").innerHTML = invoiceUpdate.confirmations_required;
+        document.getElementById("confirmations").innerHTML = confirmations;
+        document.getElementById("confirmations-required").innerHTML = invoiceUpdate.confirmations_required;
 
         // Show instructive text depending on invoice state.
         var instructionString = "Loading...";
@@ -39,30 +39,30 @@ function start() {
             instructionString = "Send Monero to Address Below"
         } else if (invoiceUpdate.expiration_in > 0) {
             instructionString = "Address Expiring Soon";
-            instructionClass += " acceptxmr-warning";
+            instructionClass += " warning";
             newAddressBtnHidden = false;
         } else {
             instructionString = "Address Expired!";
             newAddressBtnHidden = false;
             socket.close();
         }
-        document.getElementById("acceptxmr-instruction").innerHTML = instructionString;
-        document.getElementById("acceptxmr-instruction").classList = instructionClass;
+        document.getElementById("instruction").innerHTML = instructionString;
+        document.getElementById("instruction").classList = instructionClass;
 
         // Hide address if nearing expiration.
-        document.getElementById("acceptxmr-new-address-btn").hidden = newAddressBtnHidden;
-        document.getElementById("acceptxmr-address-copy-btn").disabled = !newAddressBtnHidden;
+        document.getElementById("new-address-btn").hidden = newAddressBtnHidden;
+        document.getElementById("address-copy-btn").disabled = !newAddressBtnHidden;
         if (newAddressBtnHidden) {
             var address = invoiceUpdate.address;
-            document.getElementById("acceptxmr-address").innerHTML = address;
+            document.getElementById("address").innerHTML = address;
 
             var qr = qrcode(0, "M");
             qr.addData(address);
             qr.make();
-            document.getElementById('acceptxmr-qrcode-container').innerHTML = qr.createSvgTag({ scalable: true });
+            document.getElementById('qrcode-container').innerHTML = qr.createSvgTag({ scalable: true });
         } else {
-            document.getElementById("acceptxmr-address").innerHTML = "Expiring or expired...";
-            document.getElementById('acceptxmr-qrcode-container').innerHTML = "<svg viewBox=\"0 0 100 100\" src=\"\"></svg>";
+            document.getElementById("address").innerHTML = "Expiring or expired...";
+            document.getElementById('qrcode-container').innerHTML = "<svg viewBox=\"0 0 100 100\" src=\"\"></svg>";
         }
 
     };
@@ -93,14 +93,14 @@ function picoToXMR(amount) {
 // Make the copy button work.
 function copyInvoiceAddress() {
     // Get the text field
-    var copyText = document.getElementById("acceptxmr-address");
+    var copyText = document.getElementById("address");
 
     // Copy the text inside the text field
     navigator.clipboard.writeText(copyText.innerHTML);
 
     // Provide feedback
-    document.getElementById("acceptxmr-address-copy-btn").innerHTML = "Copied!";
+    document.getElementById("address-copy-btn").innerHTML = "Copied!";
     setTimeout(function () {
-        document.getElementById("acceptxmr-address-copy-btn").innerHTML = "Copy";
+        document.getElementById("address-copy-btn").innerHTML = "Copy";
     }, 1000);
 }

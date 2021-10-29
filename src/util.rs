@@ -1,9 +1,9 @@
 use std::error::Error;
 use std::fmt;
 
-use crate::invoices_db::InvoiceStorageError;
 use crate::rpc::RpcError;
 use crate::SubIndex;
+use crate::{invoices_db::InvoiceStorageError, subscriber::SubscriberError};
 
 /// Library's custom error type.
 #[derive(Debug)]
@@ -13,9 +13,7 @@ pub enum AcceptXmrError {
     /// An error storing/retrieving [`Invoice`](crate::Invoice)s.
     InvoiceStorage(InvoiceStorageError),
     /// [`Subscriber`](crate::Subscriber) failed to retrieve update.
-    SubscriberRecv,
-    /// [`Subscriber`](crate::Subscriber) timed out before receiving update.
-    SubscriberRecvTimeout,
+    Subscriber(SubscriberError),
     /// Failure to unblind the amount of an owned output.
     Unblind(SubIndex),
 }
@@ -32,6 +30,12 @@ impl From<InvoiceStorageError> for AcceptXmrError {
     }
 }
 
+impl From<SubscriberError> for AcceptXmrError {
+    fn from(e: SubscriberError) -> Self {
+        Self::Subscriber(e)
+    }
+}
+
 impl fmt::Display for AcceptXmrError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
@@ -41,17 +45,13 @@ impl fmt::Display for AcceptXmrError {
             AcceptXmrError::InvoiceStorage(e) => {
                 write!(f, "invoice storage error: {}", e)
             }
-            AcceptXmrError::SubscriberRecv => write!(
-                f,
-                "subscriber cannot receive further updates, likely because the scanning thread has panicked"
-            ),
-            AcceptXmrError::SubscriberRecvTimeout => write!(
-                f,
-                "subscriber recv timeout"
-            ),
+            AcceptXmrError::Subscriber(e) => {
+                write!(f, "subscriber failed to receive update: {}", e)
+            }
             AcceptXmrError::Unblind(index) => write!(
                 f,
-                "unable to unblind amount of owned output sent to subaddress index {}", index
+                "unable to unblind amount of owned output sent to subaddress index {}",
+                index
             ),
         }
     }
