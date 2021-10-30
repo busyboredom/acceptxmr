@@ -10,7 +10,8 @@ use rand_chacha::ChaCha12Rng;
 use log::{debug, error};
 use monero::{cryptonote::subaddress, ViewPair};
 
-use crate::{InvoicesDb, SubIndex};
+use crate::invoices_db::InvoicesDb;
+use crate::{SubIndex};
 
 const MIN_AVAILABLE_SUBADDRESSES: u32 = 100;
 

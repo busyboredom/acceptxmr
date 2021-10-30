@@ -8,9 +8,11 @@ use monero::cryptonote::{hash::Hashable, onetime_key::SubKeyChecker};
 use tokio::join;
 use tokio::sync::Mutex;
 
+use crate::caching::{BlockCache, TxpoolCache};
 use crate::invoice::Transfer;
+use crate::invoices_db::InvoicesDb;
 use crate::rpc::RpcClient;
-use crate::{AcceptXmrError, BlockCache, InvoicesDb, SubIndex, TxpoolCache};
+use crate::{AcceptXmrError, SubIndex};
 
 pub(crate) struct Scanner {
     invoices_db: InvoicesDb,

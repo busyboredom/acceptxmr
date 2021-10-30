@@ -1,7 +1,8 @@
 use std::error::Error;
 use std::{cmp::Ordering, fmt};
 
-use crate::{AcceptXmrError, Invoice, SubIndex, Subscriber};
+use crate::subscriber::Subscriber;
+use crate::{AcceptXmrError, Invoice, SubIndex};
 
 /// Database containing pending invoices.
 pub(crate) struct InvoicesDb(sled::Tree);
