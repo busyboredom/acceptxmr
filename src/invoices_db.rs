@@ -51,6 +51,16 @@ impl InvoicesDb {
             .transpose()
     }
 
+    pub fn get(&self, sub_index: SubIndex) -> Result<Option<Invoice>, InvoiceStorageError> {
+        // Prepare key (subaddress index).
+        let key = [sub_index.major.to_be_bytes(), sub_index.minor.to_be_bytes()].concat();
+
+        let current = self.0.get(key).transpose();
+        current
+            .map(|ivec_or_err| Ok(bincode::deserialize(&ivec_or_err?)?))
+            .transpose()
+    }
+
     pub fn iter(
         &self,
     ) -> impl DoubleEndedIterator<Item = Result<Invoice, InvoiceStorageError>> + Send + Sync {

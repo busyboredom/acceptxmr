@@ -4,11 +4,13 @@ use std::sync::mpsc::TryRecvError;
 use std::time::{Duration, Instant};
 
 use actix::{Actor, ActorContext, AsyncContext, StreamHandler};
+use actix_session::{CookieSession, Session};
 use actix_web::web::Data;
-use actix_web::{get, web, App, HttpRequest, HttpResponse, HttpServer};
+use actix_web::{get, post, web, App, HttpRequest, HttpResponse, HttpServer};
 use actix_web_actors::ws;
 use bytestring::ByteString;
-use log::{debug, error, warn};
+use log::{debug, error, info, warn};
+use serde::Deserialize;
 use serde_json::json;
 
 use acceptxmr::subscriber::{Subscriber, SubscriberError};
@@ -43,11 +45,13 @@ async fn main() -> std::io::Result<()> {
         .daemon_url("http://busyboredom.com:18081")
         .scan_interval(Duration::from_millis(1000))
         .build();
+    info!("Payment gateway created.");
 
     payment_gateway
         .run()
         .await
         .expect("failed to run payment gateway");
+    info!("Payment gateway running.");
 
     // Watch for invoice updates and deal with them accordingly.
     let gateway_copy = payment_gateway.clone();
@@ -81,7 +85,13 @@ async fn main() -> std::io::Result<()> {
     let shared_payment_gateway = Data::new(payment_gateway);
     HttpServer::new(move || {
         App::new()
+            .wrap(
+                CookieSession::signed(&[0; 32])
+                    .domain("localhost")
+                    .name("acceptxmr_session"),
+            )
             .app_data(shared_payment_gateway.clone())
+            .service(check_out)
             .service(websocket)
             .service(actix_files::Files::new("", "./examples/static").index_file("index.html"))
     })
@@ -90,15 +100,37 @@ async fn main() -> std::io::Result<()> {
     .await
 }
 
+#[derive(Deserialize)]
+struct CheckoutInfo {
+    message: String,
+}
+
+/// Create new invoice and place cookie.
+#[post("/check_out")]
+async fn check_out(
+    session: Session,
+    checkout_info: web::Json<CheckoutInfo>,
+    payment_gateway: web::Data<PaymentGateway>,
+) -> Result<&'static str, actix_web::Error> {
+    info!("Donor message: {}", checkout_info.message);
+    let (sub_index, _height) = payment_gateway.new_invoice(100, 2, 3).await.unwrap();
+    session.insert("index", sub_index)?;
+    Ok("Success")
+}
+
 /// WebSocket rout.
 #[get("/ws/")]
 async fn websocket(
+    session: Session,
     req: HttpRequest,
     stream: web::Payload,
     payment_gateway: web::Data<PaymentGateway>,
 ) -> Result<HttpResponse, actix_web::Error> {
-    // TODO: Use cookies to determine if a purchase is already pending, and avoid creating a new one.
-    let subscriber = payment_gateway.new_invoice(100, 2, 3).await.unwrap();
+    let sub_index = match session.get::<SubIndex>("index") {
+        Ok(Some(i)) => i,
+        _ => return Ok(HttpResponse::NotFound().finish()),
+    };
+    let subscriber = payment_gateway.subscribe(sub_index);
     ws::start(WebSocket::new(subscriber), &req, stream)
 }
 
@@ -156,6 +188,7 @@ impl WebSocket {
                 // Otherwise, handle the error.
                 Err(e) => {
                     error!("Failed to receive invoice update: {}", e);
+                    ctx.stop();
                 }
             }
         });

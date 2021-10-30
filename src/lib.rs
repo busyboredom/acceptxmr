@@ -98,6 +98,7 @@ const DEFAULT_SCAN_INTERVAL: Duration = Duration::from_millis(1000);
 const DEFAULT_DAEMON: &str = "http://node.moneroworld.com:18089";
 const DEFAULT_DB_PATH: &str = "AcceptXMR_DB";
 const DEFAULT_RPC_CONNECTION_TIMEOUT: Duration = Duration::from_millis(2000);
+const DEFAULT_RPC_TOTAL_TIMEOUT: Duration = Duration::from_millis(5000);
 const DEFAULT_BLOCK_CACHE_SIZE: u64 = 10;
 
 /// The `PaymentGateway` allows you to track new [`Invoice`s](Invoice), remove old `Invoice`s from tracking, and
@@ -153,6 +154,7 @@ impl PaymentGateway {
         let pending_invoices = self.invoices_db.clone();
 
         // Create scanner.
+        debug!("Creating blockchain scanner");
         let mut scanner = Scanner::new(
             rpc_client,
             pending_invoices,
@@ -198,8 +200,9 @@ impl PaymentGateway {
         Ok(())
     }
 
-    /// Adds a new [`Invoice`] to the payment gateway for tracking, and returns a [Subscriber] for
-    /// receiving updates to that invoice as they occur.
+    /// Adds a new [`Invoice`] to the payment gateway for tracking, and returns the subaddress index
+    /// and creation height of the new invoice. Use a [`Subscriber`] to receive updates on the new invoice
+    /// invoice as they occur.
     ///
     /// # Errors
     ///
@@ -210,7 +213,7 @@ impl PaymentGateway {
         piconeros: u64,
         confirmations_required: u64,
         expiration_in: u64,
-    ) -> Result<Subscriber, AcceptXmrError> {
+    ) -> Result<(SubIndex, u64), AcceptXmrError> {
         let amount = piconeros;
 
         // Get subaddress in base58, and subaddress index.
@@ -220,11 +223,13 @@ impl PaymentGateway {
             .unwrap_or_else(PoisonError::into_inner)
             .remove_random();
 
+        let creation_height = self.height.load(atomic::Ordering::Relaxed);
+
         // Create invoice object.
         let invoice = Invoice::new(
             &subaddress,
             sub_index,
-            self.height.load(atomic::Ordering::Relaxed),
+            creation_height,
             amount,
             confirmations_required,
             expiration_in,
@@ -237,9 +242,9 @@ impl PaymentGateway {
             invoice.index()
         );
 
-        // Return a subscriber so the caller can get updates on invoice status.
-        // TODO: Consider not returning before a flush happens (maybe optionally flush when called?).
-        Ok(self.subscribe(sub_index))
+        // Return subaddress index and creation height so the user can build identify their invoice,
+        // and make a subscriber for it if desired.
+        Ok((sub_index, creation_height))
     }
 
     /// Remove (i.e. stop tracking) invoice, returning the old invoice if it existed.
@@ -285,6 +290,15 @@ impl PaymentGateway {
     /// cannot be parsed.
     pub async fn daemon_height(&self) -> Result<u64, AcceptXmrError> {
         Ok(self.rpc_client.daemon_height().await?)
+    }
+
+    /// Get the up-to-date invoice associated with the given subaddress, if it exists.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if there are any underlying issues retrieving data in the database.
+    pub fn get_invoice(&self, sub_index: SubIndex) -> Result<Option<Invoice>, AcceptXmrError> {
+        Ok(self.invoices_db.get(sub_index)?)
     }
 
     /// Returns URL of configured daemon.
@@ -407,8 +421,12 @@ impl PaymentGatewayBuilder {
     /// the system configuration or initialize a TLS backend.
     #[must_use]
     pub fn build(self) -> PaymentGateway {
-        let rpc_client = RpcClient::new(&self.daemon_url, DEFAULT_RPC_CONNECTION_TIMEOUT)
-            .expect("failed to create RPC client during PaymentGateway creation");
+        let rpc_client = RpcClient::new(
+            &self.daemon_url,
+            DEFAULT_RPC_TOTAL_TIMEOUT,
+            DEFAULT_RPC_CONNECTION_TIMEOUT,
+        )
+        .expect("failed to create RPC client during PaymentGateway creation");
         let invoices_db =
             InvoicesDb::new(&self.db_path).expect("failed to open pending invoices database tree");
         info!("Opened database in \"{}/\"", self.db_path);

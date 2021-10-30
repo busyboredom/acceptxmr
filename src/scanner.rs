@@ -36,6 +36,7 @@ impl Scanner {
                 h
             }
             Ok(None) => {
+                trace!("Retrieving daemon hight for scanner setup.");
                 let h = rpc_client.daemon_height().await?;
                 info!("No pending invoices found in AcceptXMR database. Skipping to blockchain tip: {}", h);
                 h

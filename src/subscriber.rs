@@ -10,7 +10,7 @@ use sled::Event;
 use crate::{invoices_db::InvoiceStorageError, AcceptXmrError, Invoice};
 
 /// A means of receiving updates on a given invoice. Subscribers are returned by
-/// [`PaymentGateways`](crate::PaymentGateway) when a creating or subscribing to a invoice.
+/// [`PaymentGateways`](crate::PaymentGateway) when subscribing to a invoice.
 pub struct Subscriber(sled::Subscriber);
 
 impl Subscriber {

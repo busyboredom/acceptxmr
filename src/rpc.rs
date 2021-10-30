@@ -21,8 +21,13 @@ impl RpcClient {
     ///
     /// This method fails if a TLS backend cannot be initialized, or the resolver
     /// cannot load the system configuration.
-    pub fn new(url: &str, connection_timeout: Duration) -> Result<RpcClient, RpcError> {
+    pub fn new(
+        url: &str,
+        total_timeout: Duration,
+        connection_timeout: Duration,
+    ) -> Result<RpcClient, RpcError> {
         let client = reqwest::ClientBuilder::new()
+            .timeout(total_timeout)
             .connect_timeout(connection_timeout)
             .build()?;
         Ok(RpcClient {

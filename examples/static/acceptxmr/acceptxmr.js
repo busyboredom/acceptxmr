@@ -1,4 +1,4 @@
-function start() {
+async function start() {
     var message = document.getElementById("message").value;
 
     // Hide prep stuff, show payment stuff.
@@ -6,13 +6,18 @@ function start() {
     document.getElementById("preperation-content").style.display = "None";
     document.getElementById("payment-content").style.display = "inherit"
 
-    // Start websocket.
-    let socket = new WebSocket("ws://localhost:8080/ws/");
-
-    // Send message.
-    socket.onopen = function (event) {
-        socket.send(message);
+    const checkOutInfo = {
+        method: "POST",
+        body: JSON.stringify({
+            "message": message
+        }),
+        headers: {
+            'content-type': 'application/json'
+        }
     }
+    await fetch("/check_out", checkOutInfo);
+
+    let socket = new WebSocket("ws://localhost:8080/ws/");
 
     socket.onmessage = function (event) {
         var invoiceUpdate = JSON.parse(event.data);
