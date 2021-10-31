@@ -77,7 +77,7 @@ pub mod subscriber;
 use std::error::Error;
 use std::fmt;
 
-pub use invoice::{Invoice, SubIndex};
+pub use invoice::{Invoice, InvoiceId, SubIndex};
 use invoices_db::InvoiceStorageError;
 pub use payment_gateway::{PaymentGateway, PaymentGatewayBuilder};
 use rpc::RpcError;

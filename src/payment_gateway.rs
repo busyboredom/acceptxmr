@@ -15,7 +15,7 @@ use crate::invoices_db::InvoicesDb;
 use crate::rpc::RpcClient;
 use crate::scanner::Scanner;
 use crate::subscriber::Subscriber;
-use crate::{AcceptXmrError, Invoice, SubIndex};
+use crate::{AcceptXmrError, Invoice, InvoiceId};
 
 const DEFAULT_SCAN_INTERVAL: Duration = Duration::from_millis(1000);
 const DEFAULT_DAEMON: &str = "http://node.moneroworld.com:18089";
@@ -24,8 +24,8 @@ const DEFAULT_RPC_CONNECTION_TIMEOUT: Duration = Duration::from_millis(2000);
 const DEFAULT_RPC_TOTAL_TIMEOUT: Duration = Duration::from_millis(5000);
 const DEFAULT_BLOCK_CACHE_SIZE: u64 = 10;
 
-/// The `PaymentGateway` allows you to track new [`Invoice`s](Invoice), remove old `Invoice`s from tracking, and
-/// subscribe to `Invoice`s that are already pending.
+/// The `PaymentGateway` allows you to track new [`Invoice`s](Invoice), remove old `Invoice`s from
+/// tracking, and subscribe to `Invoice`s that are already pending.
 #[derive(Clone)]
 pub struct PaymentGateway(pub(crate) Arc<PaymentGatewayInner>);
 
@@ -124,9 +124,8 @@ impl PaymentGateway {
         Ok(())
     }
 
-    /// Adds a new [`Invoice`] to the payment gateway for tracking, and returns the subaddress index
-    /// and creation height of the new invoice. Use a [`Subscriber`] to receive updates on the new invoice
-    /// invoice as they occur.
+    /// Adds a new [`Invoice`] to the payment gateway for tracking, and returns the ID of the new
+    /// invoice. Use a [`Subscriber`] to receive updates on the new invoice invoice as they occur.
     ///
     /// # Errors
     ///
@@ -137,7 +136,7 @@ impl PaymentGateway {
         piconeros: u64,
         confirmations_required: u64,
         expiration_in: u64,
-    ) -> Result<(SubIndex, u64), AcceptXmrError> {
+    ) -> Result<InvoiceId, AcceptXmrError> {
         let amount = piconeros;
 
         // Get subaddress in base58, and subaddress index.
@@ -166,9 +165,9 @@ impl PaymentGateway {
             invoice.index()
         );
 
-        // Return subaddress index and creation height so the user can build identify their invoice,
-        // and make a subscriber for it if desired.
-        Ok((sub_index, creation_height))
+        // Return invoice id so the user can build identify their invoice, and make a subscriber for
+        // it if desired.
+        Ok(invoice.id())
     }
 
     /// Remove (i.e. stop tracking) invoice, returning the old invoice if it existed.
@@ -177,8 +176,8 @@ impl PaymentGateway {
     ///
     /// Returns an error if there are any underlying issues modifying/retrieving data in the
     /// database.
-    pub fn remove_invoice(&self, sub_index: SubIndex) -> Result<Option<Invoice>, AcceptXmrError> {
-        match self.invoices_db.remove(sub_index)? {
+    pub fn remove_invoice(&self, invoice_id: InvoiceId) -> Result<Option<Invoice>, AcceptXmrError> {
+        match self.invoices_db.remove(invoice_id)? {
             Some(old) => {
                 if !(old.is_expired()
                     || old.is_confirmed() && old.creation_height() < old.current_height())
@@ -189,7 +188,7 @@ impl PaymentGateway {
                 self.subaddresses
                     .lock()
                     .unwrap_or_else(PoisonError::into_inner)
-                    .insert(sub_index, old.address());
+                    .insert(invoice_id.sub_index, old.address());
 
                 Ok(Some(old))
             }
@@ -197,13 +196,17 @@ impl PaymentGateway {
         }
     }
 
-    /// Returns a `Subscriber` for the given subaddress index. If a tracked invoice exists for that
-    /// subaddress, the subscriber can be used to receive updates to for that invoice.
-    ///
-    /// To subscribe to all invoice updates, use the index of the primary address: (0,0).
+    /// Returns a `Subscriber` for the given invoice ID. If a tracked invoice exists for that
+    /// ID, the subscriber can be used to receive updates to for that invoice.
     #[must_use]
-    pub fn subscribe(&self, sub_index: SubIndex) -> Subscriber {
-        self.invoices_db.subscribe(sub_index)
+    pub fn subscribe(&self, invoice_id: InvoiceId) -> Result<Option<Subscriber>, AcceptXmrError> {
+        Ok(self.invoices_db.subscribe(invoice_id)?)
+    }
+
+    /// Returns a `Subscriber` for all invoices.
+    #[must_use]
+    pub fn subscribe_all(&self) -> Subscriber {
+        self.invoices_db.subscribe_all()
     }
 
     /// Get current height of daemon using a monero daemon RPC call.
@@ -216,13 +219,13 @@ impl PaymentGateway {
         Ok(self.rpc_client.daemon_height().await?)
     }
 
-    /// Get the up-to-date invoice associated with the given subaddress, if it exists.
+    /// Get the up-to-date invoice associated with the given ID, if it exists.
     ///
     /// # Errors
     ///
     /// Returns an error if there are any underlying issues retrieving data in the database.
-    pub fn get_invoice(&self, sub_index: SubIndex) -> Result<Option<Invoice>, AcceptXmrError> {
-        Ok(self.invoices_db.get(sub_index)?)
+    pub fn get_invoice(&self, invoice_id: InvoiceId) -> Result<Option<Invoice>, AcceptXmrError> {
+        Ok(self.invoices_db.get(invoice_id)?)
     }
 
     /// Returns URL of configured daemon.

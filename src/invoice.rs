@@ -1,5 +1,8 @@
-use std::cmp::{self, Ordering};
 use std::fmt;
+use std::{
+    cmp::{self, Ordering},
+    fmt::Display,
+};
 
 use monero::cryptonote::subaddress;
 use serde::{Deserialize, Serialize};
@@ -71,6 +74,15 @@ impl Invoice {
     #[must_use]
     pub fn address(&self) -> String {
         self.address.clone()
+    }
+
+    /// Returns the ID of this invoice.
+    #[must_use]
+    pub fn id(&self) -> InvoiceId {
+        InvoiceId {
+            sub_index: self.index,
+            creation_height: self.creation_height,
+        }
     }
 
     /// Returns the [subaddress index](SubIndex) of this `Invoice`.
@@ -199,6 +211,32 @@ impl fmt::Display for Invoice {
             str.push_str("\n]");
         }
         write!(f, "{}", str)
+    }
+}
+
+/// An invoice ID consists uniquely identifies a given invoice by the combination of its subaddress
+/// index and creation height.
+#[derive(Debug, Copy, Clone, Hash, Serialize, Deserialize, PartialEq, Eq)]
+pub struct InvoiceId {
+    /// The [subaddress index](SubIndex) of the invoice.
+    pub sub_index: SubIndex,
+    /// The creation height of the invoice.
+    pub creation_height: u64,
+}
+
+impl InvoiceId {
+    /// Create a new invoice ID from subaddress and creation height.
+    pub fn new(sub_index: SubIndex, creation_height: u64) -> InvoiceId {
+        InvoiceId {
+            sub_index,
+            creation_height,
+        }
+    }
+}
+
+impl Display for InvoiceId {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "({},{})", self.sub_index, self.creation_height)
     }
 }
 

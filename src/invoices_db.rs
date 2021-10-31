@@ -2,7 +2,7 @@ use std::error::Error;
 use std::{cmp::Ordering, fmt};
 
 use crate::subscriber::Subscriber;
-use crate::{AcceptXmrError, Invoice, SubIndex};
+use crate::{AcceptXmrError, Invoice, InvoiceId, SubIndex};
 
 /// Database containing pending invoices.
 pub(crate) struct InvoicesDb(sled::Tree);
@@ -23,12 +23,9 @@ impl InvoicesDb {
     }
 
     pub fn insert(&self, invoice: &Invoice) -> Result<Option<Invoice>, InvoiceStorageError> {
-        // Prepare key (subaddress index).
-        let key = [
-            invoice.index().major.to_be_bytes(),
-            invoice.index().minor.to_be_bytes(),
-        ]
-        .concat();
+        // Prepare key (invoice id).
+        let invoice_id = invoice.id();
+        let key = bincode::serialize(&invoice_id)?;
 
         // Prepare value (invoice).
         let value = bincode::serialize(&invoice)?;
@@ -43,18 +40,18 @@ impl InvoicesDb {
         }
     }
 
-    pub fn remove(&self, sub_index: SubIndex) -> Result<Option<Invoice>, InvoiceStorageError> {
-        // Prepare key (subaddress index).
-        let key = [sub_index.major.to_be_bytes(), sub_index.minor.to_be_bytes()].concat();
+    pub fn remove(&self, invoice_id: InvoiceId) -> Result<Option<Invoice>, InvoiceStorageError> {
+        // Prepare key (invoice id).
+        let key = bincode::serialize(&invoice_id)?;
 
         let old = self.0.remove(key).transpose();
         old.map(|ivec_or_err| Ok(bincode::deserialize(&ivec_or_err?)?))
             .transpose()
     }
 
-    pub fn get(&self, sub_index: SubIndex) -> Result<Option<Invoice>, InvoiceStorageError> {
-        // Prepare key (subaddress index).
-        let key = [sub_index.major.to_be_bytes(), sub_index.minor.to_be_bytes()].concat();
+    pub fn get(&self, invoice_id: InvoiceId) -> Result<Option<Invoice>, InvoiceStorageError> {
+        // Prepare key (invoice id).
+        let key = bincode::serialize(&invoice_id)?;
 
         let current = self.0.get(key).transpose();
         current
@@ -72,16 +69,23 @@ impl InvoicesDb {
         })
     }
 
-    pub fn contains_key(&self, sub_index: SubIndex) -> Result<bool, InvoiceStorageError> {
-        // Prepare key (subaddress index).
-        let key = [sub_index.major.to_be_bytes(), sub_index.minor.to_be_bytes()].concat();
+    pub fn contains_key(&self, invoice_id: InvoiceId) -> Result<bool, InvoiceStorageError> {
+        // Prepare key (invoice id).
+        let key = bincode::serialize(&invoice_id)?;
 
         self.0.contains_key(key).map_err(InvoiceStorageError::from)
     }
 
-    pub fn update(&self, sub_index: SubIndex, new: &Invoice) -> Result<Invoice, AcceptXmrError> {
-        // Prepare key (subaddress index).
-        let key = [sub_index.major.to_be_bytes(), sub_index.minor.to_be_bytes()].concat();
+    pub fn contains_sub_index(&self, sub_index: SubIndex) -> Result<bool, InvoiceStorageError> {
+        // Prepare key (invoice id).
+        let key = bincode::serialize(&sub_index)?;
+
+        Ok(self.0.scan_prefix(key).next().is_some())
+    }
+
+    pub fn update(&self, invoice_id: InvoiceId, new: &Invoice) -> Result<Invoice, AcceptXmrError> {
+        // Prepare key (invoice id).
+        let key = bincode::serialize(&invoice_id).map_err(InvoiceStorageError::from)?;
 
         // Prepare values.
         let new_ivec = bincode::serialize(&new).map_err(InvoiceStorageError::from)?;
@@ -93,17 +97,27 @@ impl InvoicesDb {
             .map_err(InvoiceStorageError::from)?;
         match maybe_old {
             Some(ivec) => Ok(bincode::deserialize(&ivec).map_err(InvoiceStorageError::from)?),
-            None => Err(AcceptXmrError::from(InvoiceStorageError::Update(sub_index))),
+            None => Err(AcceptXmrError::from(InvoiceStorageError::Update(
+                invoice_id,
+            ))),
         }
     }
 
-    pub fn subscribe(&self, sub_index: SubIndex) -> Subscriber {
-        let mut prefix = Vec::new();
-        // If asked to subscribe to the primary address index, watch everything. Otherwise, watch that specific index.
-        if sub_index != SubIndex::new(0, 0) {
-            prefix = [sub_index.major.to_be_bytes(), sub_index.minor.to_be_bytes()].concat();
-        }
+    pub fn subscribe(
+        &self,
+        invoice_id: InvoiceId,
+    ) -> Result<Option<Subscriber>, InvoiceStorageError> {
+        let prefix = bincode::serialize(&invoice_id)?;
         let sled_subscriber = self.0.watch_prefix(prefix);
+        if self.contains_key(invoice_id)? {
+            Ok(Some(Subscriber::new(sled_subscriber)))
+        } else {
+            Ok(None)
+        }
+    }
+
+    pub fn subscribe_all(&self) -> Subscriber {
+        let sled_subscriber = self.0.watch_prefix(vec![]);
         Subscriber::new(sled_subscriber)
     }
 
@@ -156,7 +170,7 @@ pub enum InvoiceStorageError {
     Database(sled::Error),
     /// A [`Invoice`] in the database can not be updated, because the
     /// `Invoice` does not exist.
-    Update(SubIndex),
+    Update(InvoiceId),
     /// Failed to (de)serialize a [`Invoice`].
     Serialization(bincode::Error),
 }

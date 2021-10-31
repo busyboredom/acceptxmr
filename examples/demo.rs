@@ -14,7 +14,7 @@ use serde::Deserialize;
 use serde_json::json;
 
 use acceptxmr::subscriber::{Subscriber, SubscriberError};
-use acceptxmr::{AcceptXmrError, PaymentGateway, PaymentGatewayBuilder, SubIndex};
+use acceptxmr::{AcceptXmrError, InvoiceId, PaymentGateway, PaymentGatewayBuilder};
 
 /// How often heartbeat pings are sent
 const HEARTBEAT_INTERVAL: Duration = Duration::from_secs(4);
@@ -56,8 +56,8 @@ async fn main() -> std::io::Result<()> {
     // Watch for invoice updates and deal with them accordingly.
     let gateway_copy = payment_gateway.clone();
     std::thread::spawn(move || {
-        // Watch all invoice updates by subscribing to the primary address index (0/0).
-        let mut subscriber = gateway_copy.subscribe(SubIndex::new(0, 0));
+        // Watch all invoice updates.
+        let mut subscriber = gateway_copy.subscribe_all();
         loop {
             let invoice = match subscriber.recv() {
                 Ok(p) => p,
@@ -75,7 +75,7 @@ async fn main() -> std::io::Result<()> {
                     "Invoice to index {} is either confirmed or expired. Removing invoice now",
                     invoice.index()
                 );
-                if let Err(e) = gateway_copy.remove_invoice(invoice.index()) {
+                if let Err(e) = gateway_copy.remove_invoice(invoice.id()) {
                     error!("Failed to remove fully confirmed invoice: {}", e);
                 };
             }
@@ -113,8 +113,8 @@ async fn check_out(
     payment_gateway: web::Data<PaymentGateway>,
 ) -> Result<&'static str, actix_web::Error> {
     info!("Donor message: {}", checkout_info.message);
-    let (sub_index, _height) = payment_gateway.new_invoice(100, 2, 3).await.unwrap();
-    session.insert("index", sub_index)?;
+    let invoice_id = payment_gateway.new_invoice(100, 2, 3).await.unwrap();
+    session.insert("id", invoice_id)?;
     Ok("Success")
 }
 
@@ -126,11 +126,14 @@ async fn websocket(
     stream: web::Payload,
     payment_gateway: web::Data<PaymentGateway>,
 ) -> Result<HttpResponse, actix_web::Error> {
-    let sub_index = match session.get::<SubIndex>("index") {
+    let invoice_id = match session.get::<InvoiceId>("id") {
         Ok(Some(i)) => i,
         _ => return Ok(HttpResponse::NotFound().finish()),
     };
-    let subscriber = payment_gateway.subscribe(sub_index);
+    let subscriber = match payment_gateway.subscribe(invoice_id) {
+        Ok(Some(s)) => s,
+        _ => return Ok(HttpResponse::NotFound().finish()),
+    };
     ws::start(WebSocket::new(subscriber), &req, stream)
 }
 

@@ -177,7 +177,7 @@ impl Scanner {
                 invoice.index(),
                 invoice
             );
-            if let Err(e) = self.invoices_db.update(invoice.index(), invoice) {
+            if let Err(e) = self.invoices_db.update(invoice.id(), invoice) {
                 error!(
                     "Failed to save update to invoice for index {} to database: {}",
                     invoice.index(),
@@ -298,7 +298,7 @@ impl Scanner {
                 let sub_index = SubIndex::from(transfer.sub_index());
 
                 // If this invoice is being tracked, add the amount and subindex to the result set.
-                if self.invoices_db.contains_key(sub_index)? {
+                if self.invoices_db.contains_sub_index(sub_index)? {
                     let amount = transfers[0]
                         .amount()
                         .ok_or(AcceptXmrError::Unblind(sub_index))?;
