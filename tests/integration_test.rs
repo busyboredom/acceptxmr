@@ -68,7 +68,7 @@ fn new_invoice() {
 
         // Add the invoice.
         let invoice_id = payment_gateway
-            .new_invoice(1, 5, 10)
+            .new_invoice(1, 5, 10, "test invoice")
             .await
             .expect("failed to add new invoice to payment gateway for tracking");
         let mut subscriber = payment_gateway
@@ -90,6 +90,7 @@ fn new_invoice() {
         assert_eq!(update.creation_height(), update.current_height());
         assert_eq!(update.confirmations_required(), 5);
         assert_eq!(update.confirmations(), None);
+        assert_eq!(update.description(), "test invoice".to_string());
     })
 }
 
@@ -125,7 +126,7 @@ fn track_parallel_invoices() {
 
         // Add the invoice.
         let invoice_id = payment_gateway
-            .new_invoice(70000000, 2, 7)
+            .new_invoice(70000000, 2, 7, "invoice 1")
             .await
             .expect("failed to add new invoice to payment gateway for tracking");
         let mut subscriber_1 = payment_gateway
@@ -151,7 +152,7 @@ fn track_parallel_invoices() {
 
         // Add the invoice.
         let invoice_id = payment_gateway
-            .new_invoice(70000000, 2, 7)
+            .new_invoice(70000000, 2, 7, "invoice 2")
             .await
             .expect("failed to add new invoice to payment gateway for tracking");
         let mut subscriber_2 = payment_gateway
@@ -389,7 +390,7 @@ fn reproducible_seed() {
 
         // Add the invoice.
         let invoice_id = payment_gateway
-            .new_invoice(1, 5, 10)
+            .new_invoice(1, 5, 10, "test invoice")
             .await
             .expect("failed to add new invoice to payment gateway for tracking");
         let mut subscriber = payment_gateway

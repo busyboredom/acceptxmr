@@ -112,8 +112,10 @@ async fn check_out(
     checkout_info: web::Json<CheckoutInfo>,
     payment_gateway: web::Data<PaymentGateway>,
 ) -> Result<&'static str, actix_web::Error> {
-    info!("Donor message: {}", checkout_info.message);
-    let invoice_id = payment_gateway.new_invoice(100, 2, 3).await.unwrap();
+    let invoice_id = payment_gateway
+        .new_invoice(100, 2, 3, &checkout_info.message)
+        .await
+        .unwrap();
     session.insert("id", invoice_id)?;
     Ok("Success")
 }

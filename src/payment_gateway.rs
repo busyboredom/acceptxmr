@@ -136,6 +136,7 @@ impl PaymentGateway {
         piconeros: u64,
         confirmations_required: u64,
         expiration_in: u64,
+        description: &str,
     ) -> Result<InvoiceId, AcceptXmrError> {
         let amount = piconeros;
 
@@ -156,6 +157,7 @@ impl PaymentGateway {
             amount,
             confirmations_required,
             expiration_in,
+            description,
         );
 
         // Insert invoice into database for tracking.

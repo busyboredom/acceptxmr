@@ -26,6 +26,7 @@ pub struct Invoice {
     pub(crate) current_height: u64,
     expiration_height: u64,
     pub(crate) transfers: Vec<Transfer>,
+    description: String,
 }
 
 impl Invoice {
@@ -36,6 +37,7 @@ impl Invoice {
         amount_requested: u64,
         confirmations_required: u64,
         expiration_in: u64,
+        description: &str,
     ) -> Invoice {
         let expiration_height = creation_height + expiration_in;
         Invoice {
@@ -51,6 +53,7 @@ impl Invoice {
             current_height: 0,
             expiration_height,
             transfers: Vec::new(),
+            description: description.to_string(),
         }
     }
 
@@ -159,7 +162,7 @@ impl Invoice {
     /// # payment_gateway.run().await?;
     /// #
     /// // Create a new `Invoice` requiring 3 confirmations, and expiring in 5 blocks.
-    /// let invoice_id = payment_gateway.new_invoice(10000, 3, 5).await?;
+    /// let invoice_id = payment_gateway.new_invoice(10000, 3, 5, "for pizza").await?;
     /// let mut subscriber = payment_gateway.subscribe(invoice_id)?.expect("invoice ID not found");
     /// let invoice = subscriber.recv()?;
     ///
@@ -170,6 +173,12 @@ impl Invoice {
     #[must_use]
     pub fn expiration_in(&self) -> u64 {
         self.expiration_height.saturating_sub(self.current_height)
+    }
+
+    /// Returns description of this invoice.
+    #[must_use]
+    pub fn description(&self) -> String {
+        self.description.clone()
     }
 }
 
@@ -186,6 +195,7 @@ impl fmt::Display for Invoice {
             \nStarted at: {} \
             \nCurrent height: {} \
             \nExpiration at: {} \
+            \nDescription: {} \
             \ntransfers: \
             \n[",
             self.index,
@@ -195,6 +205,7 @@ impl fmt::Display for Invoice {
             self.creation_height,
             self.current_height,
             self.expiration_height,
+            self.description,
         );
         for transfer in &self.transfers {
             let height = match transfer.height {
