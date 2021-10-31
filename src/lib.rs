@@ -65,6 +65,7 @@
 #![warn(missing_docs)]
 #![warn(clippy::cargo)]
 #![allow(clippy::multiple_crate_versions)]
+#![allow(clippy::module_name_repetitions)]
 
 mod caching;
 mod invoice;

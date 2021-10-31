@@ -96,7 +96,6 @@ impl Iterator for Subscriber {
 }
 
 /// An error occurring while receiving invoice updates.
-#[allow(clippy::module_name_repetitions)]
 #[derive(Debug)]
 pub enum SubscriberError {
     /// Failed to retrieve update.

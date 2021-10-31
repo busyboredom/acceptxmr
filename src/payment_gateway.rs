@@ -30,7 +30,6 @@ const DEFAULT_BLOCK_CACHE_SIZE: u64 = 10;
 pub struct PaymentGateway(pub(crate) Arc<PaymentGatewayInner>);
 
 #[doc(hidden)]
-#[allow(clippy::module_name_repetitions)]
 pub struct PaymentGatewayInner {
     rpc_client: RpcClient,
     viewpair: monero::ViewPair,
@@ -200,7 +199,10 @@ impl PaymentGateway {
 
     /// Returns a `Subscriber` for the given invoice ID. If a tracked invoice exists for that
     /// ID, the subscriber can be used to receive updates to for that invoice.
-    #[must_use]
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if there is an underlying issue retrieving data from the database.
     pub fn subscribe(&self, invoice_id: InvoiceId) -> Result<Option<Subscriber>, AcceptXmrError> {
         Ok(self.invoices_db.subscribe(invoice_id)?)
     }
@@ -262,7 +264,6 @@ impl PaymentGateway {
 /// #   .db_path(temp_dir.path().to_str().expect("Failed to get temporary directory path"))
 ///     .build();
 /// ```
-#[allow(clippy::module_name_repetitions)]
 pub struct PaymentGatewayBuilder {
     daemon_url: String,
     private_view_key: monero::PrivateKey,

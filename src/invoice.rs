@@ -195,7 +195,7 @@ impl fmt::Display for Invoice {
             \nStarted at: {} \
             \nCurrent height: {} \
             \nExpiration at: {} \
-            \nDescription: {} \
+            \nDescription: \"{}\" \
             \ntransfers: \
             \n[",
             self.index,
@@ -238,6 +238,7 @@ pub struct InvoiceId {
 
 impl InvoiceId {
     /// Create a new invoice ID from subaddress and creation height.
+    #[must_use]
     pub fn new(sub_index: SubIndex, creation_height: u64) -> InvoiceId {
         InvoiceId {
             sub_index,
