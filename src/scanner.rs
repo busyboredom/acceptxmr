@@ -5,6 +5,7 @@ use std::sync::Arc;
 
 use log::{error, info, trace};
 use monero::cryptonote::{hash::Hashable, onetime_key::SubKeyChecker};
+use monero::VarInt;
 use tokio::join;
 use tokio::sync::Mutex;
 
@@ -291,6 +292,11 @@ impl Scanner {
     ) -> Result<HashMap<monero::Hash, Vec<(SubIndex, u64)>>, AcceptXmrError> {
         let mut amounts_received = HashMap::new();
         for tx in transactions {
+            // Ensure the time lock is zero. 
+            if tx.prefix().unlock_time != VarInt(0) {
+                continue
+            }
+
             // Scan transaction for owned outputs.
             let transfers = tx.check_outputs_with(sub_key_checker).unwrap();
 
