@@ -24,7 +24,7 @@ const DEFAULT_RPC_CONNECTION_TIMEOUT: Duration = Duration::from_millis(2000);
 const DEFAULT_RPC_TOTAL_TIMEOUT: Duration = Duration::from_millis(5000);
 const DEFAULT_BLOCK_CACHE_SIZE: u64 = 10;
 
-/// The `PaymentGateway` allows you to track new [`Invoice`s](Invoice), remove old `Invoice`s from
+/// The `PaymentGateway` allows you to track new [`Invoice`](Invoice)s, remove old `Invoice`s from
 /// tracking, and subscribe to `Invoice`s that are already pending.
 #[derive(Clone)]
 pub struct PaymentGateway(pub(crate) Arc<PaymentGatewayInner>);
@@ -56,7 +56,7 @@ impl PaymentGateway {
     }
 
     /// Runs the payment gateway. This function spawns a new thread, which periodically scans new
-    /// blocks and transactions from the configured daemon and updates pending [`Invoice`s](Invoice)
+    /// blocks and transactions from the configured daemon and updates pending [`Invoice`](Invoice)s
     /// in the database.
     ///
     /// This method should only be called once.
@@ -223,7 +223,7 @@ impl PaymentGateway {
         Ok(self.rpc_client.daemon_height().await?)
     }
 
-    /// Get the up-to-date invoice associated with the given ID, if it exists.
+    /// Get the up-to-date invoice associated with the given [`InvoiceId`], if it exists.
     ///
     /// # Errors
     ///
@@ -320,8 +320,8 @@ impl PaymentGatewayBuilder {
         self
     }
 
-    /// Set the minimum scan interval. New blocks / transactions will be scanned for relevant outputs
-    /// at most every `interval`. Defaults to 1 second.
+    /// Set the minimum scan interval. New blocks and transactions will be scanned for relevant
+    /// outputs at most every `interval`. Defaults to 1 second.
     #[must_use]
     pub fn scan_interval(mut self, interval: Duration) -> PaymentGatewayBuilder {
         self.scan_interval = interval;
@@ -348,8 +348,8 @@ impl PaymentGatewayBuilder {
     ///
     /// # Panics
     ///
-    /// Panics the database cannot be opened at the path specified, or if the RPC client cannot load
-    /// the system configuration or initialize a TLS backend.
+    /// Panics if the database cannot be opened at the path specified, or if the internal RPC client
+    /// cannot load the system configuration or initialize a TLS backend.
     #[must_use]
     pub fn build(self) -> PaymentGateway {
         let rpc_client = RpcClient::new(

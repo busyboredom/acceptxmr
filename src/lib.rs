@@ -1,6 +1,7 @@
-//! # `AcceptXMR`: A Library for Accepting Monero
+//! # `AcceptXMR`: An Embedded Monero Payment Processor
 //!
-//! This library aims to provide a simple, reliable, and efficient means to track monero payments.
+//! This library aims to provide a simple, reliable, and efficient means to track monero payments in
+//! your application.
 //!
 //! To track payments, the [`PaymentGateway`] generates subaddresses using your private view key and
 //! public spend key. It then watches for monero sent to that subaddress using a monero daemon of
@@ -73,7 +74,7 @@ mod invoices_db;
 mod payment_gateway;
 mod rpc;
 mod scanner;
-pub mod subscriber;
+mod subscriber;
 
 use std::error::Error;
 use std::fmt;
@@ -82,7 +83,7 @@ pub use invoice::{Invoice, InvoiceId, SubIndex};
 use invoices_db::InvoiceStorageError;
 pub use payment_gateway::{PaymentGateway, PaymentGatewayBuilder};
 use rpc::RpcError;
-use subscriber::SubscriberError;
+pub use subscriber::{Subscriber, SubscriberError};
 
 /// Library's custom error type.
 #[derive(Debug)]

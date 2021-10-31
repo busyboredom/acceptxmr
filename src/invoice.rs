@@ -7,13 +7,13 @@ use std::{
 use monero::cryptonote::subaddress;
 use serde::{Deserialize, Serialize};
 
-/// Representation of an invoice. `Invoice`s are created by the [`PaymentGateway`], and are
+/// Representation of an invoice. `Invoice`s are created by the [`PaymentGateway`](crate::PaymentGateway), and are
 /// initially unpaid.
 ///
 /// `Invoice`s have an expiration block, after which they are considered expired. However, note that
 /// the payment gateway by default will continue updating invoices even after expiration.
 ///
-/// To receive updates for a given `Invoice`, use a [Subscriber].
+/// To receive updates for a given `Invoice`, use a [`Subscriber`](crate::subscriber::Subscriber).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Invoice {
     address: String,
@@ -175,7 +175,7 @@ impl Invoice {
         self.expiration_height.saturating_sub(self.current_height)
     }
 
-    /// Returns description of this invoice.
+    /// Returns the description of this invoice.
     #[must_use]
     pub fn description(&self) -> String {
         self.description.clone()
@@ -237,7 +237,7 @@ pub struct InvoiceId {
 }
 
 impl InvoiceId {
-    /// Create a new invoice ID from subaddress and creation height.
+    /// Create a new `InvoiceId` from subaddress index and creation height.
     #[must_use]
     pub fn new(sub_index: SubIndex, creation_height: u64) -> InvoiceId {
         InvoiceId {

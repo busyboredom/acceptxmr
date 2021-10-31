@@ -13,8 +13,9 @@ use log::{debug, error, info, warn};
 use serde::Deserialize;
 use serde_json::json;
 
-use acceptxmr::subscriber::{Subscriber, SubscriberError};
-use acceptxmr::{AcceptXmrError, InvoiceId, PaymentGateway, PaymentGatewayBuilder};
+use acceptxmr::{
+    AcceptXmrError, InvoiceId, PaymentGateway, PaymentGatewayBuilder, Subscriber, SubscriberError,
+};
 
 /// How often heartbeat pings are sent
 const HEARTBEAT_INTERVAL: Duration = Duration::from_secs(4);
