@@ -159,7 +159,8 @@ impl Invoice {
     /// # payment_gateway.run().await?;
     /// #
     /// // Create a new `Invoice` requiring 3 confirmations, and expiring in 5 blocks.
-    /// let mut subscriber = payment_gateway.new_invoice(10000, 3, 5).await?;
+    /// let invoice_id = payment_gateway.new_invoice(10000, 3, 5).await?;
+    /// let mut subscriber = payment_gateway.subscribe(invoice_id)?.expect("invoice ID not found");
     /// let invoice = subscriber.recv()?;
     ///
     /// assert_eq!(invoice.expiration_in(), 5);

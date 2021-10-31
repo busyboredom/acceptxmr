@@ -67,10 +67,14 @@ fn new_invoice() {
             .expect("failed to run payment gateway");
 
         // Add the invoice.
-        let mut subscriber = payment_gateway
+        let invoice_id = payment_gateway
             .new_invoice(1, 5, 10)
             .await
             .expect("failed to add new invoice to payment gateway for tracking");
+        let mut subscriber = payment_gateway
+            .subscribe(invoice_id)
+            .expect("failed to subscribe to invoice")
+            .expect("invoice not in database");
 
         // Get initial update.
         let update = subscriber
@@ -120,10 +124,14 @@ fn track_parallel_invoices() {
             .expect("failed to run payment gateway");
 
         // Add the invoice.
-        let mut subscriber_1 = payment_gateway
+        let invoice_id = payment_gateway
             .new_invoice(70000000, 2, 7)
             .await
             .expect("failed to add new invoice to payment gateway for tracking");
+        let mut subscriber_1 = payment_gateway
+            .subscribe(invoice_id)
+            .expect("failed to subscribe to invoice")
+            .expect("invoice not in database");
 
         // Get initial update.
         let update = subscriber_1
@@ -142,10 +150,14 @@ fn track_parallel_invoices() {
         assert_eq!(update.confirmations(), None);
 
         // Add the invoice.
-        let mut subscriber_2 = payment_gateway
+        let invoice_id = payment_gateway
             .new_invoice(70000000, 2, 7)
             .await
             .expect("failed to add new invoice to payment gateway for tracking");
+        let mut subscriber_2 = payment_gateway
+            .subscribe(invoice_id)
+            .expect("failed to subscribe to invoice")
+            .expect("invoice not in database");
 
         // Get initial update.
         let update = subscriber_2
@@ -376,10 +388,14 @@ fn reproducible_seed() {
             .expect("failed to run payment gateway");
 
         // Add the invoice.
-        let mut subscriber = payment_gateway
+        let invoice_id = payment_gateway
             .new_invoice(1, 5, 10)
             .await
             .expect("failed to add new invoice to payment gateway for tracking");
+        let mut subscriber = payment_gateway
+            .subscribe(invoice_id)
+            .expect("failed to subscribe to invoice")
+            .expect("invoice not in database");
 
         // Get initial update.
         let update = subscriber
