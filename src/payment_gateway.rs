@@ -20,8 +20,8 @@ use crate::{AcceptXmrError, Invoice, InvoiceId};
 const DEFAULT_SCAN_INTERVAL: Duration = Duration::from_millis(1000);
 const DEFAULT_DAEMON: &str = "http://node.moneroworld.com:18089";
 const DEFAULT_DB_PATH: &str = "AcceptXMR_DB";
-const DEFAULT_RPC_CONNECTION_TIMEOUT: Duration = Duration::from_millis(3000);
-const DEFAULT_RPC_TOTAL_TIMEOUT: Duration = Duration::from_millis(6000);
+const DEFAULT_RPC_CONNECTION_TIMEOUT: Duration = Duration::from_secs(5);
+const DEFAULT_RPC_TOTAL_TIMEOUT: Duration = Duration::from_secs(10);
 const DEFAULT_BLOCK_CACHE_SIZE: u64 = 10;
 
 /// The `PaymentGateway` allows you to track new [`Invoice`](Invoice)s, remove old `Invoice`s from
@@ -326,7 +326,7 @@ impl PaymentGatewayBuilder {
 
     /// Time before an remote procedure call times out. If this amount of time elapses without
     /// receiving a full response from the RPC daemon, the current scan will be aborted and
-    /// restarted. Defaults to 6 seconds.
+    /// restarted. Defaults to 10 seconds.
     #[must_use]
     pub fn rpc_timeout(mut self, timeout: Duration) -> PaymentGatewayBuilder {
         self.rpc_timeout = timeout;
@@ -335,7 +335,7 @@ impl PaymentGatewayBuilder {
 
     /// Time before a remote procedure call times out while failing to connect. If this amount of
     /// time elapses without managing to connect to the monero daemon, the current scan will be
-    /// aborted and restarted. Defaults to 3 seconds.
+    /// aborted and restarted. Defaults to 5 seconds.
     #[must_use]
     pub fn rpc_connection_timeout(mut self, timeout: Duration) -> PaymentGatewayBuilder {
         self.rpc_connection_timeout = timeout;

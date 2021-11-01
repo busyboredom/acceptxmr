@@ -42,9 +42,9 @@
 //!
 //! ## Performance
 //!
-//! For maximum performance, host your own monero daemon on the same local network. Network and
-//! daemon slowness are the primary cause of high invoice update latency in the majority of use
-//! cases.
+//! It is strongly recommended that you host your own monero daemon on the same local network.
+//! Network and daemon slowness are the primary cause of high invoice update latency in the majority
+//! of use cases.
 //!
 //! To reduce the average latency before receiving invoice updates, you may also consider lowering
 //! the [`PaymentGateway`]'s `scan_interval` below the default of 1 second:
