@@ -11,7 +11,7 @@ use log::{debug, error};
 use monero::{cryptonote::subaddress, ViewPair};
 
 use crate::invoices_db::InvoicesDb;
-use crate::{SubIndex};
+use crate::SubIndex;
 
 const MIN_AVAILABLE_SUBADDRESSES: u32 = 100;
 

@@ -292,9 +292,9 @@ impl Scanner {
     ) -> Result<HashMap<monero::Hash, Vec<(SubIndex, u64)>>, AcceptXmrError> {
         let mut amounts_received = HashMap::new();
         for tx in transactions {
-            // Ensure the time lock is zero. 
+            // Ensure the time lock is zero.
             if tx.prefix().unlock_time != VarInt(0) {
-                continue
+                continue;
             }
 
             // Scan transaction for owned outputs.

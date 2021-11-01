@@ -6,16 +6,16 @@
 //! To track payments, the [`PaymentGateway`] generates subaddresses using your private view key and
 //! public spend key. It then watches for monero sent to that subaddress using a monero daemon of
 //! your choosing, your private view key and your public spend key.
-//! 
+//!
 //! Use this library at your own risk, it is young and unproven.
 //!
 //! ## Key Features
 //! * View pair only, no hot wallet.
-//! * Subaddress based. 
-//! * Pending invoices stored persistently, enabling recovery from power loss. 
+//! * Subaddress based.
+//! * Pending invoices stored persistently, enabling recovery from power loss.
 //! * Number of confirmations is configurable per-invoice.
 //! * Ignores transactions with non-zero timelocks.
-//! 
+//!
 //! ## Security
 //!
 //! `AcceptXMR` is non-custodial, and does not require a hot wallet. However, it does require your

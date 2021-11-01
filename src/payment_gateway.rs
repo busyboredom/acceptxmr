@@ -20,8 +20,8 @@ use crate::{AcceptXmrError, Invoice, InvoiceId};
 const DEFAULT_SCAN_INTERVAL: Duration = Duration::from_millis(1000);
 const DEFAULT_DAEMON: &str = "http://node.moneroworld.com:18089";
 const DEFAULT_DB_PATH: &str = "AcceptXMR_DB";
-const DEFAULT_RPC_CONNECTION_TIMEOUT: Duration = Duration::from_millis(2000);
-const DEFAULT_RPC_TOTAL_TIMEOUT: Duration = Duration::from_millis(5000);
+const DEFAULT_RPC_CONNECTION_TIMEOUT: Duration = Duration::from_millis(3000);
+const DEFAULT_RPC_TOTAL_TIMEOUT: Duration = Duration::from_millis(6000);
 const DEFAULT_BLOCK_CACHE_SIZE: u64 = 10;
 
 /// The `PaymentGateway` allows you to track new [`Invoice`](Invoice)s, remove old `Invoice`s from
@@ -213,7 +213,7 @@ impl PaymentGateway {
         self.invoices_db.subscribe_all()
     }
 
-    /// Get current height of daemon using a monero daemon RPC call.
+    /// Get current height of daemon using a monero daemon remote procedure call.
     ///
     /// # Errors
     ///
@@ -266,6 +266,8 @@ impl PaymentGateway {
 /// ```
 pub struct PaymentGatewayBuilder {
     daemon_url: String,
+    rpc_timeout: Duration,
+    rpc_connection_timeout: Duration,
     private_view_key: monero::PrivateKey,
     public_spend_key: monero::PublicKey,
     scan_interval: Duration,
@@ -279,6 +281,8 @@ impl PaymentGatewayBuilder {
     pub fn new(private_view_key: &str, public_spend_key: &str) -> PaymentGatewayBuilder {
         PaymentGatewayBuilder {
             daemon_url: DEFAULT_DAEMON.to_string(),
+            rpc_timeout: DEFAULT_RPC_TOTAL_TIMEOUT,
+            rpc_connection_timeout: DEFAULT_RPC_CONNECTION_TIMEOUT,
             private_view_key: monero::PrivateKey::from_str(private_view_key)
                 .expect("invalid private view key"),
             public_spend_key: monero::PublicKey::from_str(public_spend_key)
@@ -320,6 +324,24 @@ impl PaymentGatewayBuilder {
         self
     }
 
+    /// Time before an remote procedure call times out. If this amount of time elapses without
+    /// receiving a full response from the RPC daemon, the current scan will be aborted and
+    /// restarted. Defaults to 6 seconds.
+    #[must_use]
+    pub fn rpc_timeout(mut self, timeout: Duration) -> PaymentGatewayBuilder {
+        self.rpc_timeout = timeout;
+        self
+    }
+
+    /// Time before a remote procedure call times out while failing to connect. If this amount of
+    /// time elapses without managing to connect to the monero daemon, the current scan will be
+    /// aborted and restarted. Defaults to 3 seconds.
+    #[must_use]
+    pub fn rpc_connection_timeout(mut self, timeout: Duration) -> PaymentGatewayBuilder {
+        self.rpc_connection_timeout = timeout;
+        self
+    }
+
     /// Set the minimum scan interval. New blocks and transactions will be scanned for relevant
     /// outputs at most every `interval`. Defaults to 1 second.
     #[must_use]
@@ -354,8 +376,8 @@ impl PaymentGatewayBuilder {
     pub fn build(self) -> PaymentGateway {
         let rpc_client = RpcClient::new(
             &self.daemon_url,
-            DEFAULT_RPC_TOTAL_TIMEOUT,
-            DEFAULT_RPC_CONNECTION_TIMEOUT,
+            self.rpc_timeout,
+            self.rpc_connection_timeout,
         )
         .expect("failed to create RPC client during PaymentGateway creation");
         let invoices_db =
