@@ -1,3 +1,0 @@
-[submodule "qrcode-generator"]
-	path = qrcode-generator
-	url = git@github.com:kazuhikoarase/qrcode-generator.git
