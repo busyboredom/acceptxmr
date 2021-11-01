@@ -6,7 +6,16 @@
 //! To track payments, the [`PaymentGateway`] generates subaddresses using your private view key and
 //! public spend key. It then watches for monero sent to that subaddress using a monero daemon of
 //! your choosing, your private view key and your public spend key.
+//! 
+//! Use this library at your own risk, it is young and unproven.
 //!
+//! ## Key Features
+//! * View pair only, no hot wallet.
+//! * Subaddress based. 
+//! * Pending invoices stored persistently, enabling recovery from power loss. 
+//! * Number of confirmations is configurable per-invoice.
+//! * Ignores transactions with non-zero timelocks.
+//! 
 //! ## Security
 //!
 //! `AcceptXMR` is non-custodial, and does not require a hot wallet. However, it does require your
@@ -24,11 +33,10 @@
 //! (for example, the database used ([Sled](sled)) is still in beta).
 //!
 //! That said, this payment gateway should survive unexpected power loss thanks to pending invoices
-//! being stored in a database, which is flushed to disk each time new blocks/transactions are
-//! scanned. A best effort is made to keep the scanning thread free any of potential panics, and RPC
-//! calls in the scanning thread are logged on failure and repeated next scan. In the event that an
-//! error does occur, the liberal use of logging within this library will hopefully facilitate a
-//! speedy diagnosis an correction.
+//! being flushed to disk each time new blocks/transactions are scanned. A best effort is made to
+//! keep the scanning thread free any of potential panics, and RPC calls in the scanning thread are
+//! logged on failure and repeated next scan. In the event that an error does occur, the liberal use
+//! of logging within this library will hopefully facilitate a speedy diagnosis an correction.
 //!
 //! Use this library at your own risk.
 //!
