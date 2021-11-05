@@ -4,10 +4,10 @@ version = "0.1.0"
 edition = "2021"
 rust-version = "1.56"
 license = "MIT OR Apache-2.0"
-description = "An Embedded Monero Payment Gateway."
+description = "Accept monero in your application."
 repository = "https://github.com/busyboredom/acceptxmr"
 readme = "README.md"
-keywords = ["monero", "xmr"]
+keywords = ["monero", "xmr", "crypto", "payment", "gateway"]
 categories = ["cryptography::cryptocurrencies"]
 
 [lib]

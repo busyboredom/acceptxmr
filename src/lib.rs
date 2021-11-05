@@ -1,7 +1,6 @@
-//! # `AcceptXMR`: An Embedded Monero Payment Processor
+//! # `AcceptXMR`: Accept Monero in Your Application
 //!
-//! This library aims to provide a simple, reliable, and efficient means to track monero payments in
-//! your application.
+//! This library aims to provide a simple, reliable, and efficient means to track monero payments.
 //!
 //! To track payments, the [`PaymentGateway`] generates subaddresses using your private view key and
 //! public spend key. It then watches for monero sent to that subaddress using a monero daemon of
