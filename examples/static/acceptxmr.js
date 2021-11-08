@@ -1,5 +1,10 @@
 async function start() {
-    var message = document.getElementById("message").value;
+    // Close websocket if it already exists.
+    if (typeof window.acceptxmr_socket != 'undefined') {
+        window.acceptxmr_socket.close(1000, "New Address");
+    }
+
+    const message = document.getElementById("message").value;
 
     // Hide prep stuff, show payment stuff.
     document.getElementById("instruction").innerHTML = "Loading...";
@@ -17,17 +22,18 @@ async function start() {
     }
     await fetch("/check_out", checkOutInfo);
 
-    let socket = new WebSocket("ws://localhost:8080/ws/");
+    // Open websocket.
+    window.acceptxmr_socket = new WebSocket("ws://localhost:8080/ws/");
 
-    socket.onmessage = function (event) {
-        var invoiceUpdate = JSON.parse(event.data);
+    window.acceptxmr_socket.onmessage = function (event) {
+        const invoiceUpdate = JSON.parse(event.data);
 
         // Show paid/due.
         document.getElementById("paid").innerHTML = picoToXMR(invoiceUpdate.amount_paid);
         document.getElementById("due").innerHTML = picoToXMR(invoiceUpdate.amount_requested);
 
         // Show confirmations/required.
-        var confirmations = Math.max(0, invoiceUpdate.confirmations);
+        const confirmations = Math.max(0, invoiceUpdate.confirmations);
         document.getElementById("confirmations").innerHTML = confirmations;
         document.getElementById("confirmations-required").innerHTML = invoiceUpdate.confirmations_required;
 
@@ -37,7 +43,7 @@ async function start() {
         var newAddressBtnHidden = true;
         if (confirmations >= invoiceUpdate.confirmations_required) {
             instructionString = "Paid! Thank you"
-            socket.close();
+            window.acceptxmr_socket.close(1000, "Confirmed");
         } else if (invoiceUpdate.amount_paid > invoiceUpdate.amount_requested) {
             instructionString = "Paid! Waiting for Confirmation..."
         } else if (invoiceUpdate.expiration_in > 2) {
@@ -49,7 +55,7 @@ async function start() {
         } else {
             instructionString = "Address Expired!";
             newAddressBtnHidden = false;
-            socket.close();
+            window.acceptxmr_socket.close(1000, "Expired");
         }
         document.getElementById("instruction").innerHTML = instructionString;
         document.getElementById("instruction").classList = instructionClass;
@@ -58,10 +64,10 @@ async function start() {
         document.getElementById("new-address-btn").hidden = newAddressBtnHidden;
         document.getElementById("address-copy-btn").disabled = !newAddressBtnHidden;
         if (newAddressBtnHidden) {
-            var address = invoiceUpdate.address;
+            const address = invoiceUpdate.address;
             document.getElementById("address").innerHTML = address;
 
-            var qr = qrcode(0, "M");
+            const qr = qrcode(0, "M");
             qr.addData(address);
             qr.make();
             document.getElementById('qrcode-container').innerHTML = qr.createSvgTag({ scalable: true });
@@ -73,7 +79,7 @@ async function start() {
     };
 
     // If the websocket closes cleanly, log it. Otherwise, alert the user.
-    socket.onclose = function (event) {
+    window.acceptxmr_socket.onclose = function (event) {
         if (event.code === 1000) {
             console.log(`[close] Connection closed cleanly, code=${event.code} reason=${event.reason}`);
         } else {
@@ -83,22 +89,22 @@ async function start() {
         }
     };
 
-    socket.onerror = function (error) {
+    window.acceptxmr_socket.onerror = function (error) {
         alert(`[error] ${error.message}`);
     };
 }
 
 // Convert from piconeros to monero.
 function picoToXMR(amount) {
-    let divisor = 1_000_000_000_000;
-    let xmr = Math.floor(amount / divisor) + amount % divisor / divisor;
+    const divisor = 1_000_000_000_000;
+    const xmr = Math.floor(amount / divisor) + amount % divisor / divisor;
     return new Intl.NumberFormat(undefined, { maximumSignificantDigits: 20 }).format(xmr);
 }
 
 // Make the copy button work.
 function copyInvoiceAddress() {
     // Get the text field
-    var copyText = document.getElementById("address");
+    const copyText = document.getElementById("address");
 
     // Copy the text inside the text field
     navigator.clipboard.writeText(copyText.innerHTML);
