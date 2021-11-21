@@ -291,9 +291,17 @@ fn track_parallel_invoices() {
         assert!(txpool_hashes_mock.hits() > 0);
         assert!(txpool_transactions_mock.hits() > 0);
 
-        // Move forward a block.
+        // Move forward a block
+        // (getting update after txpool change, so there's no data race between the scanner and
+        // these two mock changes).
         let txpool_hashes_mock =
             mock_daemon.mock_txpool_hashes("tests/rpc_resources/txpool_hashes.json");
+        subscriber_1
+            .recv_timeout(Duration::from_millis(5000))
+            .expect("failed to retrieve invoice update");
+        subscriber_2
+            .recv_timeout(Duration::from_millis(5000))
+            .expect_err("should not have received an update, but did");
         let height_mock = mock_daemon.mock_daemon_height(2477663);
 
         let update = subscriber_1
@@ -328,8 +336,6 @@ fn track_parallel_invoices() {
         assert!(height_mock.hits() > 0);
 
         // Move forward a block.
-        let txpool_hashes_mock =
-            mock_daemon.mock_txpool_hashes("tests/rpc_resources/txpool_hashes.json");
         let height_mock = mock_daemon.mock_daemon_height(2477664);
 
         let update = subscriber_1
