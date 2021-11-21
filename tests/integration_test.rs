@@ -78,7 +78,7 @@ fn new_invoice() {
 
         // Get initial update.
         let update = subscriber
-            .recv_timeout(Duration::from_millis(2000))
+            .recv_timeout(Duration::from_millis(5000))
             .expect("failed to retrieve invoice update");
 
         // Check that it is as expected.
@@ -143,7 +143,7 @@ fn track_parallel_invoices() {
 
         // Get initial update.
         let update = subscriber_1
-            .recv_timeout(Duration::from_millis(2000))
+            .recv_timeout(Duration::from_millis(5000))
             .expect("failed to retrieve invoice update");
 
         // Check that it is as expected.
@@ -169,7 +169,7 @@ fn track_parallel_invoices() {
 
         // Get initial update.
         let update = subscriber_2
-            .recv_timeout(Duration::from_millis(2000))
+            .recv_timeout(Duration::from_millis(5000))
             .expect("failed to retrieve invoice update");
 
         // Check that it is as expected.
@@ -191,7 +191,7 @@ fn track_parallel_invoices() {
 
         // Get update.
         let update = subscriber_1
-            .recv_timeout(Duration::from_millis(2000))
+            .recv_timeout(Duration::from_millis(5000))
             .expect("failed to retrieve invoice update");
 
         // Check that it is as expected.
@@ -207,7 +207,7 @@ fn track_parallel_invoices() {
 
         // Get update.
         let update = subscriber_2
-            .recv_timeout(Duration::from_millis(2000))
+            .recv_timeout(Duration::from_millis(5000))
             .expect("failed to retrieve invoice update");
 
         // Check that it is as expected.
@@ -230,7 +230,7 @@ fn track_parallel_invoices() {
             let height_mock = mock_daemon.mock_daemon_height(height);
 
             let update = subscriber_1
-                .recv_timeout(Duration::from_millis(2000))
+                .recv_timeout(Duration::from_millis(5000))
                 .expect("failed to retrieve invoice update");
 
             assert_eq!(update.amount_requested(), 70000000);
@@ -244,7 +244,7 @@ fn track_parallel_invoices() {
             assert_eq!(update.confirmations(), None);
 
             let update = subscriber_2
-                .recv_timeout(Duration::from_millis(2000))
+                .recv_timeout(Duration::from_millis(5000))
                 .expect("failed to retrieve invoice update");
 
             assert_eq!(update.amount_requested(), 70000000);
@@ -270,7 +270,7 @@ fn track_parallel_invoices() {
 
         // Invoice 1 should be paid now.
         let update = subscriber_1
-            .recv_timeout(Duration::from_millis(1000))
+            .recv_timeout(Duration::from_millis(5000))
             .expect("failed to retrieve invoice update");
 
         assert_eq!(update.amount_requested(), 70000000);
@@ -285,7 +285,7 @@ fn track_parallel_invoices() {
 
         // Invoice 2 should not have an update.
         subscriber_2
-            .recv_timeout(Duration::from_millis(1000))
+            .recv_timeout(Duration::from_millis(5000))
             .expect_err("should not have received an update, but did");
 
         assert!(txpool_hashes_mock.hits() > 0);
@@ -297,7 +297,7 @@ fn track_parallel_invoices() {
         let height_mock = mock_daemon.mock_daemon_height(2477663);
 
         let update = subscriber_1
-            .recv_timeout(Duration::from_millis(2000))
+            .recv_timeout(Duration::from_millis(5000))
             .expect("failed to retrieve invoice update");
 
         assert_eq!(update.amount_requested(), 70000000);
@@ -311,7 +311,7 @@ fn track_parallel_invoices() {
         assert_eq!(update.confirmations(), Some(1));
 
         let update = subscriber_2
-            .recv_timeout(Duration::from_millis(2000))
+            .recv_timeout(Duration::from_millis(5000))
             .expect("failed to retrieve invoice update");
 
         assert_eq!(update.amount_requested(), 70000000);
@@ -333,7 +333,7 @@ fn track_parallel_invoices() {
         let height_mock = mock_daemon.mock_daemon_height(2477664);
 
         let update = subscriber_1
-            .recv_timeout(Duration::from_millis(2000))
+            .recv_timeout(Duration::from_millis(5000))
             .expect("failed to retrieve invoice update");
 
         assert_eq!(update.amount_requested(), 70000000);
@@ -347,7 +347,7 @@ fn track_parallel_invoices() {
         assert_eq!(update.confirmations(), Some(2));
 
         let update = subscriber_2
-            .recv_timeout(Duration::from_millis(2000))
+            .recv_timeout(Duration::from_millis(5000))
             .expect("failed to retrieve invoice update");
 
         assert_eq!(update.amount_requested(), 70000000);
@@ -407,7 +407,7 @@ fn reproducible_seed() {
 
         // Get initial update.
         let update = subscriber
-            .recv_timeout(Duration::from_millis(2000))
+            .recv_timeout(Duration::from_millis(5000))
             .expect("failed to retrieve invoice update");
 
         // Check that it is as expected.
