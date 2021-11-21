@@ -10,6 +10,7 @@ jobs:
   static_analysis:
     runs-on: ubuntu-latest
     steps:
+    - uses: actions/checkout@v2
     - name: Run Rustfmt
       run: cargo fmt -- --check
     - name: Run Clippy
@@ -22,9 +23,10 @@ jobs:
           stable,
           nightly
         ]
-
+        
     runs-on: ubuntu-latest
     steps:
+    - uses: actions/checkout@v2
     - name: Install Rust ${{ matrix.rust }}
       uses: actions-rs/toolchain@v1.0.7
       with:
@@ -47,6 +49,7 @@ jobs:
 
     runs-on: ubuntu-latest
     steps:
+    - uses: actions/checkout@v2
     - name: Install Rust ${{ matrix.rust }}
       uses: actions-rs/toolchain@v1.0.7
       with:
