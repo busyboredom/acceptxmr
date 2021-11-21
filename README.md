@@ -1,3 +1,8 @@
+[![Build Status](https://img.shields.io/github/workflow/status/busyboredom/acceptxmr/CI/main)](https://github.com/busyboredom/acceptxmr/actions/workflows/ci.yml)
+[![Crates.io](https://img.shields.io/crates/v/acceptxmr.svg)](https://crates.io/crates/acceptxmr)
+[![Documentation](https://docs.rs/acceptxmr/badge.svg)](https://docs.rs/acceptxmr)
+[![MSRV](https://img.shields.io/badge/MSRV-1.56.0-blue)](https://blog.rust-lang.org/2021/10/21/Rust-1.56.0.html)
+
 # `AcceptXMR`: Accept Monero in Your Application
 
 This library aims to provide a simple, reliable, and efficient means to track monero payments.
