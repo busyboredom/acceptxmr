@@ -1,0 +1,60 @@
+name: CI
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+env:
+  CARGO_TERM_COLOR: always
+jobs:
+  static_analysis:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v2
+    - name: Run Rustfmt
+      run: cargo fmt -- --check
+    - name: Run Clippy
+      run: cargo clippy --all-targets -- -D warnings
+  build:
+    strategy:
+      matrix:
+        rust: [
+          1.56.0,
+          stable,
+          nightly
+        ]
+        
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v2
+    - name: Install Rust ${{ matrix.rust }}
+      uses: actions-rs/toolchain@v1.0.7
+      with:
+        toolchain: ${{ matrix.rust }}
+        override: true
+        profile: minimal
+    - uses: Swatinem/rust-cache@v1.3.0
+    - name: Build
+      run: cargo build --verbose
+    - name: Build with all features
+      run: cargo build --verbose --all-features
+  test:
+    strategy:
+      matrix:
+        rust: [
+          1.56.0,
+          stable,
+          nightly
+        ]
+
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v2
+    - name: Install Rust ${{ matrix.rust }}
+      uses: actions-rs/toolchain@v1.0.7
+      with:
+        toolchain: ${{ matrix.rust }}
+        override: true
+        profile: minimal
+    - uses: Swatinem/rust-cache@v1.3.0
+    - run: cargo test --verbose --all-features
