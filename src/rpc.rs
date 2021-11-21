@@ -192,7 +192,7 @@ impl RpcClient {
             .as_u64()
             .ok_or_else(|| RpcError::MissingData("{{ result: {{ count: \"...\" }}".to_string()))?;
 
-        Ok(count - 1)
+        Ok(count)
     }
 
     async fn request(&self, body: &str, endpoint: &str) -> Result<serde_json::Value, RpcError> {

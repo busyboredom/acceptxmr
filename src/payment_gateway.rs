@@ -37,7 +37,7 @@ pub struct PaymentGatewayInner {
     invoices_db: InvoicesDb,
     subaddresses: Mutex<SubaddressCache>,
     highest_minor_index: Arc<AtomicU32>,
-    height: Arc<AtomicU64>,
+    block_cache_height: Arc<AtomicU64>,
 }
 
 impl Deref for PaymentGateway {
@@ -73,7 +73,7 @@ impl PaymentGateway {
         let viewpair = self.viewpair;
         let scan_interval = self.scan_interval;
         let highest_minor_index = self.highest_minor_index.clone();
-        let atomic_height = self.height.clone();
+        let block_cache_height = self.block_cache_height.clone();
         let pending_invoices = self.invoices_db.clone();
 
         // Create scanner.
@@ -82,7 +82,7 @@ impl PaymentGateway {
             rpc_client,
             pending_invoices,
             DEFAULT_BLOCK_CACHE_SIZE,
-            atomic_height,
+            block_cache_height,
         )
         .await?;
 
@@ -146,7 +146,8 @@ impl PaymentGateway {
             .unwrap_or_else(PoisonError::into_inner)
             .remove_random();
 
-        let creation_height = self.height.load(atomic::Ordering::Relaxed);
+        // Add one because the highest block is always one less than the daemon height.
+        let creation_height = self.block_cache_height.load(atomic::Ordering::Relaxed) + 1;
 
         // Create invoice object.
         let invoice = Invoice::new(
@@ -403,7 +404,7 @@ impl PaymentGatewayBuilder {
             invoices_db,
             subaddresses: Mutex::new(subaddresses),
             highest_minor_index,
-            height: Arc::new(atomic::AtomicU64::new(0)),
+            block_cache_height: Arc::new(atomic::AtomicU64::new(0)),
         }))
     }
 }

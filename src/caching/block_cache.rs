@@ -52,7 +52,7 @@ impl BlockCache {
         trace!("Checking for block cache updates");
         let mut updated = 0;
         let blockchain_height = self.rpc_client.daemon_height().await?;
-        if self.height.load(Ordering::Relaxed) < blockchain_height {
+        if self.height.load(Ordering::Relaxed) < blockchain_height - 1 {
             let (block_id, block) = self
                 .rpc_client
                 .block(self.height.load(Ordering::Relaxed) + 1)
@@ -70,9 +70,10 @@ impl BlockCache {
             self.blocks.remove(self.blocks.len() - 1);
             self.height.fetch_add(1, Ordering::Relaxed);
             debug!(
-                "Cache height updated to {}, blockchain height is {}",
+                "Cache height updated to {}, blockchain height is {}, blockchain top block height is {}",
                 self.height.load(Ordering::Relaxed),
-                blockchain_height
+                blockchain_height,
+                blockchain_height - 1,
             );
             let mut block_cache_summary = "".to_string();
             for i in 0..self.blocks.len() {

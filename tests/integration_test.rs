@@ -91,6 +91,13 @@ fn new_invoice() {
         assert_eq!(update.confirmations_required(), 5);
         assert_eq!(update.confirmations(), None);
         assert_eq!(update.description(), "test invoice".to_string());
+        assert_eq!(
+            update.current_height(),
+            payment_gateway
+                .daemon_height()
+                .await
+                .expect("failed to retrieve daemon height")
+        );
     })
 }
 
@@ -219,7 +226,7 @@ fn track_parallel_invoices() {
 
         // Move forward a few blocks.
         mock_daemon.mock_txpool_hashes("tests/rpc_resources/txpool_hashes.json");
-        for height in 2477657..2477662 {
+        for height in 2477658..2477663 {
             let height_mock = mock_daemon.mock_daemon_height(height);
 
             let update = subscriber_1
@@ -272,7 +279,7 @@ fn track_parallel_invoices() {
         assert!(!update.is_expired());
         assert!(!update.is_confirmed());
         assert_eq!(update.expiration_height() - update.creation_height(), 7);
-        assert_eq!(update.current_height(), 2477661);
+        assert_eq!(update.current_height(), 2477662);
         assert_eq!(update.confirmations_required(), 2);
         assert_eq!(update.confirmations(), Some(0));
 
@@ -287,7 +294,7 @@ fn track_parallel_invoices() {
         // Move forward a block.
         let txpool_hashes_mock =
             mock_daemon.mock_txpool_hashes("tests/rpc_resources/txpool_hashes.json");
-        let height_mock = mock_daemon.mock_daemon_height(2477662);
+        let height_mock = mock_daemon.mock_daemon_height(2477663);
 
         let update = subscriber_1
             .recv_timeout(Duration::from_millis(2000))
@@ -299,7 +306,7 @@ fn track_parallel_invoices() {
         assert!(!update.is_expired());
         assert!(!update.is_confirmed());
         assert_eq!(update.expiration_height() - update.creation_height(), 7);
-        assert_eq!(update.current_height(), 2477662);
+        assert_eq!(update.current_height(), 2477663);
         assert_eq!(update.confirmations_required(), 2);
         assert_eq!(update.confirmations(), Some(1));
 
@@ -313,7 +320,7 @@ fn track_parallel_invoices() {
         assert!(!update.is_expired());
         assert!(!update.is_confirmed());
         assert_eq!(update.expiration_height() - update.creation_height(), 7);
-        assert_eq!(update.current_height(), 2477662);
+        assert_eq!(update.current_height(), 2477663);
         assert_eq!(update.confirmations_required(), 2);
         assert_eq!(update.confirmations(), None);
 
@@ -323,7 +330,7 @@ fn track_parallel_invoices() {
         // Move forward a block.
         let txpool_hashes_mock =
             mock_daemon.mock_txpool_hashes("tests/rpc_resources/txpool_hashes.json");
-        let height_mock = mock_daemon.mock_daemon_height(2477663);
+        let height_mock = mock_daemon.mock_daemon_height(2477664);
 
         let update = subscriber_1
             .recv_timeout(Duration::from_millis(2000))
@@ -335,7 +342,7 @@ fn track_parallel_invoices() {
         assert!(!update.is_expired());
         assert!(update.is_confirmed());
         assert_eq!(update.expiration_height() - update.creation_height(), 7);
-        assert_eq!(update.current_height(), 2477663);
+        assert_eq!(update.current_height(), 2477664);
         assert_eq!(update.confirmations_required(), 2);
         assert_eq!(update.confirmations(), Some(2));
 
@@ -349,7 +356,7 @@ fn track_parallel_invoices() {
         assert!(update.is_expired());
         assert!(!update.is_confirmed());
         assert_eq!(update.expiration_height() - update.creation_height(), 7);
-        assert_eq!(update.current_height(), 2477663);
+        assert_eq!(update.current_height(), 2477664);
         assert_eq!(update.confirmations_required(), 2);
         assert_eq!(update.confirmations(), None);
 

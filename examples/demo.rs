@@ -39,7 +39,9 @@ async fn main() -> std::io::Result<()> {
     // No need to keep the public spend key secret.
     let public_spend_key = "dd4c491d53ad6b46cda01ed6cb9bac57615d9eac8d5e4dd1c0363ac8dfd420a7";
 
-    let payment_gateway = PaymentGatewayBuilder::new(&private_view_key, public_spend_key).build();
+    let payment_gateway = PaymentGatewayBuilder::new(&private_view_key, public_spend_key)
+        .daemon_url("http://busyboredom.com:18081")
+        .build();
     info!("Payment gateway created.");
 
     payment_gateway

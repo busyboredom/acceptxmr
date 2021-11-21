@@ -53,7 +53,7 @@ impl MockDaemon {
             txpool_transactions_id: Mutex::new(None),
         };
         // Mock daemon height request.
-        mock_daemon.mock_daemon_height(2477656);
+        mock_daemon.mock_daemon_height(2477657);
         // Mock txpool request.
         mock_daemon.mock_txpool("tests/rpc_resources/txpool.json");
 
@@ -98,7 +98,7 @@ impl MockDaemon {
                     "id": "0",
                     "jsonrpc": "2.0",
                     "result": {
-                        "count": height + 1,
+                        "count": height,
                         "status": "OK"
                     }
                 }));

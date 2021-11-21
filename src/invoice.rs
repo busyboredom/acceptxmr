@@ -124,20 +124,20 @@ impl Invoice {
     pub fn confirmations(&self) -> Option<u64> {
         if self.amount_paid > self.amount_requested {
             self.paid_height.map_or(Some(0), |paid_at| {
-                Some(self.current_height.saturating_sub(paid_at) + 1)
+                Some(self.current_height.saturating_sub(paid_at))
             })
         } else {
             None
         }
     }
 
-    /// Returns the last height at which this `Invoice` was updated.
+    /// Returns the last daemon height at which this `Invoice` was updated.
     #[must_use]
     pub fn current_height(&self) -> u64 {
         self.current_height
     }
 
-    /// Returns the height at which this `Invoice` will expire.
+    /// Returns the daemon height at which this `Invoice` will expire.
     #[must_use]
     pub fn expiration_height(&self) -> u64 {
         self.expiration_height

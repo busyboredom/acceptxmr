@@ -42,7 +42,7 @@ impl Scanner {
                 trace!("Retrieving daemon hight for scanner setup.");
                 let h = rpc_client.daemon_height().await?;
                 info!("No pending invoices found in AcceptXMR database. Skipping to blockchain tip: {}", h);
-                h
+                h - 1
             }
             Err(e) => {
                 panic!("failed to determine suitable initial height for block cache from pending invoices database: {}", e);
@@ -74,7 +74,7 @@ impl Scanner {
             self.scan_blocks(sub_key_checker),
             self.scan_txpool(sub_key_checker)
         );
-        let height = self.block_cache.lock().await.height.load(Ordering::Relaxed);
+        let block_cache_height = self.block_cache.lock().await.height.load(Ordering::Relaxed);
 
         let blocks_amounts = match blocks_amounts_or_err {
             Ok(amts) => amts,
@@ -104,8 +104,9 @@ impl Scanner {
         let deepest_update = transfers
             .iter()
             .min_by(|(_, transfer_1), (_, transfer_2)| transfer_1.cmp_by_height(transfer_2))
-            .map_or(height + 1, |(_, transfer)| {
-                transfer.height.unwrap_or(height + 1)
+            // If min can't be found, just use cache height+1 (effectively no update)
+            .map_or(block_cache_height + 1, |(_, transfer)| {
+                transfer.height.unwrap_or(block_cache_height + 1)
             });
 
         // A place to keep track of what invoices are changing, so we can log updates later.
@@ -137,7 +138,9 @@ impl Scanner {
             for (sub_index, owned_transfer) in &transfers {
                 if sub_index == &invoice.index()
                     && owned_transfer
-                        .cmp_by_height(&Transfer::new(0, Some(invoice.creation_height())))
+                        // Creation height - 1 because creation height is one greater than top block
+                        // height.
+                        .cmp_by_height(&Transfer::new(0, Some(invoice.creation_height() - 1)))
                         .is_gt()
                 {
                     invoice.transfers.push(*owned_transfer);
@@ -145,8 +148,8 @@ impl Scanner {
             }
 
             // Update invoice's current_block.
-            if invoice.current_height != height {
-                invoice.current_height = height;
+            if invoice.current_height != block_cache_height + 1 {
+                invoice.current_height = block_cache_height + 1;
             }
 
             // No need to recalculate total paid_amount or paid_at unless something changed.
@@ -193,7 +196,7 @@ impl Scanner {
 
     /// Update block cache and scan the blocks.
     ///
-    /// Returns a vector of tuples of the form (subaddress index, amount, height)
+    /// Returns a vector of tuples containing [`Transfer`]s and their associated subaddress indices.
     async fn scan_blocks(
         &self,
         sub_key_checker: &SubKeyChecker<'_>,
@@ -221,14 +224,14 @@ impl Scanner {
                 amounts_received.len()
             );
 
-            let height: u64 = block_cache.height.load(Ordering::Relaxed) - i as u64;
+            let block_cache_height: u64 = block_cache.height.load(Ordering::Relaxed) - i as u64;
 
             // Add what was found into the list.
             transfers.extend::<Vec<(SubIndex, Transfer)>>(
                 amounts_received
                     .into_iter()
                     .flat_map(|(_, amounts)| amounts)
-                    .map(|amount| (amount.0, Transfer::new(amount.1, Some(height))))
+                    .map(|amount| (amount.0, Transfer::new(amount.1, Some(block_cache_height))))
                     .collect(),
             );
         }
