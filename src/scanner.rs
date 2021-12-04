@@ -36,7 +36,7 @@ impl Scanner {
         let height = match invoices_db.lowest_height() {
             Ok(Some(h)) => {
                 info!("Pending invoices found in AcceptXMR database. Resuming from last block scanned: {}", h);
-                h
+                h - 1
             }
             Ok(None) => {
                 trace!("Retrieving daemon hight for scanner setup.");
