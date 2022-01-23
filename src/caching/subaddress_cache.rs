@@ -139,16 +139,17 @@ impl SubaddressCache {
     ///
     /// # Panics
     ///
-    /// Panics if ending both major and minor ranges start at 0, because (0, 0) is the primary
+    /// Panics if both major and minor ranges start at 0, because (0, 0) is the primary
     /// address index (and therefor is an invalid subaddress index).
     fn generate_range(
         major: Range<u32>,
         minor: Range<u32>,
         viewpair: &monero::ViewPair,
     ) -> Vec<(SubIndex, String)> {
-        if major.start == 0 && minor.start == 0 {
-            panic!("to avoid the primary address index, major and minor index ranges cannot both start at zero.");
-        }
+        assert!(
+            major.start != 0 || minor.start != 0,
+            "to avoid the primary address index, major and minor index ranges cannot both start at zero."
+        );
 
         let mut subaddresses = Vec::new();
         let major_end = major.end;
