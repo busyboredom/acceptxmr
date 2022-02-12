@@ -25,16 +25,18 @@ impl InvoicesDb {
     pub fn insert(&self, invoice: &Invoice) -> Result<Option<Invoice>, InvoiceStorageError> {
         // Prepare key (invoice id).
         let invoice_id = invoice.id();
-        let key = bincode::serialize(&invoice_id)?;
+        let key = bincode::encode_to_vec(&invoice_id, bincode::config::standard())?;
 
         // Prepare value (invoice).
-        let value = bincode::serialize(&invoice)?;
+        let value = bincode::encode_to_vec(&invoice, bincode::config::standard())?;
 
         // Insert the invoice into the database.
         let old = self.0.insert(key, value)?;
 
         if let Some(old_value) = old {
-            Ok(Some(bincode::deserialize(&old_value)?))
+            Ok(Some(
+                bincode::decode_from_slice(&old_value, bincode::config::standard())?.0,
+            ))
         } else {
             Ok(None)
         }
@@ -42,20 +44,24 @@ impl InvoicesDb {
 
     pub fn remove(&self, invoice_id: InvoiceId) -> Result<Option<Invoice>, InvoiceStorageError> {
         // Prepare key (invoice id).
-        let key = bincode::serialize(&invoice_id)?;
+        let key = bincode::encode_to_vec(&invoice_id, bincode::config::standard())?;
 
         let old = self.0.remove(key).transpose();
-        old.map(|ivec_or_err| Ok(bincode::deserialize(&ivec_or_err?)?))
-            .transpose()
+        old.map(|ivec_or_err| {
+            Ok(bincode::decode_from_slice(&ivec_or_err?, bincode::config::standard())?.0)
+        })
+        .transpose()
     }
 
     pub fn get(&self, invoice_id: InvoiceId) -> Result<Option<Invoice>, InvoiceStorageError> {
         // Prepare key (invoice id).
-        let key = bincode::serialize(&invoice_id)?;
+        let key = bincode::encode_to_vec(&invoice_id, bincode::config::standard())?;
 
         let current = self.0.get(key).transpose();
         current
-            .map(|ivec_or_err| Ok(bincode::deserialize(&ivec_or_err?)?))
+            .map(|ivec_or_err| {
+                Ok(bincode::decode_from_slice(&ivec_or_err?, bincode::config::standard())?.0)
+            })
             .transpose()
     }
 
@@ -64,31 +70,37 @@ impl InvoicesDb {
     ) -> impl DoubleEndedIterator<Item = Result<Invoice, InvoiceStorageError>> + Send + Sync {
         // Convert iterator of Result<IVec> to Result<Invoice>.
         self.0.iter().values().flat_map(|r| {
-            r.map(|ivec| bincode::deserialize(&ivec).map_err(InvoiceStorageError::from))
-                .map_err(InvoiceStorageError::from)
+            r.map(|ivec| {
+                bincode::decode_from_slice(&ivec, bincode::config::standard())
+                    .map_err(InvoiceStorageError::from)
+                    .map(|tup| tup.0)
+            })
+            .map_err(InvoiceStorageError::from)
         })
     }
 
     pub fn contains_key(&self, invoice_id: InvoiceId) -> Result<bool, InvoiceStorageError> {
         // Prepare key (invoice id).
-        let key = bincode::serialize(&invoice_id)?;
+        let key = bincode::encode_to_vec(&invoice_id, bincode::config::standard())?;
 
         self.0.contains_key(key).map_err(InvoiceStorageError::from)
     }
 
     pub fn contains_sub_index(&self, sub_index: SubIndex) -> Result<bool, InvoiceStorageError> {
         // Prepare key (invoice id).
-        let key = bincode::serialize(&sub_index)?;
+        let key = bincode::encode_to_vec(&sub_index, bincode::config::standard())?;
 
         Ok(self.0.scan_prefix(key).next().is_some())
     }
 
     pub fn update(&self, invoice_id: InvoiceId, new: &Invoice) -> Result<Invoice, AcceptXmrError> {
         // Prepare key (invoice id).
-        let key = bincode::serialize(&invoice_id).map_err(InvoiceStorageError::from)?;
+        let key = bincode::encode_to_vec(&invoice_id, bincode::config::standard())
+            .map_err(InvoiceStorageError::from)?;
 
         // Prepare values.
-        let new_ivec = bincode::serialize(&new).map_err(InvoiceStorageError::from)?;
+        let new_ivec = bincode::encode_to_vec(&new, bincode::config::standard())
+            .map_err(InvoiceStorageError::from)?;
 
         // Do the update using the merge operator configured when InvoiceDb is constructed.
         let maybe_old = self
@@ -96,7 +108,11 @@ impl InvoicesDb {
             .merge(key, new_ivec)
             .map_err(InvoiceStorageError::from)?;
         match maybe_old {
-            Some(ivec) => Ok(bincode::deserialize(&ivec).map_err(InvoiceStorageError::from)?),
+            Some(ivec) => Ok(
+                bincode::decode_from_slice(&ivec, bincode::config::standard())
+                    .map_err(InvoiceStorageError::from)?
+                    .0,
+            ),
             None => Err(AcceptXmrError::from(InvoiceStorageError::Update(
                 invoice_id,
             ))),
@@ -107,7 +123,7 @@ impl InvoicesDb {
         &self,
         invoice_id: InvoiceId,
     ) -> Result<Option<Subscriber>, InvoiceStorageError> {
-        let prefix = bincode::serialize(&invoice_id)?;
+        let prefix = bincode::encode_to_vec(&invoice_id, bincode::config::standard())?;
         let sled_subscriber = self.0.watch_prefix(prefix);
         if self.contains_key(invoice_id)? {
             Ok(Some(Subscriber::new(sled_subscriber)))
@@ -171,8 +187,10 @@ pub enum InvoiceStorageError {
     /// A [`Invoice`] in the database can not be updated, because the
     /// `Invoice` does not exist.
     Update(InvoiceId),
-    /// Failed to (de)serialize a [`Invoice`].
-    Serialization(bincode::Error),
+    /// Failed to serialize an [`Invoice`].
+    Serialize(bincode::error::EncodeError),
+    /// Failed to deserialize an [`Invoice`].
+    Deserialize(bincode::error::DecodeError),
 }
 
 impl From<sled::Error> for InvoiceStorageError {
@@ -181,9 +199,15 @@ impl From<sled::Error> for InvoiceStorageError {
     }
 }
 
-impl From<bincode::Error> for InvoiceStorageError {
-    fn from(e: bincode::Error) -> Self {
-        Self::Serialization(e)
+impl From<bincode::error::EncodeError> for InvoiceStorageError {
+    fn from(e: bincode::error::EncodeError) -> Self {
+        Self::Serialize(e)
+    }
+}
+
+impl From<bincode::error::DecodeError> for InvoiceStorageError {
+    fn from(e: bincode::error::DecodeError) -> Self {
+        Self::Deserialize(e)
     }
 }
 
@@ -196,8 +220,11 @@ impl fmt::Display for InvoiceStorageError {
             InvoiceStorageError::Update(key) => {
                 write!(f, "no value with key {} to update", key)
             }
-            InvoiceStorageError::Serialization(bincode_error) => {
-                write!(f, "(de)serialization error: {}", bincode_error)
+            InvoiceStorageError::Serialize(bincode_error) => {
+                write!(f, "Serialization error: {}", bincode_error)
+            }
+            InvoiceStorageError::Deserialize(bincode_error) => {
+                write!(f, "Deserialization error: {}", bincode_error)
             }
         }
     }

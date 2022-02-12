@@ -26,8 +26,11 @@ impl Subscriber {
     pub fn recv(&mut self) -> Result<Invoice, AcceptXmrError> {
         let maybe_event = self.0.next();
         match maybe_event {
-            Some(Event::Insert { value, .. }) => bincode::deserialize(&value)
-                .map_err(|e| AcceptXmrError::from(InvoiceStorageError::from(e))),
+            Some(Event::Insert { value, .. }) => {
+                bincode::decode_from_slice(&value, bincode::config::standard())
+                    .map_err(|e| AcceptXmrError::from(InvoiceStorageError::from(e)))
+                    .map(|tup| tup.0)
+            }
             Some(Event::Remove { .. }) => self.recv(),
             None => Err(AcceptXmrError::Subscriber(SubscriberError::Recv)),
         }
@@ -44,8 +47,11 @@ impl Subscriber {
         // TODO: This shouldn't be using a timeout, but I am unaware of a better way to do it
         // given the limited options made available by sled.
         match self.0.next_timeout(Duration::from_nanos(0)) {
-            Ok(Event::Insert { value, .. }) => bincode::deserialize(&value)
-                .map_err(|e| AcceptXmrError::from(InvoiceStorageError::from(e))),
+            Ok(Event::Insert { value, .. }) => {
+                bincode::decode_from_slice(&value, bincode::config::standard())
+                    .map_err(|e| AcceptXmrError::from(InvoiceStorageError::from(e)))
+                    .map(|tup| tup.0)
+            }
             Ok(Event::Remove { .. }) => self.try_recv(),
             Err(RecvTimeoutError::Timeout) => Err(AcceptXmrError::from(SubscriberError::TryRecv(
                 TryRecvError::Empty,
@@ -69,8 +75,9 @@ impl Subscriber {
             let event_or_err = self.0.next_timeout(timeout - start.elapsed());
             match event_or_err {
                 Ok(Event::Insert { value, .. }) => {
-                    return bincode::deserialize(&value)
+                    return bincode::decode_from_slice(&value, bincode::config::standard())
                         .map_err(|e| AcceptXmrError::from(InvoiceStorageError::from(e)))
+                        .map(|tup| tup.0)
                 }
                 Ok(Event::Remove { .. }) => continue,
                 Err(e) => return Err(AcceptXmrError::Subscriber(SubscriberError::RecvTimeout(e))),
@@ -87,8 +94,9 @@ impl Iterator for Subscriber {
         // given the limited options made available by sled.
         match self.0.next_timeout(Duration::from_nanos(0)) {
             Ok(Event::Insert { value, .. }) => Some(
-                bincode::deserialize(&value)
-                    .map_err(|e| AcceptXmrError::from(InvoiceStorageError::from(e))),
+                bincode::decode_from_slice(&value, bincode::config::standard())
+                    .map_err(|e| AcceptXmrError::from(InvoiceStorageError::from(e)))
+                    .map(|tup| tup.0),
             ),
             _ => None,
         }

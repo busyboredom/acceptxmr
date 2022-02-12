@@ -4,7 +4,10 @@ use std::{
     fmt::Display,
 };
 
+use bincode::{Decode, Encode};
 use monero::cryptonote::subaddress;
+
+#[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
 
 /// Representation of an invoice. `Invoice`s are created by the [`PaymentGateway`](crate::PaymentGateway), and are
@@ -14,7 +17,8 @@ use serde::{Deserialize, Serialize};
 /// the payment gateway by default will continue updating invoices even after expiration.
 ///
 /// To receive updates for a given `Invoice`, use a [`Subscriber`](crate::subscriber::Subscriber).
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Encode, Decode)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub struct Invoice {
     address: String,
     index: SubIndex,
@@ -228,7 +232,8 @@ impl fmt::Display for Invoice {
 
 /// An invoice ID consists uniquely identifies a given invoice by the combination of its subaddress
 /// index and creation height.
-#[derive(Debug, Copy, Clone, Hash, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Copy, Clone, Hash, Encode, Decode, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub struct InvoiceId {
     /// The [subaddress index](SubIndex) of the invoice.
     pub sub_index: SubIndex,
@@ -254,7 +259,8 @@ impl Display for InvoiceId {
 }
 
 /// A subaddress index.
-#[derive(Debug, Copy, Clone, Hash, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Copy, Clone, Hash, Encode, Decode, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub struct SubIndex {
     /// Subadress major index.
     pub major: u32,
@@ -313,7 +319,8 @@ impl From<SubIndex> for subaddress::Index {
 /// A `Transfer` represents a sum of owned outputs at a given height. When part of an `Invoice`, it
 /// specifically represents the sum of owned outputs for that invoice's subaddress, at a given
 /// height.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Copy)]
+#[derive(Debug, Clone, PartialEq, Encode, Decode, Copy)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub(crate) struct Transfer {
     /// Amount transferred in piconeros.
     pub amount: u64,

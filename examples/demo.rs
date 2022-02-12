@@ -25,7 +25,7 @@ const HEARTBEAT_INTERVAL: Duration = Duration::from_secs(1);
 async fn main() -> std::io::Result<()> {
     env::set_var(
         "RUST_LOG",
-        "trace,mio=debug,want=debug,reqwest=info,sled=debug,hyper=info,tracing=debug",
+        "trace,mio=debug,want=debug,reqwest=info,sled=debug,hyper=info,tracing=debug,actix_http=debug",
     );
     env_logger::init();
 
