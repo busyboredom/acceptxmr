@@ -2,7 +2,7 @@
 name = "acceptxmr"
 version = "0.11.1"
 edition = "2021"
-rust-version = "1.56"
+rust-version = "1.58"
 license = "MIT OR Apache-2.0"
 description = "Accept monero in your application."
 repository = "https://github.com/busyboredom/acceptxmr"
