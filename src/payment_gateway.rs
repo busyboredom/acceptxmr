@@ -5,6 +5,7 @@ use std::sync::{Arc, Mutex, PoisonError};
 use std::thread;
 use std::time::Duration;
 
+use hyper::Uri;
 use log::{debug, info, warn};
 use monero::cryptonote::onetime_key::SubKeyChecker;
 use tokio::runtime::Runtime;
@@ -297,6 +298,10 @@ impl PaymentGatewayBuilder {
     /// Set the url and port of your preferred monero daemon. Defaults to
     /// [http://node.moneroworld.com:18089](http://node.moneroworld.com:18089).
     ///
+    /// # Panics
+    ///
+    /// Panics if the provided URL cannot be parsed.
+    ///
     /// # Examples
     ///
     /// ```no_run
@@ -320,7 +325,7 @@ impl PaymentGatewayBuilder {
     /// ```
     #[must_use]
     pub fn daemon_url(mut self, url: &str) -> PaymentGatewayBuilder {
-        reqwest::Url::parse(url).expect("invalid daemon URL");
+        url.parse::<Uri>().expect("invalid daemon URL");
         self.daemon_url = url.to_string();
         self
     }
@@ -372,15 +377,14 @@ impl PaymentGatewayBuilder {
     /// # Panics
     ///
     /// Panics if the database cannot be opened at the path specified, or if the internal RPC client
-    /// cannot load the system configuration or initialize a TLS backend.
+    /// cannot parse the provided URL.
     #[must_use]
     pub fn build(self) -> PaymentGateway {
         let rpc_client = RpcClient::new(
             &self.daemon_url,
             self.rpc_timeout,
             self.rpc_connection_timeout,
-        )
-        .expect("failed to create RPC client during PaymentGateway creation");
+        );
         let invoices_db =
             InvoicesDb::new(&self.db_path).expect("failed to open pending invoices database tree");
         info!("Opened database in \"{}/\"", self.db_path);

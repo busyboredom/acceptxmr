@@ -2,38 +2,40 @@ use std::time::Duration;
 use std::{any, fmt};
 use std::{collections::HashSet, error::Error};
 
+use hyper::client::connect::HttpConnector;
+use hyper::{body, Body, Method, Request, Uri};
 use log::{trace, warn};
 use monero::consensus::{deserialize, encode};
+use tokio::time::{error, timeout};
 
 /// Maximum number of transactions to request at once (daemon limits this).
 const MAX_REQUESTED_TRANSACTIONS: usize = 100;
 
 #[derive(Debug, Clone)]
 pub(crate) struct RpcClient {
-    client: reqwest::Client,
+    client: hyper::Client<HttpConnector>,
     url: String,
+    timeout: Duration,
 }
 
 impl RpcClient {
     /// Returns an Rpc client pointing at the specified monero daemon.
     ///
-    /// # Errors
+    /// # Panics
     ///
-    /// This method fails if a TLS backend cannot be initialized, or the resolver
-    /// cannot load the system configuration.
-    pub fn new(
-        url: &str,
-        total_timeout: Duration,
-        connection_timeout: Duration,
-    ) -> Result<RpcClient, RpcError> {
-        let client = reqwest::ClientBuilder::new()
-            .timeout(total_timeout)
-            .connect_timeout(connection_timeout)
-            .build()?;
-        Ok(RpcClient {
+    /// This method panics if the URL cannot be parsed.
+    pub fn new(url: &str, total_timeout: Duration, connection_timeout: Duration) -> RpcClient {
+        let mut connector = HttpConnector::new();
+        connector.set_connect_timeout(Some(connection_timeout));
+        let client = hyper::Client::builder().build(connector);
+
+        url.parse::<Uri>().expect("invalid daemon URL");
+
+        RpcClient {
             client,
             url: url.to_string(),
-        })
+            timeout: total_timeout,
+        }
     }
 
     pub async fn block(&self, height: u64) -> Result<(monero::Hash, monero::Block), RpcError> {
@@ -196,13 +198,18 @@ impl RpcClient {
     }
 
     async fn request(&self, body: &str, endpoint: &str) -> Result<serde_json::Value, RpcError> {
-        let res = self
-            .client
-            .post(self.url.clone() + endpoint)
-            .body(body.to_owned())
-            .send()
-            .await?;
-        Ok(res.json::<serde_json::Value>().await?)
+        let req = Request::builder()
+            .method(Method::POST)
+            .uri(self.url.clone() + endpoint)
+            .body(Body::from(body.to_owned()))
+            .expect("failed to build http POST request");
+
+        // Await full response.
+        let response = timeout(self.timeout, self.client.request(req)).await??;
+        let (_parts, body) = response.into_parts();
+        let full_body = body::to_bytes(body).await?;
+
+        Ok(serde_json::from_slice(&full_body)?)
     }
 
     pub fn url(&self) -> String {
@@ -213,7 +220,8 @@ impl RpcClient {
 #[allow(clippy::module_name_repetitions)]
 #[derive(Debug)]
 pub enum RpcError {
-    Http(reqwest::Error),
+    Http(hyper::Error),
+    Timeout(error::Elapsed),
     HexDecode(hex::FromHexError),
     Serialization(encode::Error),
     MissingData(String),
@@ -221,11 +229,18 @@ pub enum RpcError {
         found: serde_json::Value,
         expected: &'static str,
     },
+    Invalid(serde_json::Error),
 }
 
-impl From<reqwest::Error> for RpcError {
-    fn from(e: reqwest::Error) -> Self {
+impl From<hyper::Error> for RpcError {
+    fn from(e: hyper::Error) -> Self {
         Self::Http(e)
+    }
+}
+
+impl From<error::Elapsed> for RpcError {
+    fn from(e: error::Elapsed) -> Self {
+        Self::Timeout(e)
     }
 }
 
@@ -241,11 +256,20 @@ impl From<encode::Error> for RpcError {
     }
 }
 
+impl From<serde_json::Error> for RpcError {
+    fn from(e: serde_json::Error) -> Self {
+        Self::Invalid(e)
+    }
+}
+
 impl fmt::Display for RpcError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             RpcError::Http(e) => {
                 write!(f, "http request failed: {}", e)
+            }
+            RpcError::Timeout(e) => {
+                write!(f, "http request timed out: {}", e)
             }
             RpcError::HexDecode(e) => {
                 write!(f, "hex decoding failed: {}", e)
@@ -266,6 +290,9 @@ impl fmt::Display for RpcError {
                     "failed to interpret json value \"{}\" from RPC response as {}",
                     found, expected
                 )
+            }
+            RpcError::Invalid(e) => {
+                write!(f, "failed to interpret response body as json: {}", e)
             }
         }
     }

@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- Replace Reqwest with Hyper to improve compile time.
+- Update demo's actix dependencies.
+
 ## [0.10.1] - 2021-12-04
 
 ### Changed
