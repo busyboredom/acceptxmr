@@ -17,7 +17,7 @@ path = "src/lib.rs"
 [dependencies]
 bincode = {version = "2.0.0-beta", features = ["std", "alloc", "derive"], default-features = false }
 hex = "0.4"
-hyper = { version = "0.14", features = ["client", "http2", "tcp"] }
+hyper = { version = "0.14", features = ["client", "http1", "http2", "tcp"] }
 indexmap = "1"
 log = "0.4"
 monero = "0.16"
