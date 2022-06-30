@@ -3,8 +3,8 @@
 //! This library aims to provide a simple, reliable, and efficient means to track monero payments.
 //!
 //! To track payments, the [`PaymentGateway`] generates subaddresses using your private view key and
-//! public spend key. It then watches for monero sent to that subaddress using a monero daemon of
-//! your choosing, your private view key and your public spend key.
+//! primary address. It then watches for monero sent to that subaddress using a monero daemon of
+//! your choosing, your private view key and your primary address.
 //!
 //! Use this library at your own risk, it is young and unproven.
 //!
@@ -18,7 +18,7 @@
 //! ## Security
 //!
 //! `AcceptXMR` is non-custodial, and does not require a hot wallet. However, it does require your
-//! private view key and public spend key for scanning outputs. If keeping these private is important
+//! private view key and primary address for scanning outputs. If keeping these private is important
 //! to you, please take appropriate precautions to secure the platform you run your application on
 //! _and keep your private view key out of your git repository!_.
 //!
@@ -48,6 +48,7 @@
 //! To reduce the average latency before receiving invoice updates, you may also consider lowering
 //! the [`PaymentGateway`]'s `scan_interval` below the default of 1 second:
 //! ```
+//! # fn main() -> Result<(), Box<dyn std::error::Error>> {
 //! # use tempfile::Builder;
 //! use acceptxmr::PaymentGateway;
 //! use std::time::Duration;
@@ -55,15 +56,17 @@
 //! # let temp_dir = Builder::new()
 //! #   .prefix("temp_db_")
 //! #   .rand_bytes(16)
-//! #   .tempdir().expect("Failed to generate temporary directory");
+//! #   .tempdir()?;
 //!
 //! let private_view_key = "ad2093a5705b9f33e6f0f0c1bc1f5f639c756cdfc168c8f2ac6127ccbdab3a03";
-//! let public_spend_key = "7388a06bd5455b793a82b90ae801efb9cc0da7156df8af1d5800e4315cc627b4";
+//! let primary_address = "4613YiHLM6JMH4zejMB2zJY5TwQCxL8p65ufw8kBP5yxX9itmuGLqp1dS4tkVoTxjyH3aYhYNrtGHbQzJQP5bFus3KHVdmf";
 //!
-//! let payment_gateway = PaymentGateway::builder(private_view_key, public_spend_key)
+//! let payment_gateway = PaymentGateway::builder(private_view_key, primary_address)
 //!     .scan_interval(Duration::from_millis(100)) // Scan for invoice updates every 100 ms.
 //! #   .db_path(temp_dir.path().to_str().expect("Failed to get temporary directory path"))
-//!     .build();
+//!     .build()?;
+//! #   Ok(())
+//! # }
 //! ```
 //!
 //! Please note that `scan_interval` is the minimum time between scanning for updates. If your
@@ -104,6 +107,15 @@ pub enum AcceptXmrError {
     Subscriber(SubscriberError),
     /// Failure to unblind the amount of an owned output.
     Unblind(SubIndex),
+    /// Failure to parse private view key.
+    Parse {
+        /// Type to parse.
+        datatype: &'static str,
+        /// Input to parse.
+        input: String,
+        /// Error encountered.
+        error: String,
+    },
 }
 
 impl From<RpcError> for AcceptXmrError {
@@ -141,6 +153,17 @@ impl fmt::Display for AcceptXmrError {
                 "unable to unblind amount of owned output sent to subaddress index {}",
                 index
             ),
+            AcceptXmrError::Parse {
+                datatype,
+                input,
+                error,
+            } => {
+                write!(
+                    f,
+                    "failed to parse {} from \"{}\": {}",
+                    datatype, input, error
+                )
+            }
         }
     }
 }

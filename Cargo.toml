@@ -17,6 +17,7 @@ path = "src/lib.rs"
 [dependencies]
 bincode = "2.0.0-rc"
 hex = "0.4"
+http = "0.2"
 hyper = { version = "0.14", features = ["client", "http1", "http2", "tcp"] }
 indexmap = "1"
 log = "0.4"

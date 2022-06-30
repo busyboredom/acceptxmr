@@ -4,8 +4,7 @@ use std::time::{Duration, Instant};
 
 use actix::{Actor, ActorContext, AsyncContext, StreamHandler};
 use actix_session::{CookieSession, Session};
-use actix_web::web::Data;
-use actix_web::{get, post, web, App, HttpRequest, HttpResponse, HttpServer};
+use actix_web::{get, post, web, web::Data, App, HttpRequest, HttpResponse, HttpServer};
 use actix_web_actors::ws;
 use bytestring::ByteString;
 use log::{debug, error, info, warn};
@@ -36,12 +35,13 @@ async fn main() -> std::io::Result<()> {
             .trim() // Remove line ending.
             .to_owned();
 
-    // No need to keep the public spend key secret.
-    let public_spend_key = "dd4c491d53ad6b46cda01ed6cb9bac57615d9eac8d5e4dd1c0363ac8dfd420a7";
+    // No need to keep the primary address secret.
+    let primary_address = "4A1WSBQdCbUCqt3DaGfmqVFchXScF43M6c5r4B6JXT3dUwuALncU9XTEnRPmUMcB3c16kVP9Y7thFLCJ5BaMW3UmSy93w3w";
 
-    let payment_gateway = PaymentGatewayBuilder::new(&private_view_key, public_spend_key)
+    let payment_gateway = PaymentGatewayBuilder::new(&private_view_key, primary_address)
         .daemon_url("http://busyboredom.com:18081")
-        .build();
+        .build()
+        .expect("failed to build payment gateway");
     info!("Payment gateway created.");
 
     payment_gateway

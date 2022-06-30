@@ -18,7 +18,7 @@ fn run_payment_gateway() {
 
     // Create payment gateway pointing at temp directory and mock daemon.
     let payment_gateway =
-        PaymentGatewayBuilder::new(common::PRIVATE_VIEW_KEY, common::PUBLIC_SPEND_KEY)
+        PaymentGatewayBuilder::new(common::PRIVATE_VIEW_KEY, common::PRIMARY_ADDRESS)
             .db_path(
                 temp_dir
                     .path()
@@ -26,7 +26,8 @@ fn run_payment_gateway() {
                     .expect("failed to get temporary directory path"),
             )
             .daemon_url(&mock_daemon.url(""))
-            .build();
+            .build()
+            .expect("failed to build payment gateway");
 
     // Run it.
     rt.block_on(async {
@@ -47,7 +48,7 @@ fn new_invoice() {
 
     // Create payment gateway pointing at temp directory and mock daemon.
     let payment_gateway =
-        PaymentGatewayBuilder::new(common::PRIVATE_VIEW_KEY, common::PUBLIC_SPEND_KEY)
+        PaymentGatewayBuilder::new(common::PRIVATE_VIEW_KEY, common::PRIMARY_ADDRESS)
             .db_path(
                 temp_dir
                     .path()
@@ -57,7 +58,8 @@ fn new_invoice() {
             // Faster scan rate so the update is received sooner.
             .scan_interval(Duration::from_millis(100))
             .daemon_url(&mock_daemon.url(""))
-            .build();
+            .build()
+            .expect("failed to build payment gateway");
 
     // Run it.
     rt.block_on(async {
@@ -111,7 +113,7 @@ fn track_parallel_invoices() {
 
     // Create payment gateway pointing at temp directory and mock daemon.
     let payment_gateway =
-        PaymentGatewayBuilder::new(common::PRIVATE_VIEW_KEY, common::PUBLIC_SPEND_KEY)
+        PaymentGatewayBuilder::new(common::PRIVATE_VIEW_KEY, common::PRIMARY_ADDRESS)
             .db_path(
                 temp_dir
                     .path()
@@ -122,7 +124,8 @@ fn track_parallel_invoices() {
             .scan_interval(Duration::from_millis(100))
             .daemon_url(&mock_daemon.url(""))
             .seed(1)
-            .build();
+            .build()
+            .expect("failed to build payment gateway");
 
     // Run it.
     rt.block_on(async {
@@ -381,7 +384,7 @@ fn reproducible_seed() {
 
     // Create payment gateway pointing at temp directory and mock daemon.
     let payment_gateway =
-        PaymentGatewayBuilder::new(common::PRIVATE_VIEW_KEY, common::PUBLIC_SPEND_KEY)
+        PaymentGatewayBuilder::new(common::PRIVATE_VIEW_KEY, common::PRIMARY_ADDRESS)
             .db_path(
                 temp_dir
                     .path()
@@ -392,7 +395,8 @@ fn reproducible_seed() {
             .scan_interval(Duration::from_millis(100))
             .daemon_url(&mock_daemon.url(""))
             .seed(1)
-            .build();
+            .build()
+            .expect("failed to build payment gateway");
 
     // Run it.
     rt.block_on(async {

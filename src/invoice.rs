@@ -158,10 +158,10 @@ impl Invoice {
     /// # use acceptxmr::PaymentGatewayBuilder;
     /// #
     /// # let private_view_key = "ad2093a5705b9f33e6f0f0c1bc1f5f639c756cdfc168c8f2ac6127ccbdab3a03";
-    /// # let public_spend_key = "7388a06bd5455b793a82b90ae801efb9cc0da7156df8af1d5800e4315cc627b4";
+    /// # let primary_address = "4613YiHLM6JMH4zejMB2zJY5TwQCxL8p65ufw8kBP5yxX9itmuGLqp1dS4tkVoTxjyH3aYhYNrtGHbQzJQP5bFus3KHVdmf";
     /// #
-    /// # let payment_gateway = PaymentGatewayBuilder::new(private_view_key, public_spend_key)
-    /// #    .build();
+    /// # let payment_gateway = PaymentGatewayBuilder::new(private_view_key, primary_address)
+    /// #    .build()?;
     /// #
     /// # payment_gateway.run().await?;
     /// #

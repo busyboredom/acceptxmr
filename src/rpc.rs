@@ -2,8 +2,7 @@ use std::time::Duration;
 use std::{any, fmt};
 use std::{collections::HashSet, error::Error};
 
-use hyper::client::connect::HttpConnector;
-use hyper::{body, Body, Method, Request, Uri};
+use hyper::{body, client::connect::HttpConnector, Body, Method, Request, Uri};
 use log::{trace, warn};
 use monero::consensus::{deserialize, encode};
 use tokio::time::{error, timeout};
@@ -14,26 +13,20 @@ const MAX_REQUESTED_TRANSACTIONS: usize = 100;
 #[derive(Debug, Clone)]
 pub(crate) struct RpcClient {
     client: hyper::Client<HttpConnector>,
-    url: String,
+    url: Uri,
     timeout: Duration,
 }
 
 impl RpcClient {
     /// Returns an Rpc client pointing at the specified monero daemon.
-    ///
-    /// # Panics
-    ///
-    /// This method panics if the URL cannot be parsed.
-    pub fn new(url: &str, total_timeout: Duration, connection_timeout: Duration) -> RpcClient {
+    pub fn new(url: Uri, total_timeout: Duration, connection_timeout: Duration) -> RpcClient {
         let mut connector = HttpConnector::new();
         connector.set_connect_timeout(Some(connection_timeout));
         let client = hyper::Client::builder().build(connector);
 
-        url.parse::<Uri>().expect("invalid daemon URL");
-
         RpcClient {
             client,
-            url: url.to_string(),
+            url,
             timeout: total_timeout,
         }
     }
@@ -44,7 +37,7 @@ impl RpcClient {
             .to_owned()
             + &height.to_string()
             + "}}";
-        let request_endpoint = "/json_rpc";
+        let request_endpoint = "json_rpc";
 
         let res: serde_json::Value = self.request(&request_body, request_endpoint).await?;
 
@@ -80,7 +73,7 @@ impl RpcClient {
         trace!("Requesting txpool");
         let mut transactions = Vec::new();
         let request_body = "";
-        let request_endpoint = "/get_transaction_pool";
+        let request_endpoint = "get_transaction_pool";
 
         let res = self.request(request_body, request_endpoint).await?;
 
@@ -105,7 +98,7 @@ impl RpcClient {
         trace!("Requesting txpool hashes");
         let mut transactions = HashSet::new();
         let request_body = "";
-        let request_endpoint = "/get_transaction_pool_hashes";
+        let request_endpoint = "get_transaction_pool_hashes";
 
         let res = self.request(request_body, request_endpoint).await?;
 
@@ -154,7 +147,7 @@ impl RpcClient {
                     .collect::<Vec<String>>())
                 .to_string()
                 + "}";
-            let request_endpoint = "/get_transactions";
+            let request_endpoint = "get_transactions";
 
             let res = self.request(&request_body, request_endpoint).await?;
 
@@ -173,9 +166,10 @@ impl RpcClient {
 
             // Add these transactions to the total list.
             for tx_json in hexes {
-                let tx_str = tx_json
-                    .as_str()
-                    .expect("failed to read transaction hex from json");
+                let tx_str = tx_json.as_str().ok_or(RpcError::DataType {
+                    found: tx_json.clone(),
+                    expected: "&str",
+                })?;
                 let tx_hex = hex::decode(tx_str)?;
                 let tx: monero::Transaction = deserialize(&tx_hex)?;
                 transactions.push(tx);
@@ -186,7 +180,7 @@ impl RpcClient {
 
     pub async fn daemon_height(&self) -> Result<u64, RpcError> {
         let request_body = r#"{"jsonrpc":"2.0","id":"0","method":"get_block_count"}"#;
-        let request_endpoint = "/json_rpc";
+        let request_endpoint = "json_rpc";
 
         let res = self.request(request_body, request_endpoint).await?;
 
@@ -200,9 +194,8 @@ impl RpcClient {
     async fn request(&self, body: &str, endpoint: &str) -> Result<serde_json::Value, RpcError> {
         let req = Request::builder()
             .method(Method::POST)
-            .uri(self.url.clone() + endpoint)
-            .body(Body::from(body.to_owned()))
-            .expect("failed to build http POST request");
+            .uri(self.url.clone().to_string() + endpoint)
+            .body(Body::from(body.to_owned()))?;
 
         // Await full response.
         let response = timeout(self.timeout, self.client.request(req)).await??;
@@ -213,7 +206,7 @@ impl RpcClient {
     }
 
     pub fn url(&self) -> String {
-        self.url.clone()
+        self.url.clone().to_string()
     }
 }
 
@@ -221,6 +214,7 @@ impl RpcClient {
 #[derive(Debug)]
 pub enum RpcError {
     Http(hyper::Error),
+    Request(hyper::http::Error),
     Timeout(error::Elapsed),
     HexDecode(hex::FromHexError),
     Serialization(encode::Error),
@@ -235,6 +229,12 @@ pub enum RpcError {
 impl From<hyper::Error> for RpcError {
     fn from(e: hyper::Error) -> Self {
         Self::Http(e)
+    }
+}
+
+impl From<hyper::http::Error> for RpcError {
+    fn from(e: hyper::http::Error) -> Self {
+        Self::Request(e)
     }
 }
 
@@ -266,10 +266,13 @@ impl fmt::Display for RpcError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             RpcError::Http(e) => {
-                write!(f, "http request failed: {}", e)
+                write!(f, "HTTP request failed: {}", e)
+            }
+            RpcError::Request(e) => {
+                write!(f, "failed to build HTTP request: {}", e)
             }
             RpcError::Timeout(e) => {
-                write!(f, "http request timed out: {}", e)
+                write!(f, "HTTP request timed out: {}", e)
             }
             RpcError::HexDecode(e) => {
                 write!(f, "hex decoding failed: {}", e)

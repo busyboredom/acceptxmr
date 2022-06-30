@@ -1,22 +1,25 @@
-use std::ops::Deref;
-use std::str::FromStr;
-use std::sync::atomic::{self, AtomicU32, AtomicU64};
-use std::sync::{Arc, Mutex, PoisonError};
-use std::thread;
-use std::time::Duration;
+use std::{
+    ops::Deref,
+    str::FromStr,
+    sync::atomic::{self, AtomicU32, AtomicU64},
+    sync::{Arc, Mutex, PoisonError},
+    thread,
+    time::Duration,
+};
 
 use hyper::Uri;
 use log::{debug, info, warn};
 use monero::cryptonote::onetime_key::SubKeyChecker;
-use tokio::runtime::Runtime;
-use tokio::{join, time};
+use tokio::{join, runtime::Runtime, time};
 
-use crate::caching::SubaddressCache;
-use crate::invoices_db::InvoicesDb;
-use crate::rpc::RpcClient;
-use crate::scanner::Scanner;
-use crate::subscriber::Subscriber;
-use crate::{AcceptXmrError, Invoice, InvoiceId};
+use crate::{
+    caching::SubaddressCache,
+    invoices_db::InvoicesDb,
+    rpc::RpcClient,
+    scanner::Scanner,
+    subscriber::Subscriber,
+    {AcceptXmrError, Invoice, InvoiceId},
+};
 
 const DEFAULT_SCAN_INTERVAL: Duration = Duration::from_millis(1000);
 const DEFAULT_DAEMON: &str = "http://node.moneroworld.com:18089";
@@ -52,8 +55,11 @@ impl Deref for PaymentGateway {
 impl PaymentGateway {
     /// Returns a builder used to create a new payment gateway.
     #[must_use]
-    pub fn builder(private_view_key: &str, public_spend_key: &str) -> PaymentGatewayBuilder {
-        PaymentGatewayBuilder::new(private_view_key, public_spend_key)
+    pub fn builder(
+        private_view_key: &'static str,
+        primary_address: &'static str,
+    ) -> PaymentGatewayBuilder {
+        PaymentGatewayBuilder::new(private_view_key, primary_address)
     }
 
     /// Runs the payment gateway. This function spawns a new thread, which periodically scans new
@@ -257,10 +263,10 @@ impl PaymentGateway {
 /// #   .tempdir().expect("Failed to generate temporary directory");
 ///
 /// let private_view_key = "ad2093a5705b9f33e6f0f0c1bc1f5f639c756cdfc168c8f2ac6127ccbdab3a03";
-/// let public_spend_key = "7388a06bd5455b793a82b90ae801efb9cc0da7156df8af1d5800e4315cc627b4";
+/// let primary_address = "4613YiHLM6JMH4zejMB2zJY5TwQCxL8p65ufw8kBP5yxX9itmuGLqp1dS4tkVoTxjyH3aYhYNrtGHbQzJQP5bFus3KHVdmf";
 ///
 /// // Create a payment gateway with an extra fast scan rate and a custom monero daemon URL.
-/// let payment_gateway = PaymentGatewayBuilder::new(private_view_key, public_spend_key)
+/// let payment_gateway = PaymentGatewayBuilder::new(private_view_key, primary_address)
 ///     .scan_interval(Duration::from_millis(100)) // Scan for invoice updates every 100 ms.
 ///     .daemon_url("http://example.com:18081") // Set custom monero daemon URL.
 /// #   .db_path(temp_dir.path().to_str().expect("Failed to get temporary directory path"))
@@ -270,8 +276,8 @@ pub struct PaymentGatewayBuilder {
     daemon_url: String,
     rpc_timeout: Duration,
     rpc_connection_timeout: Duration,
-    private_view_key: monero::PrivateKey,
-    public_spend_key: monero::PublicKey,
+    private_view_key: &'static str,
+    primary_address: &'static str,
     scan_interval: Duration,
     db_path: String,
     seed: Option<u64>,
@@ -280,15 +286,16 @@ pub struct PaymentGatewayBuilder {
 impl PaymentGatewayBuilder {
     /// Create a new payment gateway builder.
     #[must_use]
-    pub fn new(private_view_key: &str, public_spend_key: &str) -> PaymentGatewayBuilder {
+    pub fn new(
+        private_view_key: &'static str,
+        primary_address: &'static str,
+    ) -> PaymentGatewayBuilder {
         PaymentGatewayBuilder {
             daemon_url: DEFAULT_DAEMON.to_string(),
             rpc_timeout: DEFAULT_RPC_TOTAL_TIMEOUT,
             rpc_connection_timeout: DEFAULT_RPC_CONNECTION_TIMEOUT,
-            private_view_key: monero::PrivateKey::from_str(private_view_key)
-                .expect("invalid private view key"),
-            public_spend_key: monero::PublicKey::from_str(public_spend_key)
-                .expect("invalid public spend key"),
+            private_view_key,
+            primary_address,
             scan_interval: DEFAULT_SCAN_INTERVAL,
             db_path: DEFAULT_DB_PATH.to_string(),
             seed: None,
@@ -311,12 +318,12 @@ impl PaymentGatewayBuilder {
     /// use acceptxmr::PaymentGatewayBuilder;
     ///
     /// let private_view_key = "ad2093a5705b9f33e6f0f0c1bc1f5f639c756cdfc168c8f2ac6127ccbdab3a03";
-    /// let public_spend_key = "7388a06bd5455b793a82b90ae801efb9cc0da7156df8af1d5800e4315cc627b4";
+    /// let primary_address = "4613YiHLM6JMH4zejMB2zJY5TwQCxL8p65ufw8kBP5yxX9itmuGLqp1dS4tkVoTxjyH3aYhYNrtGHbQzJQP5bFus3KHVdmf";
     ///
     /// // Create a payment gateway with a custom monero daemon URL.
-    /// let payment_gateway = PaymentGatewayBuilder::new(private_view_key, public_spend_key)
+    /// let payment_gateway = PaymentGatewayBuilder::new(private_view_key, primary_address)
     ///     .daemon_url("http://example.com:18081") // Set custom monero daemon URL.
-    ///     .build();
+    ///     .build()?;
     ///
     /// // The payment gateway will now use the daemon specified.
     /// payment_gateway.run().await?;
@@ -374,24 +381,43 @@ impl PaymentGatewayBuilder {
 
     /// Build the payment gateway.
     ///
-    /// # Panics
+    /// # Errors
     ///
-    /// Panics if the database cannot be opened at the path specified, or if the internal RPC client
-    /// cannot parse the provided URL.
-    #[must_use]
-    pub fn build(self) -> PaymentGateway {
+    /// Returns an error if the database cannot be opened at the path specified, if the internal RPC
+    /// client cannot parse the provided URL, or if the primary address or private view key cannot
+    /// be parsed.
+    pub fn build(self) -> Result<PaymentGateway, AcceptXmrError> {
         let rpc_client = RpcClient::new(
-            &self.daemon_url,
+            self.daemon_url
+                .parse::<Uri>()
+                .map_err(|e| AcceptXmrError::Parse {
+                    datatype: "Uri",
+                    input: self.daemon_url,
+                    error: e.to_string(),
+                })?,
             self.rpc_timeout,
             self.rpc_connection_timeout,
         );
-        let invoices_db =
-            InvoicesDb::new(&self.db_path).expect("failed to open pending invoices database tree");
+        let invoices_db = InvoicesDb::new(&self.db_path)?;
         info!("Opened database in \"{}/\"", self.db_path);
+
         let viewpair = monero::ViewPair {
-            view: self.private_view_key,
-            spend: self.public_spend_key,
+            view: monero::PrivateKey::from_str(self.private_view_key).map_err(|e| {
+                AcceptXmrError::Parse {
+                    datatype: "PrivateKey",
+                    input: self.private_view_key.to_string(),
+                    error: e.to_string(),
+                }
+            })?,
+            spend: monero::Address::from_str(self.primary_address)
+                .map_err(|e| AcceptXmrError::Parse {
+                    datatype: "Address",
+                    input: self.primary_address.to_string(),
+                    error: e.to_string(),
+                })?
+                .public_spend,
         };
+
         let highest_minor_index = Arc::new(AtomicU32::new(0));
         let subaddresses = SubaddressCache::init(
             &invoices_db,
@@ -401,7 +427,7 @@ impl PaymentGatewayBuilder {
         );
         debug!("Generated {} initial subaddresses", subaddresses.len());
 
-        PaymentGateway(Arc::new(PaymentGatewayInner {
+        Ok(PaymentGateway(Arc::new(PaymentGatewayInner {
             rpc_client,
             viewpair,
             scan_interval: self.scan_interval,
@@ -409,7 +435,7 @@ impl PaymentGatewayBuilder {
             subaddresses: Mutex::new(subaddresses),
             highest_minor_index,
             block_cache_height: Arc::new(atomic::AtomicU64::new(0)),
-        }))
+        })))
     }
 }
 
@@ -439,8 +465,8 @@ mod tests {
 
     const PRIVATE_VIEW_KEY: &str =
         "ad2093a5705b9f33e6f0f0c1bc1f5f639c756cdfc168c8f2ac6127ccbdab3a03";
-    const PUBLIC_SPEND_KEY: &str =
-        "7388a06bd5455b793a82b90ae801efb9cc0da7156df8af1d5800e4315cc627b4";
+    const PRIMARY_ADDRESS: &str =
+        "4613YiHLM6JMH4zejMB2zJY5TwQCxL8p65ufw8kBP5yxX9itmuGLqp1dS4tkVoTxjyH3aYhYNrtGHbQzJQP5bFus3KHVdmf";
 
     #[test]
     fn test_daemon_url() {
@@ -448,7 +474,7 @@ mod tests {
         init_logger();
         let temp_dir = new_temp_dir();
 
-        let payment_gateway = PaymentGatewayBuilder::new(PRIVATE_VIEW_KEY, PUBLIC_SPEND_KEY)
+        let payment_gateway = PaymentGatewayBuilder::new(PRIVATE_VIEW_KEY, PRIMARY_ADDRESS)
             .db_path(
                 temp_dir
                     .path()
@@ -456,8 +482,12 @@ mod tests {
                     .expect("failed to get temporary directory path"),
             )
             .daemon_url("http://example.com:18081")
-            .build();
+            .build()
+            .expect("failed to build payment gateway");
 
-        assert_eq!(payment_gateway.rpc_client.url(), "http://example.com:18081");
+        assert_eq!(
+            payment_gateway.rpc_client.url(),
+            "http://example.com:18081/"
+        );
     }
 }
