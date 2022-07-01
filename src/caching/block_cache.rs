@@ -1,4 +1,3 @@
-use std::convert::TryInto;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 
@@ -15,13 +14,13 @@ pub(crate) struct BlockCache {
 impl BlockCache {
     pub async fn init(
         rpc_client: RpcClient,
-        cache_size: u64,
+        cache_size: usize,
         initial_height: Arc<AtomicU64>,
     ) -> Result<BlockCache, AcceptXmrError> {
-        let mut blocks = Vec::with_capacity(cache_size.try_into().unwrap());
+        let mut blocks = Vec::with_capacity(cache_size);
         // TODO: Get blocks concurrently.
         for i in 0..cache_size {
-            let height = initial_height.load(Ordering::Relaxed) - i;
+            let height = initial_height.load(Ordering::Relaxed) - i as u64;
             let (block_id, block) = rpc_client.block(height).await?;
             let transactions = rpc_client.block_transactions(&block).await?;
             blocks.push((block_id, height, block, transactions));
@@ -47,7 +46,7 @@ impl BlockCache {
     }
 
     /// Update the block cache with newest blocks from daemon. Returns number of blocks updated.
-    pub async fn update(&mut self) -> Result<u64, AcceptXmrError> {
+    pub async fn update(&mut self) -> Result<usize, AcceptXmrError> {
         // If the cache is behind, get a new block and drop the oldest.
         trace!("Checking for block cache updates");
         let mut updated = 0;

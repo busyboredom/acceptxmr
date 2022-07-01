@@ -116,6 +116,10 @@ pub enum AcceptXmrError {
         /// Error encountered.
         error: String,
     },
+    /// Failure to check if output is owned.
+    OwnedOutputCheck(monero::blockdata::transaction::Error),
+    /// Failed to start scanning thread.
+    ScanningThread(std::io::Error),
 }
 
 impl From<RpcError> for AcceptXmrError {
@@ -133,6 +137,18 @@ impl From<InvoiceStorageError> for AcceptXmrError {
 impl From<SubscriberError> for AcceptXmrError {
     fn from(e: SubscriberError) -> Self {
         Self::Subscriber(e)
+    }
+}
+
+impl From<monero::blockdata::transaction::Error> for AcceptXmrError {
+    fn from(e: monero::blockdata::transaction::Error) -> Self {
+        Self::OwnedOutputCheck(e)
+    }
+}
+
+impl From<std::io::Error> for AcceptXmrError {
+    fn from(e: std::io::Error) -> Self {
+        Self::ScanningThread(e)
     }
 }
 
@@ -163,6 +179,12 @@ impl fmt::Display for AcceptXmrError {
                     "failed to parse {} from \"{}\": {}",
                     datatype, input, error
                 )
+            }
+            AcceptXmrError::OwnedOutputCheck(e) => {
+                write!(f, "failed to check if output is owned: {}", e)
+            }
+            AcceptXmrError::ScanningThread(e) => {
+                write!(f, "error starting scanning thread: {}", e)
             }
         }
     }

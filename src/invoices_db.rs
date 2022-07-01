@@ -137,10 +137,9 @@ impl InvoicesDb {
         Subscriber::new(sled_subscriber)
     }
 
-    pub fn flush(&self) {
-        self.0
-            .flush()
-            .expect("failed to flush invoice updates to invoices database");
+    pub fn flush(&self) -> Result<(), InvoiceStorageError> {
+        self.0.flush()?;
+        Ok(())
     }
 
     pub fn clone(&self) -> InvoicesDb {
@@ -152,18 +151,12 @@ impl InvoicesDb {
     pub fn lowest_height(&self) -> Result<Option<u64>, InvoiceStorageError> {
         self.iter()
             .min_by(|invoice_1, invoice_2| {
-                // If there is an error, we want it returned.
-                if invoice_1.is_err() {
-                    Ordering::Greater
-                } else if invoice_2.is_err() {
-                    Ordering::Less
-                } else {
+                match (invoice_1, invoice_2) {
+                    // If there is an error, we want to return it.
+                    (Err(_), _) => Ordering::Greater,
+                    (_, Err(_)) => Ordering::Less,
                     // Otherwise, return the one with the lower height.
-                    invoice_1
-                        .as_ref()
-                        .unwrap()
-                        .current_height()
-                        .cmp(&invoice_2.as_ref().unwrap().current_height())
+                    (Ok(inv1), Ok(inv2)) => inv1.current_height().cmp(&inv2.current_height()),
                 }
             })
             .transpose()

@@ -8,7 +8,7 @@ use std::{
 };
 
 use hyper::Uri;
-use log::{debug, info, warn};
+use log::{debug, error, info, warn};
 use monero::cryptonote::onetime_key::SubKeyChecker;
 use tokio::{join, runtime::Runtime, time};
 
@@ -26,7 +26,7 @@ const DEFAULT_DAEMON: &str = "http://node.moneroworld.com:18089";
 const DEFAULT_DB_PATH: &str = "AcceptXMR_DB";
 const DEFAULT_RPC_CONNECTION_TIMEOUT: Duration = Duration::from_secs(5);
 const DEFAULT_RPC_TOTAL_TIMEOUT: Duration = Duration::from_secs(10);
-const DEFAULT_BLOCK_CACHE_SIZE: u64 = 10;
+const DEFAULT_BLOCK_CACHE_SIZE: usize = 10;
 
 /// The `PaymentGateway` allows you to track new [`Invoice`](Invoice)s, remove old `Invoice`s from
 /// tracking, and subscribe to `Invoice`s that are already pending.
@@ -99,7 +99,7 @@ impl PaymentGateway {
             .name("Scanning Thread".to_string())
             .spawn(move || {
                 // The thread needs a tokio runtime to process async functions.
-                let tokio_runtime = Runtime::new().unwrap();
+                let tokio_runtime = Runtime::new().expect("failed to create scanning thread runtime");
                 tokio_runtime.block_on(async move {
                     // Create persistent sub key checker for efficient tx output checking.
                     let mut sub_key_checker = SubKeyChecker::new(
@@ -121,11 +121,12 @@ impl PaymentGateway {
                             );
                         }
                         // Scan!
-                        join!(blockscan_interval.tick(), scanner.scan(&sub_key_checker));
+                        if let (_, Err(e)) = join!(blockscan_interval.tick(), scanner.scan(&sub_key_checker)) {
+                            error!("Payment gateway encountered an error while scanning for payments: {}", e);
+                        };
                     }
                 });
-            })
-            .expect("Error spawning scanning thread");
+            })?;
         debug!("Scanner started successfully");
         Ok(())
     }
@@ -305,10 +306,6 @@ impl PaymentGatewayBuilder {
     /// Set the url and port of your preferred monero daemon. Defaults to
     /// [http://node.moneroworld.com:18089](http://node.moneroworld.com:18089).
     ///
-    /// # Panics
-    ///
-    /// Panics if the provided URL cannot be parsed.
-    ///
     /// # Examples
     ///
     /// ```no_run
@@ -332,7 +329,6 @@ impl PaymentGatewayBuilder {
     /// ```
     #[must_use]
     pub fn daemon_url(mut self, url: &str) -> PaymentGatewayBuilder {
-        url.parse::<Uri>().expect("invalid daemon URL");
         self.daemon_url = url.to_string();
         self
     }

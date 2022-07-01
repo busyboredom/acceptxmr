@@ -1,5 +1,4 @@
 use std::collections::HashMap;
-use std::convert::TryInto;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 
@@ -29,7 +28,7 @@ impl Scanner {
     pub async fn new(
         rpc_client: RpcClient,
         invoices_db: InvoicesDb,
-        block_cache_size: u64,
+        block_cache_size: usize,
         atomic_height: Arc<AtomicU64>,
     ) -> Result<Scanner, AcceptXmrError> {
         // Determine sensible initial height for block cache.
@@ -68,7 +67,10 @@ impl Scanner {
     }
 
     /// Scan for invoice updates.
-    pub async fn scan(&mut self, sub_key_checker: &SubKeyChecker<'_>) {
+    pub async fn scan(
+        &mut self,
+        sub_key_checker: &SubKeyChecker<'_>,
+    ) -> Result<(), AcceptXmrError> {
         // Update block cache, and scan both it and the txpool.
         let (blocks_amounts_or_err, txpool_amounts_or_err) = join!(
             self.scan_blocks(sub_key_checker),
@@ -80,14 +82,14 @@ impl Scanner {
             Ok(amts) => amts,
             Err(e) => {
                 error!("Skipping scan! Encountered a problem while updating or scanning the block cache: {}", e);
-                return;
+                return Err(e);
             }
         };
         let txpool_amounts = match txpool_amounts_or_err {
             Ok(amts) => amts,
             Err(e) => {
                 error!("Skipping scan! Encountered a problem while updating or scanning the txpool cache: {}", e);
-                return;
+                return Err(e);
             }
         };
 
@@ -191,7 +193,8 @@ impl Scanner {
         }
 
         // Flush changes to the database.
-        self.invoices_db.flush();
+        self.invoices_db.flush()?;
+        Ok(())
     }
 
     /// Update block cache and scan the blocks.
@@ -208,13 +211,13 @@ impl Scanner {
 
         // If this is the first scan, we want to scan all the blocks in the cache.
         if self.first_scan {
-            blocks_updated = block_cache.blocks.len().try_into().unwrap();
+            blocks_updated = block_cache.blocks.len();
         }
 
         let mut transfers = Vec::new();
 
         // Scan updated blocks.
-        for i in (0..blocks_updated.try_into().unwrap()).rev() {
+        for i in (0..blocks_updated).rev() {
             let transactions = &block_cache.blocks[i].3;
             let amounts_received = self.scan_transactions(transactions, sub_key_checker)?;
             trace!(
@@ -301,7 +304,7 @@ impl Scanner {
             }
 
             // Scan transaction for owned outputs.
-            let transfers = tx.check_outputs_with(sub_key_checker).unwrap();
+            let transfers = tx.check_outputs_with(sub_key_checker)?;
 
             for transfer in &transfers {
                 let sub_index = SubIndex::from(transfer.sub_index());
