@@ -1,8 +1,8 @@
-use std::error::Error;
-use std::{cmp::Ordering, fmt};
+use std::cmp::Ordering;
 
-use crate::subscriber::Subscriber;
-use crate::{AcceptXmrError, Invoice, InvoiceId, SubIndex};
+use thiserror::Error;
+
+use crate::{subscriber::Subscriber, AcceptXmrError, Invoice, InvoiceId, SubIndex};
 
 /// Database containing pending invoices.
 pub(crate) struct InvoicesDb(sled::Tree);
@@ -172,54 +172,19 @@ impl InvoicesDb {
 }
 
 /// An error occurring while storing or retrieving pending invoices.
-#[derive(Debug)]
+#[derive(Error, Debug)]
 pub enum InvoiceStorageError {
     /// An error caused by the database, or some interaction with it.
-    Database(sled::Error),
+    #[error("database error: {0}")]
+    Database(#[from] sled::Error),
     /// A [`Invoice`] in the database can not be updated, because the
     /// `Invoice` does not exist.
+    #[error("no value with key {0} to update")]
     Update(InvoiceId),
     /// Failed to serialize an [`Invoice`].
-    Serialize(bincode::error::EncodeError),
+    #[error("Serialization error: {0}")]
+    Serialize(#[from] bincode::error::EncodeError),
     /// Failed to deserialize an [`Invoice`].
-    Deserialize(bincode::error::DecodeError),
+    #[error("Deserialization error: {0}")]
+    Deserialize(#[from] bincode::error::DecodeError),
 }
-
-impl From<sled::Error> for InvoiceStorageError {
-    fn from(e: sled::Error) -> Self {
-        Self::Database(e)
-    }
-}
-
-impl From<bincode::error::EncodeError> for InvoiceStorageError {
-    fn from(e: bincode::error::EncodeError) -> Self {
-        Self::Serialize(e)
-    }
-}
-
-impl From<bincode::error::DecodeError> for InvoiceStorageError {
-    fn from(e: bincode::error::DecodeError) -> Self {
-        Self::Deserialize(e)
-    }
-}
-
-impl fmt::Display for InvoiceStorageError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            InvoiceStorageError::Database(sled_error) => {
-                write!(f, "database error: {}", sled_error)
-            }
-            InvoiceStorageError::Update(key) => {
-                write!(f, "no value with key {} to update", key)
-            }
-            InvoiceStorageError::Serialize(bincode_error) => {
-                write!(f, "Serialization error: {}", bincode_error)
-            }
-            InvoiceStorageError::Deserialize(bincode_error) => {
-                write!(f, "Deserialization error: {}", bincode_error)
-            }
-        }
-    }
-}
-
-impl Error for InvoiceStorageError {}

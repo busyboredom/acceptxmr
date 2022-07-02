@@ -3,7 +3,7 @@ use std::{
     str::FromStr,
     sync::atomic::{self, AtomicU32, AtomicU64},
     sync::{Arc, Mutex, PoisonError},
-    thread,
+    thread::{self},
     time::Duration,
 };
 
@@ -94,9 +94,9 @@ impl PaymentGateway {
         info!("Starting blockchain scanner");
         thread::Builder::new()
             .name("Scanning Thread".to_string())
-            .spawn(move || {
+            .spawn(move || -> Result<(), AcceptXmrError> {
                 // The thread needs a tokio runtime to process async functions.
-                let tokio_runtime = Runtime::new().expect("failed to create scanning thread runtime");
+                let tokio_runtime = Runtime::new()?;
                 tokio_runtime.block_on(async move {
                     // Create persistent sub key checker for efficient tx output checking.
                     let mut sub_key_checker = SubKeyChecker::new(
@@ -123,6 +123,7 @@ impl PaymentGateway {
                         };
                     }
                 });
+                Ok(())
             })?;
         debug!("Scanner started successfully");
         Ok(())
@@ -414,7 +415,7 @@ impl PaymentGatewayBuilder {
             viewpair,
             highest_minor_index.clone(),
             self.seed,
-        );
+        )?;
         debug!("Generated {} initial subaddresses", subaddresses.len());
 
         Ok(PaymentGateway(Arc::new(PaymentGatewayInner {

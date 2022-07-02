@@ -1,10 +1,11 @@
+use std::any;
+use std::collections::HashSet;
 use std::time::Duration;
-use std::{any, fmt};
-use std::{collections::HashSet, error::Error};
 
 use hyper::{body, client::connect::HttpConnector, Body, Method, Request, Uri};
 use log::{trace, warn};
 use monero::consensus::{deserialize, encode};
+use thiserror::Error;
 use tokio::time::{error, timeout};
 
 /// Maximum number of transactions to request at once (daemon limits this).
@@ -211,94 +212,25 @@ impl RpcClient {
 }
 
 #[allow(clippy::module_name_repetitions)]
-#[derive(Debug)]
+#[derive(Error, Debug)]
 pub enum RpcError {
-    Http(hyper::Error),
-    Request(hyper::http::Error),
-    Timeout(error::Elapsed),
-    HexDecode(hex::FromHexError),
-    Serialization(encode::Error),
+    #[error("HTTP request failed: {0}")]
+    Http(#[from] hyper::Error),
+    #[error("failed to build HTTP request: {0}")]
+    Request(#[from] hyper::http::Error),
+    #[error("HTTP request timed out: {0}")]
+    Timeout(#[from] error::Elapsed),
+    #[error("hex decoding failed: {0}")]
+    HexDecode(#[from] hex::FromHexError),
+    #[error("(de)serialization failed: {0}")]
+    Serialization(#[from] encode::Error),
+    #[error("expected data was not present in RPC response, or was the wrong data type: {0}")]
     MissingData(String),
+    #[error("failed to interpret json value \"{found}\" from RPC response as {expected}")]
     DataType {
         found: serde_json::Value,
         expected: &'static str,
     },
-    Invalid(serde_json::Error),
+    #[error("failed to interpret response body as json: {0}")]
+    InvalidJson(#[from] serde_json::Error),
 }
-
-impl From<hyper::Error> for RpcError {
-    fn from(e: hyper::Error) -> Self {
-        Self::Http(e)
-    }
-}
-
-impl From<hyper::http::Error> for RpcError {
-    fn from(e: hyper::http::Error) -> Self {
-        Self::Request(e)
-    }
-}
-
-impl From<error::Elapsed> for RpcError {
-    fn from(e: error::Elapsed) -> Self {
-        Self::Timeout(e)
-    }
-}
-
-impl From<hex::FromHexError> for RpcError {
-    fn from(e: hex::FromHexError) -> Self {
-        Self::HexDecode(e)
-    }
-}
-
-impl From<encode::Error> for RpcError {
-    fn from(e: encode::Error) -> Self {
-        Self::Serialization(e)
-    }
-}
-
-impl From<serde_json::Error> for RpcError {
-    fn from(e: serde_json::Error) -> Self {
-        Self::Invalid(e)
-    }
-}
-
-impl fmt::Display for RpcError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            RpcError::Http(e) => {
-                write!(f, "HTTP request failed: {}", e)
-            }
-            RpcError::Request(e) => {
-                write!(f, "failed to build HTTP request: {}", e)
-            }
-            RpcError::Timeout(e) => {
-                write!(f, "HTTP request timed out: {}", e)
-            }
-            RpcError::HexDecode(e) => {
-                write!(f, "hex decoding failed: {}", e)
-            }
-            RpcError::Serialization(e) => {
-                write!(f, "(de)serialization failed: {}", e)
-            }
-            RpcError::MissingData(s) => {
-                write!(
-                    f,
-                    "expected data was not present in RPC response, or was the wrong data type: {}",
-                    s
-                )
-            }
-            RpcError::DataType { found, expected } => {
-                write!(
-                    f,
-                    "failed to interpret json value \"{}\" from RPC response as {}",
-                    found, expected
-                )
-            }
-            RpcError::Invalid(e) => {
-                write!(f, "failed to interpret response body as json: {}", e)
-            }
-        }
-    }
-}
-
-impl Error for RpcError {}

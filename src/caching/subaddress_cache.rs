@@ -10,7 +10,7 @@ use rand_chacha::ChaCha12Rng;
 use log::{debug, error};
 use monero::{cryptonote::subaddress, ViewPair};
 
-use crate::invoices_db::InvoicesDb;
+use crate::invoices_db::{InvoiceStorageError, InvoicesDb};
 use crate::SubIndex;
 
 const MIN_AVAILABLE_SUBADDRESSES: u32 = 100;
@@ -28,22 +28,16 @@ impl SubaddressCache {
         viewpair: monero::ViewPair,
         highest_minor_index: Arc<AtomicU32>,
         seed: Option<u64>,
-    ) -> SubaddressCache {
+    ) -> Result<SubaddressCache, InvoiceStorageError> {
         // Get currently used subindexes from database, so they won't be put in the list of
         // available subindexes.
-        let used_sub_indexes: IndexSet<SubIndex> = invoices_db
+        let used_sub_indexes = invoices_db
             .iter()
             .map(|invoice_or_err| match invoice_or_err {
-                Ok(invoice) => invoice.index(),
-                Err(e) => {
-                    // TODO: Ideally, we'd carry on after logging this error.
-                    panic!(
-                        "failed to read used subindex from invoice in database: {}",
-                        e
-                    );
-                }
+                Ok(invoice) => Ok(invoice.index()),
+                Err(e) => Err(e),
             })
-            .collect();
+            .collect::<Result<IndexSet<SubIndex>, InvoiceStorageError>>()?;
 
         // Get highest index from list of used subindexes.
         let max_used = if let Some(max_sub_index) = used_sub_indexes.iter().max() {
@@ -74,12 +68,12 @@ impl SubaddressCache {
             rng = ChaCha12Rng::seed_from_u64(s);
         }
 
-        SubaddressCache {
+        Ok(SubaddressCache {
             highest_minor_index,
             available_subaddresses,
             viewpair,
             rng,
-        }
+        })
     }
 
     pub fn remove_random(&mut self) -> (SubIndex, String) {

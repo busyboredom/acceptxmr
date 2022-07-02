@@ -1,11 +1,12 @@
 //! Subscribers should be used to receive invoice updates.
 
-use std::error::Error;
-use std::fmt;
-use std::sync::mpsc::{RecvTimeoutError, TryRecvError};
-use std::time::{Duration, Instant};
+use std::{
+    sync::mpsc::{RecvTimeoutError, TryRecvError},
+    time::{Duration, Instant},
+};
 
 use sled::Event;
+use thiserror::Error;
 
 use crate::{invoices_db::InvoiceStorageError, AcceptXmrError, Invoice};
 
@@ -104,33 +105,15 @@ impl Iterator for Subscriber {
 }
 
 /// An error occurring while receiving invoice updates.
-#[derive(Debug)]
+#[derive(Error, Debug)]
 pub enum SubscriberError {
     /// Failed to retrieve update.
+    #[error("subscriber cannot receive further updates, likely because the scanning thread has panicked")]
     Recv,
     /// Timed out before receiving update.
-    RecvTimeout(RecvTimeoutError),
+    #[error("subscriber recv timeout: {0}")]
+    RecvTimeout(#[from] RecvTimeoutError),
     /// Subscriber is either empty or disconnected.
-    TryRecv(TryRecvError),
+    #[error("subscriber try recv failed: {0}")]
+    TryRecv(#[from] TryRecvError),
 }
-
-impl fmt::Display for SubscriberError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            SubscriberError::Recv => write!(
-                f,
-                "subscriber cannot receive further updates, likely because the scanning thread has panicked"
-            ),
-            SubscriberError::RecvTimeout(e) => write!(
-                f,
-                "subscriber recv timeout: {}", e
-            ),
-            SubscriberError::TryRecv(e) => write!(
-                f,
-                "subscriber try recv failed: {}", e
-            ),
-        }
-    }
-}
-
-impl Error for SubscriberError {}

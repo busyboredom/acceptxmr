@@ -43,9 +43,7 @@ impl Scanner {
                 info!("No pending invoices found in AcceptXMR database. Skipping to blockchain tip: {}", h);
                 h - 1
             }
-            Err(e) => {
-                panic!("failed to determine suitable initial height for block cache from pending invoices database: {}", e);
-            }
+            Err(e) => return Err(e)?,
         };
 
         // Set atomic height to the above determined initial height. This sets the height of the

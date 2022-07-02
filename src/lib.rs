@@ -76,6 +76,9 @@
 #![warn(clippy::pedantic)]
 #![warn(missing_docs)]
 #![warn(clippy::cargo)]
+#![warn(clippy::panic)]
+#![warn(clippy::unwrap_used)]
+#![warn(clippy::expect_used)]
 #![allow(clippy::multiple_crate_versions)]
 #![allow(clippy::module_name_repetitions)]
 
@@ -87,8 +90,7 @@ mod rpc;
 mod scanner;
 mod subscriber;
 
-use std::error::Error;
-use std::fmt;
+use thiserror::Error;
 
 pub use invoice::{Invoice, InvoiceId, SubIndex};
 use invoices_db::InvoiceStorageError;
@@ -97,17 +99,22 @@ use rpc::RpcError;
 pub use subscriber::{Subscriber, SubscriberError};
 
 /// Library's custom error type.
-#[derive(Debug)]
+#[derive(Error, Debug)]
 pub enum AcceptXmrError {
     /// An error originating from a daemon RPC call.
-    Rpc(RpcError),
+    #[error("RPC error: {0}")]
+    Rpc(#[from] RpcError),
     /// An error storing/retrieving [`Invoice`](crate::Invoice)s.
-    InvoiceStorage(InvoiceStorageError),
+    #[error("invoice storage error: {0}")]
+    InvoiceStorage(#[from] InvoiceStorageError),
     /// [`Subscriber`](crate::Subscriber) failed to retrieve update.
-    Subscriber(SubscriberError),
+    #[error("subscriber failed to receive update: {0}")]
+    Subscriber(#[from] SubscriberError),
     /// Failure to unblind the amount of an owned output.
+    #[error("unable to unblind amount of owned output sent to subaddress index {0}")]
     Unblind(SubIndex),
     /// Failure to parse private view key.
+    #[error("failed to parse {datatype} from \"{input}\": {error}")]
     Parse {
         /// Type to parse.
         datatype: &'static str,
@@ -117,77 +124,9 @@ pub enum AcceptXmrError {
         error: String,
     },
     /// Failure to check if output is owned.
-    OwnedOutputCheck(monero::blockdata::transaction::Error),
-    /// Failed to start scanning thread.
-    ScanningThread(std::io::Error),
+    #[error("failed to check if output is owned: {0}")]
+    OwnedOutputCheck(#[from] monero::blockdata::transaction::Error),
+    /// Failure to start scanning thread.
+    #[error("error starting scanning thread: {0}")]
+    ScanningThread(#[from] std::io::Error),
 }
-
-impl From<RpcError> for AcceptXmrError {
-    fn from(e: RpcError) -> Self {
-        Self::Rpc(e)
-    }
-}
-
-impl From<InvoiceStorageError> for AcceptXmrError {
-    fn from(e: InvoiceStorageError) -> Self {
-        Self::InvoiceStorage(e)
-    }
-}
-
-impl From<SubscriberError> for AcceptXmrError {
-    fn from(e: SubscriberError) -> Self {
-        Self::Subscriber(e)
-    }
-}
-
-impl From<monero::blockdata::transaction::Error> for AcceptXmrError {
-    fn from(e: monero::blockdata::transaction::Error) -> Self {
-        Self::OwnedOutputCheck(e)
-    }
-}
-
-impl From<std::io::Error> for AcceptXmrError {
-    fn from(e: std::io::Error) -> Self {
-        Self::ScanningThread(e)
-    }
-}
-
-impl fmt::Display for AcceptXmrError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            AcceptXmrError::Rpc(e) => {
-                write!(f, "RPC error: {}", e)
-            }
-            AcceptXmrError::InvoiceStorage(e) => {
-                write!(f, "invoice storage error: {}", e)
-            }
-            AcceptXmrError::Subscriber(e) => {
-                write!(f, "subscriber failed to receive update: {}", e)
-            }
-            AcceptXmrError::Unblind(index) => write!(
-                f,
-                "unable to unblind amount of owned output sent to subaddress index {}",
-                index
-            ),
-            AcceptXmrError::Parse {
-                datatype,
-                input,
-                error,
-            } => {
-                write!(
-                    f,
-                    "failed to parse {} from \"{}\": {}",
-                    datatype, input, error
-                )
-            }
-            AcceptXmrError::OwnedOutputCheck(e) => {
-                write!(f, "failed to check if output is owned: {}", e)
-            }
-            AcceptXmrError::ScanningThread(e) => {
-                write!(f, "error starting scanning thread: {}", e)
-            }
-        }
-    }
-}
-
-impl Error for AcceptXmrError {}
