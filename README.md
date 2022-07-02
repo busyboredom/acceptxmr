@@ -58,7 +58,7 @@ use std::time::Duration;
 let private_view_key = "ad2093a5705b9f33e6f0f0c1bc1f5f639c756cdfc168c8f2ac6127ccbdab3a03";
 let primary_address = "4613YiHLM6JMH4zejMB2zJY5TwQCxL8p65ufw8kBP5yxX9itmuGLqp1dS4tkVoTxjyH3aYhYNrtGHbQzJQP5bFus3KHVdmf";
 
-let payment_gateway = PaymentGateway::builder(private_view_key, primary_address)
+let payment_gateway = PaymentGateway::builder(private_view_key.to_string(), primary_address.to_string())
     .scan_interval(Duration::from_millis(100)) // Scan for invoice updates every 100 ms.
     .build()?;
 ```

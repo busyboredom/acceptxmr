@@ -1,13 +1,18 @@
-use std::env;
-use std::path::Path;
-use std::time::{Duration, Instant};
+use std::{
+    env,
+    path::Path,
+    time::{Duration, Instant},
+};
 
 use actix::{Actor, ActorContext, AsyncContext, StreamHandler};
-use actix_session::{CookieSession, Session};
-use actix_web::{get, post, web, web::Data, App, HttpRequest, HttpResponse, HttpServer};
+use actix_session::{
+    storage::CookieSessionStore, CookieContentSecurity, Session, SessionMiddleware,
+};
+use actix_web::{cookie, get, post, web, web::Data, App, HttpRequest, HttpResponse, HttpServer};
 use actix_web_actors::ws;
 use bytestring::ByteString;
 use log::{debug, error, info, warn};
+use rand::{thread_rng, Rng};
 use serde::Deserialize;
 use serde_json::json;
 
@@ -19,6 +24,8 @@ use acceptxmr::{
 const CLIENT_TIMEOUT: Duration = Duration::from_secs(10);
 /// Time between sending heartbeat pings.
 const HEARTBEAT_INTERVAL: Duration = Duration::from_secs(1);
+/// Length of secure session key for cookies.
+const SESSION_KEY_LEN: usize = 64;
 
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
@@ -38,7 +45,7 @@ async fn main() -> std::io::Result<()> {
     // No need to keep the primary address secret.
     let primary_address = "4A1WSBQdCbUCqt3DaGfmqVFchXScF43M6c5r4B6JXT3dUwuALncU9XTEnRPmUMcB3c16kVP9Y7thFLCJ5BaMW3UmSy93w3w";
 
-    let payment_gateway = PaymentGatewayBuilder::new(&private_view_key, primary_address)
+    let payment_gateway = PaymentGatewayBuilder::new(private_view_key, primary_address.to_string())
         .daemon_url("http://busyboredom.com:18081")
         .build()
         .expect("failed to build payment gateway");
@@ -79,14 +86,21 @@ async fn main() -> std::io::Result<()> {
         }
     });
 
+    // Create secure session key for cookies.
+    let mut key_arr = [0u8; SESSION_KEY_LEN];
+    thread_rng().fill(&mut key_arr[..]);
+    let session_key = cookie::Key::generate();
+
     // Run the demo webpage.
     let shared_payment_gateway = Data::new(payment_gateway);
     HttpServer::new(move || {
         App::new()
             .wrap(
-                CookieSession::private(&[0; 32])
-                    .domain("localhost")
-                    .name("acceptxmr_session"),
+                SessionMiddleware::builder(CookieSessionStore::default(), session_key.clone())
+                    .cookie_name("acceptxmr_session".to_string())
+                    .cookie_secure(false)
+                    .cookie_content_security(CookieContentSecurity::Private)
+                    .build(),
             )
             .app_data(shared_payment_gateway.clone())
             .service(check_out)
@@ -111,7 +125,7 @@ async fn check_out(
     payment_gateway: web::Data<PaymentGateway>,
 ) -> Result<&'static str, actix_web::Error> {
     let invoice_id = payment_gateway
-        .new_invoice(100, 2, 3, &checkout_info.message)
+        .new_invoice(100, 2, 3, checkout_info.message.clone())
         .await
         .unwrap();
     session.insert("id", invoice_id)?;

@@ -35,17 +35,17 @@ pub struct Invoice {
 
 impl Invoice {
     pub(crate) fn new(
-        address: &str,
+        address: String,
         index: SubIndex,
         creation_height: u64,
         amount_requested: u64,
         confirmations_required: u64,
         expiration_in: u64,
-        description: &str,
+        description: String,
     ) -> Invoice {
         let expiration_height = creation_height + expiration_in;
         Invoice {
-            address: address.to_string(),
+            address,
             index,
             creation_height,
             amount_requested,
@@ -57,7 +57,7 @@ impl Invoice {
             current_height: 0,
             expiration_height,
             transfers: Vec::new(),
-            description: description.to_string(),
+            description,
         }
     }
 
@@ -160,13 +160,13 @@ impl Invoice {
     /// # let private_view_key = "ad2093a5705b9f33e6f0f0c1bc1f5f639c756cdfc168c8f2ac6127ccbdab3a03";
     /// # let primary_address = "4613YiHLM6JMH4zejMB2zJY5TwQCxL8p65ufw8kBP5yxX9itmuGLqp1dS4tkVoTxjyH3aYhYNrtGHbQzJQP5bFus3KHVdmf";
     /// #
-    /// # let payment_gateway = PaymentGatewayBuilder::new(private_view_key, primary_address)
+    /// # let payment_gateway = PaymentGatewayBuilder::new(private_view_key.to_string(), primary_address.to_string())
     /// #    .build()?;
     /// #
     /// # payment_gateway.run().await?;
     /// #
     /// // Create a new `Invoice` requiring 3 confirmations, and expiring in 5 blocks.
-    /// let invoice_id = payment_gateway.new_invoice(10000, 3, 5, "for pizza").await?;
+    /// let invoice_id = payment_gateway.new_invoice(10000, 3, 5, "for pizza".to_string()).await?;
     /// let mut subscriber = payment_gateway.subscribe(invoice_id)?.expect("invoice ID not found");
     /// let invoice = subscriber.recv()?;
     ///

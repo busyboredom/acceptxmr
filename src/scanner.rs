@@ -176,14 +176,14 @@ impl Scanner {
         }
 
         // Save and log updates.
-        for invoice in &updated_invoices {
+        for invoice in updated_invoices {
             trace!(
                 "Invoice update for subaddress index {}: \
                     \n{}",
                 invoice.index(),
                 invoice
             );
-            if let Err(e) = self.invoices_db.update(invoice.id(), invoice) {
+            if let Err(e) = self.invoices_db.update(invoice.id(), &invoice) {
                 error!(
                     "Failed to save update to invoice for index {} to database: {}",
                     invoice.index(),

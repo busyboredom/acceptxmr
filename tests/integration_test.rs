@@ -17,17 +17,20 @@ fn run_payment_gateway() {
     let rt = Runtime::new().expect("failed to create tokio runtime");
 
     // Create payment gateway pointing at temp directory and mock daemon.
-    let payment_gateway =
-        PaymentGatewayBuilder::new(common::PRIVATE_VIEW_KEY, common::PRIMARY_ADDRESS)
-            .db_path(
-                temp_dir
-                    .path()
-                    .to_str()
-                    .expect("failed to get temporary directory path"),
-            )
-            .daemon_url(&mock_daemon.url(""))
-            .build()
-            .expect("failed to build payment gateway");
+    let payment_gateway = PaymentGatewayBuilder::new(
+        common::PRIVATE_VIEW_KEY.to_string(),
+        common::PRIMARY_ADDRESS.to_string(),
+    )
+    .db_path(
+        temp_dir
+            .path()
+            .to_str()
+            .expect("failed to get temporary directory path")
+            .to_string(),
+    )
+    .daemon_url(&mock_daemon.url(""))
+    .build()
+    .expect("failed to build payment gateway");
 
     // Run it.
     rt.block_on(async {
@@ -47,19 +50,22 @@ fn new_invoice() {
     let rt = Runtime::new().expect("failed to create tokio runtime");
 
     // Create payment gateway pointing at temp directory and mock daemon.
-    let payment_gateway =
-        PaymentGatewayBuilder::new(common::PRIVATE_VIEW_KEY, common::PRIMARY_ADDRESS)
-            .db_path(
-                temp_dir
-                    .path()
-                    .to_str()
-                    .expect("failed to get temporary directory path"),
-            )
-            // Faster scan rate so the update is received sooner.
-            .scan_interval(Duration::from_millis(100))
-            .daemon_url(&mock_daemon.url(""))
-            .build()
-            .expect("failed to build payment gateway");
+    let payment_gateway = PaymentGatewayBuilder::new(
+        common::PRIVATE_VIEW_KEY.to_string(),
+        common::PRIMARY_ADDRESS.to_string(),
+    )
+    .db_path(
+        temp_dir
+            .path()
+            .to_str()
+            .expect("failed to get temporary directory path")
+            .to_string(),
+    )
+    // Faster scan rate so the update is received sooner.
+    .scan_interval(Duration::from_millis(100))
+    .daemon_url(&mock_daemon.url(""))
+    .build()
+    .expect("failed to build payment gateway");
 
     // Run it.
     rt.block_on(async {
@@ -70,7 +76,7 @@ fn new_invoice() {
 
         // Add the invoice.
         let invoice_id = payment_gateway
-            .new_invoice(1, 5, 10, "test invoice")
+            .new_invoice(1, 5, 10, "test invoice".to_string())
             .await
             .expect("failed to add new invoice to payment gateway for tracking");
         let mut subscriber = payment_gateway
@@ -112,20 +118,23 @@ fn track_parallel_invoices() {
     let rt = Runtime::new().expect("failed to create tokio runtime");
 
     // Create payment gateway pointing at temp directory and mock daemon.
-    let payment_gateway =
-        PaymentGatewayBuilder::new(common::PRIVATE_VIEW_KEY, common::PRIMARY_ADDRESS)
-            .db_path(
-                temp_dir
-                    .path()
-                    .to_str()
-                    .expect("failed to get temporary directory path"),
-            )
-            // Faster scan rate so the update is received sooner.
-            .scan_interval(Duration::from_millis(100))
-            .daemon_url(&mock_daemon.url(""))
-            .seed(1)
-            .build()
-            .expect("failed to build payment gateway");
+    let payment_gateway = PaymentGatewayBuilder::new(
+        common::PRIVATE_VIEW_KEY.to_string(),
+        common::PRIMARY_ADDRESS.to_string(),
+    )
+    .db_path(
+        temp_dir
+            .path()
+            .to_str()
+            .expect("failed to get temporary directory path")
+            .to_string(),
+    )
+    // Faster scan rate so the update is received sooner.
+    .scan_interval(Duration::from_millis(100))
+    .daemon_url(&mock_daemon.url(""))
+    .seed(1)
+    .build()
+    .expect("failed to build payment gateway");
 
     // Run it.
     rt.block_on(async {
@@ -136,7 +145,7 @@ fn track_parallel_invoices() {
 
         // Add the invoice.
         let invoice_id = payment_gateway
-            .new_invoice(70000000, 2, 7, "invoice 1")
+            .new_invoice(70000000, 2, 7, "invoice 1".to_string())
             .await
             .expect("failed to add new invoice to payment gateway for tracking");
         let mut subscriber_1 = payment_gateway
@@ -162,7 +171,7 @@ fn track_parallel_invoices() {
 
         // Add the invoice.
         let invoice_id = payment_gateway
-            .new_invoice(70000000, 2, 7, "invoice 2")
+            .new_invoice(70000000, 2, 7, "invoice 2".to_string())
             .await
             .expect("failed to add new invoice to payment gateway for tracking");
         let mut subscriber_2 = payment_gateway
@@ -383,20 +392,23 @@ fn reproducible_seed() {
     let rt = Runtime::new().expect("failed to create tokio runtime");
 
     // Create payment gateway pointing at temp directory and mock daemon.
-    let payment_gateway =
-        PaymentGatewayBuilder::new(common::PRIVATE_VIEW_KEY, common::PRIMARY_ADDRESS)
-            .db_path(
-                temp_dir
-                    .path()
-                    .to_str()
-                    .expect("failed to get temporary directory path"),
-            )
-            // Faster scan rate so the update is received sooner.
-            .scan_interval(Duration::from_millis(100))
-            .daemon_url(&mock_daemon.url(""))
-            .seed(1)
-            .build()
-            .expect("failed to build payment gateway");
+    let payment_gateway = PaymentGatewayBuilder::new(
+        common::PRIVATE_VIEW_KEY.to_string(),
+        common::PRIMARY_ADDRESS.to_string(),
+    )
+    .db_path(
+        temp_dir
+            .path()
+            .to_str()
+            .expect("failed to get temporary directory path")
+            .to_string(),
+    )
+    // Faster scan rate so the update is received sooner.
+    .scan_interval(Duration::from_millis(100))
+    .daemon_url(&mock_daemon.url(""))
+    .seed(1)
+    .build()
+    .expect("failed to build payment gateway");
 
     // Run it.
     rt.block_on(async {
@@ -407,7 +419,7 @@ fn reproducible_seed() {
 
         // Add the invoice.
         let invoice_id = payment_gateway
-            .new_invoice(1, 5, 10, "test invoice")
+            .new_invoice(1, 5, 10, "test invoice".to_string())
             .await
             .expect("failed to add new invoice to payment gateway for tracking");
         let mut subscriber = payment_gateway

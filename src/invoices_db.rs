@@ -16,7 +16,6 @@ impl InvoicesDb {
         let tree = db.open_tree(b"pending invoices")?;
 
         // Set merge operator to act as an update().
-
         tree.set_merge_operator(InvoicesDb::update_merge);
 
         Ok(InvoicesDb(tree))
