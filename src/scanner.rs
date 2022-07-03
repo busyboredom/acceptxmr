@@ -1,26 +1,33 @@
-use std::collections::HashMap;
-use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::Arc;
+use std::{
+    collections::HashMap,
+    sync::{
+        atomic::{AtomicU64, Ordering},
+        Arc,
+    },
+};
 
 use log::{error, info, trace};
-use monero::cryptonote::{hash::Hashable, onetime_key::SubKeyChecker};
-use monero::VarInt;
-use tokio::join;
-use tokio::sync::Mutex;
+use monero::{
+    cryptonote::{hash::Hashable, onetime_key::SubKeyChecker},
+    VarInt,
+};
+use tokio::{join, sync::Mutex as AsyncMutex};
 
-use crate::caching::{BlockCache, TxpoolCache};
-use crate::invoice::Transfer;
-use crate::invoices_db::InvoicesDb;
-use crate::rpc::RpcClient;
-use crate::{AcceptXmrError, SubIndex};
+use crate::{
+    caching::{BlockCache, TxpoolCache},
+    invoice::Transfer,
+    invoices_db::InvoicesDb,
+    rpc::RpcClient,
+    AcceptXmrError, SubIndex,
+};
 
 pub(crate) struct Scanner {
     invoices_db: InvoicesDb,
     // Block cache and txpool cache are mutexed to allow concurrent block & txpool scanning. This is
     // necessary even though txpool scanning doesn't use the block cache, and vice versa, because
     // rust doesn't allow mutably borrowing only part of "self".
-    block_cache: Mutex<BlockCache>,
-    txpool_cache: Mutex<TxpoolCache>,
+    block_cache: AsyncMutex<BlockCache>,
+    txpool_cache: AsyncMutex<TxpoolCache>,
     first_scan: bool,
 }
 
@@ -58,8 +65,8 @@ impl Scanner {
 
         Ok(Scanner {
             invoices_db,
-            block_cache: Mutex::new(block_cache?),
-            txpool_cache: Mutex::new(txpool_cache?),
+            block_cache: AsyncMutex::new(block_cache?),
+            txpool_cache: AsyncMutex::new(txpool_cache?),
             first_scan: true,
         })
     }

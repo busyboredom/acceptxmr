@@ -81,6 +81,7 @@
 #![warn(clippy::expect_used)]
 #![allow(clippy::multiple_crate_versions)]
 #![allow(clippy::module_name_repetitions)]
+#![allow(clippy::format_push_string)]
 
 mod caching;
 mod invoice;
@@ -94,7 +95,7 @@ use thiserror::Error;
 
 pub use invoice::{Invoice, InvoiceId, SubIndex};
 use invoices_db::InvoiceStorageError;
-pub use payment_gateway::{PaymentGateway, PaymentGatewayBuilder};
+pub use payment_gateway::{PaymentGateway, PaymentGatewayBuilder, PaymentGatewayStatus};
 use rpc::RpcError;
 pub use subscriber::{Subscriber, SubscriberError};
 
@@ -126,7 +127,19 @@ pub enum AcceptXmrError {
     /// Failure to check if output is owned.
     #[error("failed to check if output is owned: {0}")]
     OwnedOutputCheck(#[from] monero::blockdata::transaction::Error),
-    /// Failure to start scanning thread.
-    #[error("error starting scanning thread: {0}")]
-    ScanningThread(#[from] std::io::Error),
+    /// Scanning thread exited with error.
+    #[error("scanning thread exited with error: {0}")]
+    ScanningThread(Box<AcceptXmrError>),
+    /// Scanning thread exited with panic.
+    #[error("scanning thread exited with panic")]
+    ScanningThreadPanic,
+    /// Payment gateway is already running.
+    #[error("payment gateway is already running")]
+    AlreadyRunning,
+    /// Payment gateway encountered an error while creating scanning thread.
+    #[error("payment gateway encountered an error while creating scanning thread: {0}")]
+    Threading(#[from] std::io::Error),
+    /// Payment gateway could not be stopped because the stop signal was not sent.
+    #[error("payment gateway could not be stopped because the stop signal was not sent: {0}")]
+    StopSignal(String),
 }
