@@ -1,10 +1,8 @@
-mod common;
-
 use tokio::runtime::Runtime;
 
 use acceptxmr::{AcceptXmrError, PaymentGatewayBuilder, PaymentGatewayStatus};
 
-use crate::common::MockDaemon;
+use crate::common::{self, MockDaemon};
 
 #[test]
 fn run_payment_gateway() {

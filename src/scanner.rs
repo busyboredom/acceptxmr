@@ -6,7 +6,7 @@ use std::{
     },
 };
 
-use log::{error, info, trace};
+use log::{debug, error, info, trace};
 use monero::{
     cryptonote::{hash::Hashable, onetime_key::SubKeyChecker},
     VarInt,
@@ -182,7 +182,7 @@ impl Scanner {
 
         // Save and log updates.
         for invoice in updated_invoices {
-            trace!(
+            debug!(
                 "Invoice update for subaddress index {}: \
                     \n{}",
                 invoice.index(),

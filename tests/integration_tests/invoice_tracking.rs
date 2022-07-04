@@ -1,12 +1,10 @@
-mod common;
-
 use std::time::Duration;
 
 use tokio::runtime::Runtime;
 
 use acceptxmr::{PaymentGatewayBuilder, SubIndex};
 
-use crate::common::MockDaemon;
+use crate::common::{self, MockDaemon};
 
 #[test]
 fn new_invoice() {
