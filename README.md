@@ -16,9 +16,10 @@ Use this library at your own risk, it is young and unproven.
 ## Key Features
 * View pair only, no hot wallet.
 * Subaddress based. 
-* Pending invoices stored persistently, enabling recovery from power loss. 
+* Pending invoices are stored persistently, enabling recovery from power loss. 
 * Number of confirmations is configurable per-invoice.
 * Ignores transactions with non-zero timelocks.
+* Payment can occur over multiple transactions.
 
 ## Security
 
@@ -64,7 +65,7 @@ let payment_gateway = PaymentGateway::builder(private_view_key.to_string(), prim
 ```
 
 Please note that `scan_interval` is the minimum time between scanning for updates. If your
-daemon's response time is already greater than your `scan_interval`, or if your CPU is unable to
+daemon's response time is already greater than your `scan_interval` or if your CPU is unable to
 scan new transactions fast enough, reducing your `scan_interval` will do nothing.
 
 ## License
