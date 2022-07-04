@@ -560,6 +560,7 @@ pub(crate) enum MessageToScanner {
 }
 
 #[cfg(test)]
+#[allow(clippy::expect_used)]
 mod tests {
     use std::env;
 

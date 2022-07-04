@@ -11,9 +11,10 @@
 //! ## Key Features
 //! * View pair only, no hot wallet.
 //! * Subaddress based.
-//! * Pending invoices stored persistently, enabling recovery from power loss.
+//! * Pending invoices are stored persistently, enabling recovery from power loss.
 //! * Number of confirmations is configurable per-invoice.
 //! * Ignores transactions with non-zero timelocks.
+//! * Payment can occur over multiple transactions.
 //!
 //! ## Security
 //!

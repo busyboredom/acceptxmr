@@ -420,7 +420,7 @@ mod tests {
         // Setup.
         init_logger();
 
-        check_payment_request(1, 0, "0.000000000001")
+        check_payment_request(1, 0, "0.000000000001");
     }
 
     #[test]
@@ -428,7 +428,7 @@ mod tests {
         // Setup.
         init_logger();
 
-        check_payment_request(u64::MAX, 0, "18446744.073709551615")
+        check_payment_request(u64::MAX, 0, "18446744.073709551615");
     }
 
     #[test]
@@ -436,7 +436,7 @@ mod tests {
         // Setup.
         init_logger();
 
-        check_payment_request(2_460_000_000_000, 1_230_000_000_000, "1.23")
+        check_payment_request(2_460_000_000_000, 1_230_000_000_000, "1.23");
     }
 
     fn check_payment_request(requested: u64, paid: u64, expected_tx_amount: &str) {
