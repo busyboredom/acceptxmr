@@ -1,10 +1,11 @@
+<!DOCTYPE html>
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>AcceptXMR Demo</title>
 
 <div class="acceptxmr">
     <div class="instruction-container">
         <p id="instruction">AcceptXMR Demo</p>
-        <button id="new-address-btn" onclick="start()" hidden>New Address</button>
+        <button id="new-address-btn" onclick="newAddress()" hidden>New Address</button>
     </div>
     <hr />
     <div id="preperation-content" class="content">
@@ -13,7 +14,7 @@
             <textarea type="text" id="message" name="message" rows="2"
                 placeholder="Have anything you'd like to say?"></textarea>
         </div>
-        <button onclick="start()">Next</button>
+        <button onclick="next()">Next</button>
     </div>
     <div id="payment-content" class="content">
         <div class="qrcode-container" id="qrcode-container">

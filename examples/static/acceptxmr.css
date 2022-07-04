@@ -104,6 +104,7 @@
     min-width: 18ch;
     align-self: center;
     background-color: #dddddd;
+    image-rendering: crisp-edges;
 }
 
 .acceptxmr .details {

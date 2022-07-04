@@ -1,10 +1,10 @@
 use std::{
     env,
-    path::Path,
     time::{Duration, Instant},
 };
 
 use actix::{Actor, ActorContext, AsyncContext, StreamHandler};
+use actix_files::Files;
 use actix_session::{
     storage::CookieSessionStore, CookieContentSecurity, Session, SessionMiddleware,
 };
@@ -31,24 +31,22 @@ const SESSION_KEY_LEN: usize = 64;
 async fn main() -> std::io::Result<()> {
     env::set_var(
         "RUST_LOG",
-        "trace,mio=debug,want=debug,sled=debug,hyper=info,tracing=debug,actix_http=debug",
+        "debug,mio=debug,want=debug,sled=debug,hyper=info,tracing=debug,actix_http=debug",
     );
     env_logger::init();
 
-    // Read view key from file outside of git repository.
-    let private_view_key =
-        std::fs::read_to_string(Path::new("../secrets/xmr_private_view_key.txt"))
-            .expect("Failed to read private view key from file, are you sure it exists?")
-            .trim() // Remove line ending.
-            .to_owned();
+    // The private view key should be stored securely outside of the git repository. It is hardcoded
+    // here for demonstration purposes only.
+    let private_view_key = "ad2093a5705b9f33e6f0f0c1bc1f5f639c756cdfc168c8f2ac6127ccbdab3a03";
 
     // No need to keep the primary address secret.
-    let primary_address = "4A1WSBQdCbUCqt3DaGfmqVFchXScF43M6c5r4B6JXT3dUwuALncU9XTEnRPmUMcB3c16kVP9Y7thFLCJ5BaMW3UmSy93w3w";
+    let primary_address = "4613YiHLM6JMH4zejMB2zJY5TwQCxL8p65ufw8kBP5yxX9itmuGLqp1dS4tkVoTxjyH3aYhYNrtGHbQzJQP5bFus3KHVdmf";
 
-    let payment_gateway = PaymentGatewayBuilder::new(private_view_key, primary_address.to_string())
-        .daemon_url("http://busyboredom.com:18081")
-        .build()
-        .expect("failed to build payment gateway");
+    let payment_gateway =
+        PaymentGatewayBuilder::new(private_view_key.to_string(), primary_address.to_string())
+            .daemon_url("http://busyboredom.com:18089")
+            .build()
+            .expect("failed to build payment gateway");
     info!("Payment gateway created.");
 
     payment_gateway
@@ -103,9 +101,10 @@ async fn main() -> std::io::Result<()> {
                     .build(),
             )
             .app_data(shared_payment_gateway.clone())
+            .service(index)
             .service(check_out)
             .service(websocket)
-            .service(actix_files::Files::new("", "./examples/static").index_file("index.html"))
+            .service(Files::new("", "./examples/static").index_file("index.html"))
     })
     .bind("0.0.0.0:8080")?
     .run()
@@ -125,11 +124,35 @@ async fn check_out(
     payment_gateway: web::Data<PaymentGateway>,
 ) -> Result<&'static str, actix_web::Error> {
     let invoice_id = payment_gateway
-        .new_invoice(100, 2, 3, checkout_info.message.clone())
+        .new_invoice(1_000_000_000, 2, 3, checkout_info.message.clone())
         .await
         .unwrap();
     session.insert("id", invoice_id)?;
     Ok("Success")
+}
+
+// Get invoice update without waiting for websocket.
+#[get("/invoice")]
+async fn index(
+    session: Session,
+    payment_gateway: web::Data<PaymentGateway>,
+) -> Result<HttpResponse, actix_web::Error> {
+    if let Ok(Some(invoice_id)) = session.get::<InvoiceId>("id") {
+        if let Ok(Some(invoice)) = payment_gateway.get_invoice(invoice_id) {
+            return Ok(HttpResponse::Ok().json(json!(
+                {
+                    "address": invoice.address(),
+                    "amount_paid": invoice.amount_paid(),
+                    "amount_requested": invoice.amount_requested(),
+                    "payment_request": invoice.payment_request(),
+                    "confirmations": invoice.confirmations(),
+                    "confirmations_required": invoice.confirmations_required(),
+                    "expiration_in": invoice.expiration_in(),
+                }
+            )));
+        };
+    }
+    Ok(HttpResponse::Gone().finish())
 }
 
 /// WebSocket rout.
@@ -179,6 +202,7 @@ impl WebSocket {
                             "address": invoice_update.address(),
                             "amount_paid": invoice_update.amount_paid(),
                             "amount_requested": invoice_update.amount_requested(),
+                            "payment_request": invoice_update.payment_request(),
                             "confirmations": invoice_update.confirmations(),
                             "confirmations_required": invoice_update.confirmations_required(),
                             "expiration_in": invoice_update.expiration_in(),
@@ -217,7 +241,7 @@ impl WebSocket {
 impl Actor for WebSocket {
     type Context = ws::WebsocketContext<Self>;
     /// This method is called on actor start. We start waiting for updates here, periodically
-    /// stopping to sent a heartbeat ping.
+    /// sending a heartbeat ping as well.
     fn started(&mut self, ctx: &mut Self::Context) {
         ctx.run_interval(HEARTBEAT_INTERVAL, |act, ctx| {
             // Wait for and then send an update.
