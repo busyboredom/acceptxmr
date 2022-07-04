@@ -1,6 +1,7 @@
 use std::fmt;
 use std::{
     cmp::{self, Ordering},
+    collections::HashMap,
     fmt::Display,
 };
 
@@ -10,6 +11,8 @@ use monero::cryptonote::subaddress;
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
 
+const PICONEROS_PER_XMR: u64 = 1_000_000_000_000;
+
 /// Representation of an invoice. `Invoice`s are created by the [`PaymentGateway`](crate::PaymentGateway), and are
 /// initially unpaid.
 ///
@@ -17,7 +20,7 @@ use serde::{Deserialize, Serialize};
 /// the payment gateway by default will continue updating invoices even after expiration.
 ///
 /// To receive updates for a given `Invoice`, use a [`Subscriber`](crate::subscriber::Subscriber).
-#[derive(Debug, Clone, PartialEq, Encode, Decode)]
+#[derive(Debug, Clone, Encode, Decode)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub struct Invoice {
     address: String,
@@ -61,6 +64,29 @@ impl Invoice {
         }
     }
 
+    /// Returns a payment request containing the address and amount due as a `String`. For example:
+    ///
+    /// ```no run
+    /// "monero:4A1WSBQdCbUCqt3DaGfmqVFchXScF43M6c5r4B6JXT3dUwuALncU9XTEnRPmUMcB3c16kVP9Y7thFLCJ5BaMW3UmSy93w3w?tx_amount=0.00100000000"
+    /// ```
+    ///
+    /// Payment requests can be thought of as fancy addresses that pre-fill the amount field for the
+    /// user (and sometimes the description field as well). They are supported by all major wallets.
+    #[must_use]
+    #[allow(clippy::cast_precision_loss)]
+    pub fn payment_request(&self) -> String {
+        let piconeros_due = self.amount_requested.saturating_sub(self.amount_paid);
+        let whole_xmr_due = piconeros_due / PICONEROS_PER_XMR;
+        let fractional_xmr_due =
+            (piconeros_due % PICONEROS_PER_XMR) as f64 / PICONEROS_PER_XMR as f64;
+        format!(
+            "monero:{}?tx_amount={}.{}",
+            &self.address,
+            whole_xmr_due,
+            &fractional_xmr_due.to_string()[2..]
+        )
+    }
+
     /// Returns `true` if the `Invoice` has received the required number of confirmations.
     #[must_use]
     pub fn is_confirmed(&self) -> bool {
@@ -79,8 +105,8 @@ impl Invoice {
 
     /// Returns the base 58 encoded subaddress of this `Invoice`.
     #[must_use]
-    pub fn address(&self) -> String {
-        self.address.clone()
+    pub fn address(&self) -> &str {
+        &self.address
     }
 
     /// Returns the ID of this invoice.
@@ -181,8 +207,8 @@ impl Invoice {
 
     /// Returns the description of this invoice.
     #[must_use]
-    pub fn description(&self) -> String {
-        self.description.clone()
+    pub fn description(&self) -> &str {
+        &self.description
     }
 }
 
@@ -227,6 +253,33 @@ impl fmt::Display for Invoice {
             str.push_str("\n]");
         }
         write!(f, "{}", str)
+    }
+}
+
+/// This custom `PartialEq` implementation is necessary so that the order of `Transfer`s can be
+/// ignored while comparing `Invoice`s.
+impl PartialEq for Invoice {
+    fn eq(&self, other: &Self) -> bool {
+        let mut lhs_transfers = HashMap::new();
+        let mut rhs_transfers = HashMap::new();
+        for i in &self.transfers {
+            *lhs_transfers.entry(i).or_insert(0) += 1;
+        }
+        for i in &other.transfers {
+            *rhs_transfers.entry(i).or_insert(0) += 1;
+        }
+
+        lhs_transfers == rhs_transfers
+            && self.address == other.address
+            && self.index == other.index
+            && self.creation_height == other.creation_height
+            && self.amount_requested == other.amount_requested
+            && self.amount_paid == other.amount_paid
+            && self.paid_height == other.paid_height
+            && self.confirmations_required == other.confirmations_required
+            && self.current_height == other.current_height
+            && self.expiration_height == other.expiration_height
+            && self.description == other.description
     }
 }
 
@@ -319,7 +372,7 @@ impl From<SubIndex> for subaddress::Index {
 /// A `Transfer` represents a sum of owned outputs at a given height. When part of an `Invoice`, it
 /// specifically represents the sum of owned outputs for that invoice's subaddress, at a given
 /// height.
-#[derive(Debug, Clone, PartialEq, Encode, Decode, Copy)]
+#[derive(Debug, Clone, PartialEq, Encode, Decode, Copy, Eq, PartialOrd, Ord, Hash)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub(crate) struct Transfer {
     /// Amount transferred in piconeros.
@@ -345,5 +398,62 @@ impl Transfer {
                 None => cmp::Ordering::Equal,
             },
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::env;
+
+    use crate::{Invoice, SubIndex};
+
+    fn init_logger() {
+        env::set_var(
+            "RUST_LOG",
+            "debug,mio=debug,want=debug,reqwest=info,sled=info,hyper=info,tracing=debug,httpmock=info,isahc=info",
+        );
+        let _ = env_logger::builder().is_test(true).try_init();
+    }
+
+    #[test]
+    fn payment_request_small() {
+        // Setup.
+        init_logger();
+
+        check_payment_request(1, 0, "0.000000000001")
+    }
+
+    #[test]
+    fn payment_request_big() {
+        // Setup.
+        init_logger();
+
+        check_payment_request(u64::MAX, 0, "18446744.073709551615")
+    }
+
+    #[test]
+    fn payment_request_partially_paid() {
+        // Setup.
+        init_logger();
+
+        check_payment_request(2_460_000_000_000, 1_230_000_000_000, "1.23")
+    }
+
+    fn check_payment_request(requested: u64, paid: u64, expected_tx_amount: &str) {
+        let mut invoice = Invoice::new(
+            "testaddress".to_string(),
+            SubIndex::new(0, 1),
+            0,
+            requested,
+            5,
+            10,
+            "test_description".to_string(),
+        );
+        invoice.amount_paid = paid;
+
+        assert_eq!(
+            invoice.payment_request(),
+            format!("monero:testaddress?tx_amount={}", expected_tx_amount)
+        );
     }
 }

@@ -303,7 +303,7 @@ impl PaymentGateway {
                 self.subaddresses
                     .lock()
                     .unwrap_or_else(PoisonError::into_inner)
-                    .insert(invoice_id.sub_index, old.address());
+                    .insert(invoice_id.sub_index, old.address().to_string());
 
                 Ok(Some(old))
             }
