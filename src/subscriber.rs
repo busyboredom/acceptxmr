@@ -1,7 +1,10 @@
 //! Subscribers should be used to receive invoice updates.
 
 use std::{
+    future::Future,
+    pin::Pin,
     sync::mpsc::{RecvTimeoutError, TryRecvError},
+    task::{Context, Poll},
     time::{Duration, Instant},
 };
 
@@ -100,6 +103,26 @@ impl Iterator for Subscriber {
                     .map(|tup| tup.0),
             ),
             _ => None,
+        }
+    }
+}
+
+impl Future for Subscriber {
+    type Output = Option<Result<Invoice, AcceptXmrError>>;
+
+    fn poll(
+        mut self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+    ) -> Poll<Option<Result<Invoice, AcceptXmrError>>> {
+        match Pin::new(&mut self.0).poll(cx) {
+            Poll::Ready(Some(Event::Insert { value, .. })) => Poll::Ready(Some(
+                bincode::decode_from_slice(&value, bincode::config::standard())
+                    .map_err(|e| AcceptXmrError::from(InvoiceStorageError::from(e)))
+                    .map(|tup| tup.0),
+            )),
+            Poll::Ready(Some(Event::Remove { .. })) => self.poll(cx),
+            Poll::Ready(None) => Poll::Ready(None),
+            Poll::Pending => Poll::Pending,
         }
     }
 }
