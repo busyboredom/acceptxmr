@@ -42,6 +42,7 @@ pub struct PaymentGatewayInner {
     subaddresses: Mutex<SubaddressCache>,
     highest_minor_index: Arc<AtomicU32>,
     block_cache_height: Arc<AtomicU64>,
+    cached_daemon_height: Arc<AtomicU64>,
     scanner_handle: Mutex<Option<JoinHandle<Result<(), AcceptXmrError>>>>,
     scanner_command_sender: (
         Mutex<mpsc::Sender<MessageToScanner>>,
@@ -102,6 +103,7 @@ impl PaymentGateway {
         let scan_interval = self.scan_interval;
         let highest_minor_index = self.highest_minor_index.clone();
         let block_cache_height = self.block_cache_height.clone();
+        let cached_daemon_height = self.cached_daemon_height.clone();
         let pending_invoices = self.invoices_db.clone();
         let command_receiver = self.scanner_command_sender.1.clone();
 
@@ -112,6 +114,7 @@ impl PaymentGateway {
             pending_invoices,
             DEFAULT_BLOCK_CACHE_SIZE,
             block_cache_height,
+            cached_daemon_height,
         )
         .await?;
 
@@ -259,8 +262,7 @@ impl PaymentGateway {
             .unwrap_or_else(PoisonError::into_inner)
             .remove_random();
 
-        // Add one because the highest block is always one less than the daemon height.
-        let creation_height = self.block_cache_height.load(atomic::Ordering::Relaxed) + 1;
+        let creation_height = self.cached_daemon_height.load(atomic::Ordering::Relaxed);
 
         // Create invoice object.
         let invoice = Invoice::new(
@@ -335,6 +337,14 @@ impl PaymentGateway {
     /// cannot be parsed.
     pub async fn daemon_height(&self) -> Result<u64, AcceptXmrError> {
         Ok(self.rpc_client.daemon_height().await?)
+    }
+
+    /// Get current height of block cache.
+    #[must_use]
+    #[doc(hidden)]
+    pub fn cache_height(&self) -> u64 {
+        use std::sync::atomic::Ordering;
+        self.block_cache_height.load(Ordering::Relaxed)
     }
 
     /// Get the up-to-date invoice associated with the given [`InvoiceId`], if it exists.
@@ -536,6 +546,7 @@ impl PaymentGatewayBuilder {
             subaddresses: Mutex::new(subaddresses),
             highest_minor_index,
             block_cache_height: Arc::new(atomic::AtomicU64::new(0)),
+            cached_daemon_height: Arc::new(atomic::AtomicU64::new(0)),
             scanner_handle: Mutex::new(None),
             scanner_command_sender,
         })))

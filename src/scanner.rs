@@ -9,7 +9,7 @@ use std::{
 use log::{debug, error, info, trace};
 use monero::{
     cryptonote::{hash::Hashable, onetime_key::SubKeyChecker},
-    VarInt,
+    Transaction, VarInt,
 };
 use tokio::{join, sync::Mutex as AsyncMutex};
 
@@ -36,17 +36,19 @@ impl Scanner {
         rpc_client: RpcClient,
         invoices_db: InvoicesDb,
         block_cache_size: usize,
-        atomic_height: Arc<AtomicU64>,
+        atomic_cache_height: Arc<AtomicU64>,
+        atomic_daemon_height: Arc<AtomicU64>,
     ) -> Result<Scanner, AcceptXmrError> {
         // Determine sensible initial height for block cache.
-        let height = match invoices_db.lowest_height() {
+        let daemon_height = rpc_client.daemon_height().await?;
+        let cache_height = match invoices_db.lowest_height() {
             Ok(Some(h)) => {
                 info!("Pending invoices found in AcceptXMR database. Resuming from last block scanned: {}", h);
                 h - 1
             }
             Ok(None) => {
                 trace!("Retrieving daemon hight for scanner setup.");
-                let h = rpc_client.daemon_height().await?;
+                let h = daemon_height;
                 info!("No pending invoices found in AcceptXMR database. Skipping to blockchain tip: {}", h);
                 h - 1
             }
@@ -55,11 +57,17 @@ impl Scanner {
 
         // Set atomic height to the above determined initial height. This sets the height of the
         // main PaymentGateway as well.
-        atomic_height.store(height, Ordering::Relaxed);
+        atomic_cache_height.store(cache_height, Ordering::Relaxed);
+        atomic_daemon_height.store(daemon_height, Ordering::Relaxed);
 
         // Initialize block cache and txpool cache.
         let (block_cache, txpool_cache) = join!(
-            BlockCache::init(rpc_client.clone(), block_cache_size, atomic_height),
+            BlockCache::init(
+                rpc_client.clone(),
+                block_cache_size,
+                atomic_cache_height,
+                atomic_daemon_height
+            ),
             TxpoolCache::init(rpc_client.clone())
         );
 
@@ -76,10 +84,13 @@ impl Scanner {
         &mut self,
         sub_key_checker: &SubKeyChecker<'_>,
     ) -> Result<(), AcceptXmrError> {
-        // Update block cache, and scan both it and the txpool.
+        // Update block and txpool caches.
+        let (blocks_updated, new_transactions) = self.update_caches().await?;
+
+        // Scan block cache and new transactions in the txpool.
         let (blocks_amounts_or_err, txpool_amounts_or_err) = join!(
-            self.scan_blocks(sub_key_checker),
-            self.scan_txpool(sub_key_checker)
+            self.scan_blocks(sub_key_checker, blocks_updated),
+            self.scan_txpool(sub_key_checker, &new_transactions)
         );
         let block_cache_height = self.block_cache.lock().await.height.load(Ordering::Relaxed);
 
@@ -108,19 +119,10 @@ impl Scanner {
             self.first_scan = false;
         }
 
-        let deepest_update = transfers
-            .iter()
-            .min_by(|(_, transfer_1), (_, transfer_2)| transfer_1.cmp_by_height(transfer_2))
-            // If min can't be found, just use cache height+1 (effectively no update)
-            .map_or(block_cache_height + 1, |(_, transfer)| {
-                transfer.height.unwrap_or(block_cache_height + 1)
-            });
-
-        // A place to keep track of what invoices are changing, so we can log updates later.
-        let mut updated_invoices = Vec::new();
-
         // Prepare updated invoices.
         // TODO: Break this out into its own function.
+        let deepest_update = block_cache_height - blocks_updated as u64 + 1;
+        let mut updated_invoices = Vec::new();
         for invoice_or_err in self.invoices_db.iter() {
             // Retrieve old invoice object.
             let old_invoice = match invoice_or_err {
@@ -202,17 +204,32 @@ impl Scanner {
         Ok(())
     }
 
-    /// Update block cache and scan the blocks.
+    async fn update_caches(&self) -> Result<(usize, Vec<Transaction>), AcceptXmrError> {
+        // Update block cache.
+        let mut block_cache = self.block_cache.lock().await;
+        let blocks_updated = if self.invoices_db.is_empty() {
+            // Skip ahead to blockchain tip if there are no pending invoices.
+            block_cache.skip_ahead().await?
+        } else {
+            block_cache.update().await?
+        };
+
+        // Update txpool.
+        let mut txpool_cache = self.txpool_cache.lock().await;
+        let new_transactions = txpool_cache.update().await?;
+
+        Ok((blocks_updated, new_transactions))
+    }
+
+    /// Scan the block cache up to `updated_blocks` deep.
     ///
     /// Returns a vector of tuples containing [`Transfer`]s and their associated subaddress indices.
     async fn scan_blocks(
         &self,
         sub_key_checker: &SubKeyChecker<'_>,
+        mut blocks_updated: usize,
     ) -> Result<Vec<(SubIndex, Transfer)>, AcceptXmrError> {
-        let mut block_cache = self.block_cache.lock().await;
-
-        // Update block cache.
-        let mut blocks_updated = block_cache.update().await?;
+        let block_cache = self.block_cache.lock().await;
 
         // If this is the first scan, we want to scan all the blocks in the cache.
         if self.first_scan {
@@ -253,17 +270,16 @@ impl Scanner {
     async fn scan_txpool(
         &self,
         sub_key_checker: &SubKeyChecker<'_>,
+        new_transactions: &[Transaction],
     ) -> Result<Vec<(SubIndex, Transfer)>, AcceptXmrError> {
-        // Update txpool.
         let mut txpool_cache = self.txpool_cache.lock().await;
-        let new_transactions = txpool_cache.update().await?;
 
-        // Transfers previously discovered the txpool (no reason to scan the same transactions
+        // Transfers previously discovered in the txpool (no reason to scan the same transactions
         // twice).
         let discovered_transfers = txpool_cache.discovered_transfers();
 
         // Scan txpool.
-        let amounts_received = self.scan_transactions(&new_transactions, sub_key_checker)?;
+        let amounts_received = self.scan_transactions(new_transactions, sub_key_checker)?;
         trace!(
             "Scanned {} transactions from txpool, and found {} transfers for tracked invoices",
             new_transactions.len(),

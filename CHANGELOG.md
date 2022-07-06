@@ -8,15 +8,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
-- Add a `status()` method to `PaymentGateway`s for determining whether a `PaymentGateway` is already
-  running.
-- Add a `stop()` method to `PaymentGateway`s so that they can be gracefully shut down.
-- Add a `payment_request()` method to `Invoice`s which returns a valid monero payment request string that
-  pre-fills the amount due for the user.
+- Add a `status()` method to `PaymentGateway` for determining whether the `PaymentGateway` is
+  already running.
+- Add a `stop()` method to `PaymentGateway` so that it can be gracefully shut down.
+- Add a `uri()` method to `Invoice`s which returns a valid monero URI as a string. The URI
+  auto-fills the amount due for the end user.
+- Implement `Future` for `Subscriber`.
 
 ### Changed
 - Replace Reqwest with Hyper to improve compile time.
-- Increase MSRV to 1.58.
+- Increase MSRV to 1.61.
 - Update dependencies.
 - Use primary address instead of public spend key when creating `PaymentGateway`s.
 - Change some parameter types in API to make expensive memory operations like `Clone`s more
@@ -26,8 +27,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Return an error when attempting to run a `PaymentGateway` which is already running.
 
 ### Fixed
-- Fix a bug where a change in the order of transactions in the txpool would cause all invoices to
-  update, even though no new relevant transactions had been added.
+- Fix a bug where a change in the order of transactions in the txpool would cause all relevant
+  invoices to update, even though no new relevant transactions had been added.
 
 ## [0.10.1] - 2021-12-04
 

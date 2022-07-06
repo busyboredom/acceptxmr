@@ -17,6 +17,8 @@ async function next(hasAddress) {
     if (!hasAddress) {
         document.getElementById("instruction").innerHTML = "Loading...";
         await newAddress();
+    } else {
+        newWebsocket();
     }
 }
 

@@ -162,6 +162,10 @@ impl InvoicesDb {
             .map(|maybe_invoice| maybe_invoice.map(|invoice| invoice.current_height()))
     }
 
+    pub fn is_empty(&self) -> bool {
+        self.0.is_empty()
+    }
+
     fn update_merge(_key: &[u8], old_value: Option<&[u8]>, new_value: &[u8]) -> Option<Vec<u8>> {
         if old_value.is_some() {
             Some(new_value.to_vec())

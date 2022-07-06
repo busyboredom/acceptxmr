@@ -1,6 +1,9 @@
-use std::ops::Deref;
-use std::sync::Mutex;
-use std::{env, fs};
+use std::{
+    collections::HashMap,
+    ops::Deref,
+    sync::Mutex,
+    {env, fs},
+};
 
 use httpmock::{Mock, MockServer};
 use serde_json::{json, Value};
@@ -30,6 +33,7 @@ pub fn init_logger() {
 pub struct MockDaemon {
     server: MockServer,
     daemon_height_id: Mutex<Option<usize>>,
+    block_ids: Mutex<HashMap<u64, usize>>,
     txpool_id: Mutex<Option<usize>>,
     txpool_hashes_id: Mutex<Option<usize>>,
     txpool_transactions_id: Mutex<Option<usize>>,
@@ -48,6 +52,7 @@ impl MockDaemon {
         let mock_daemon = MockDaemon {
             server: MockServer::start(),
             daemon_height_id: Mutex::new(None),
+            block_ids: Mutex::new(HashMap::new()),
             txpool_id: Mutex::new(None),
             txpool_hashes_id: Mutex::new(None),
             txpool_transactions_id: Mutex::new(None),
@@ -110,6 +115,28 @@ impl MockDaemon {
         mock
     }
 
+    pub fn mock_alt_2477657(&self) {
+        // Mock block requests.
+        let response_path = "tests/rpc_resources/2477657_alt/block.json";
+        self.mock_block(2477657, response_path);
+
+        // Mock block transaction requests.
+        let request_path = "tests/rpc_resources/2477657_alt/txs_hashes_0.json";
+        let response_path = "tests/rpc_resources/2477657_alt/transactions_0.json";
+        self.mock_transactions(request_path, response_path);
+    }
+
+    pub fn mock_alt_2477658(&self) {
+        // Mock block requests.
+        let response_path = "tests/rpc_resources/2477658_alt/block.json";
+        self.mock_block(2477658, response_path);
+
+        // Mock block transaction requests.
+        let request_path = "tests/rpc_resources/2477658_alt/txs_hashes_0.json";
+        let response_path = "tests/rpc_resources/2477658_alt/transactions_0.json";
+        self.mock_transactions(request_path, response_path);
+    }
+
     pub fn mock_txpool(&self, path: &str) -> Mock {
         // Use ID to delete old mock.
         if let Some(id) = *self
@@ -158,8 +185,17 @@ impl MockDaemon {
         })
     }
 
-    pub fn mock_block(&self, height: u64, response_path: &str) -> Mock {
-        self.mock(|when, then| {
+    pub fn mock_block(&self, height: u64, response_path: &str) {
+        // Use ID to delete old mock.
+        if let Some(id) = self
+            .block_ids
+            .lock()
+            .expect("PoisonError when reading txpool mock ID")
+            .get(&height)
+        {
+            Mock::new(*id, self).delete();
+        };
+        let mock = self.mock(|when, then| {
             when.path("/json_rpc").body(
                 r#"{"jsonrpc":"2.0","id":"0","method":"get_block","params":{"height":"#.to_owned()
                     + &height.to_string()
@@ -168,7 +204,11 @@ impl MockDaemon {
             then.status(200)
                 .header("content-type", "application/json")
                 .body_from_file(response_path);
-        })
+        });
+        self.block_ids
+            .lock()
+            .expect("PoisonError when writing daemon height mock ID")
+            .insert(height, mock.id);
     }
 
     pub fn mock_txpool_hashes(&self, response_path: &str) -> Mock {

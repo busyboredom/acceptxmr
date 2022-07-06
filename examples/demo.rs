@@ -197,7 +197,7 @@ impl WebSocket {
             // check client heartbeats
             if Instant::now().duration_since(act.last_heartbeat) > CLIENT_TIMEOUT {
                 // heartbeat timed out
-                println!("Websocket Client heartbeat failed, disconnecting!");
+                warn!("Websocket Client heartbeat failed, disconnecting!");
                 ctx.stop();
                 return;
             }
