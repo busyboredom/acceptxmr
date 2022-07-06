@@ -64,17 +64,17 @@ impl Invoice {
         }
     }
 
-    /// Returns a payment request containing the address and amount due as a `String`. For example:
+    /// Returns a URI containing the address and amount due as a `String`. For example:
     ///
     /// ```no run
-    /// "monero:4A1WSBQdCbUCqt3DaGfmqVFchXScF43M6c5r4B6JXT3dUwuALncU9XTEnRPmUMcB3c16kVP9Y7thFLCJ5BaMW3UmSy93w3w?tx_amount=0.00100000000"
+    /// "monero:4A1WSBQdCbUCqt3DaGfmqVFchXScF43M6c5r4B6JXT3dUwuALncU9XTEnRPmUMcB3c16kVP9Y7thFLCJ5BaMW3UmSy93w3w?tx_amount=0.001"
     /// ```
     ///
-    /// Payment requests can be thought of as fancy addresses that pre-fill the amount field for the
-    /// user (and sometimes the description field as well). They are supported by all major wallets.
+    /// Monero URIs can be thought of as fancy addresses that pre-fill the amount field for the user
+    /// (and sometimes the description field as well). They are supported by all major wallets.
     #[must_use]
     #[allow(clippy::cast_precision_loss)]
-    pub fn payment_request(&self) -> String {
+    pub fn uri(&self) -> String {
         let piconeros_due = self.amount_requested.saturating_sub(self.amount_paid);
         let whole_xmr_due = piconeros_due / PICONEROS_PER_XMR;
         let fractional_xmr_due =
@@ -452,7 +452,7 @@ mod tests {
         invoice.amount_paid = paid;
 
         assert_eq!(
-            invoice.payment_request(),
+            invoice.uri(),
             format!("monero:testaddress?tx_amount={}", expected_tx_amount)
         );
     }
