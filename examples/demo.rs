@@ -1,9 +1,12 @@
 use std::{
     env,
+    future::Future,
+    pin::Pin,
+    task::Poll,
     time::{Duration, Instant},
 };
 
-use actix::{Actor, ActorContext, AsyncContext, StreamHandler};
+use actix::{prelude::Stream, Actor, ActorContext, AsyncContext, StreamHandler};
 use actix_files::Files;
 use actix_session::{
     storage::CookieSessionStore, CookieContentSecurity, Session, SessionMiddleware,
@@ -17,7 +20,7 @@ use serde::Deserialize;
 use serde_json::json;
 
 use acceptxmr::{
-    AcceptXmrError, InvoiceId, PaymentGateway, PaymentGatewayBuilder, Subscriber, SubscriberError,
+    AcceptXmrError, Invoice, InvoiceId, PaymentGateway, PaymentGatewayBuilder, Subscriber,
 };
 
 /// Time before lack of client response causes a timeout.
@@ -38,7 +41,6 @@ async fn main() -> std::io::Result<()> {
     // The private view key should be stored securely outside of the git repository. It is hardcoded
     // here for demonstration purposes only.
     let private_view_key = "ad2093a5705b9f33e6f0f0c1bc1f5f639c756cdfc168c8f2ac6127ccbdab3a03";
-
     // No need to keep the primary address secret.
     let primary_address = "4613YiHLM6JMH4zejMB2zJY5TwQCxL8p65ufw8kBP5yxX9itmuGLqp1dS4tkVoTxjyH3aYhYNrtGHbQzJQP5bFus3KHVdmf";
 
@@ -171,29 +173,79 @@ async fn websocket(
         Ok(Some(s)) => s,
         _ => return Ok(HttpResponse::NotFound().finish()),
     };
-    ws::start(WebSocket::new(subscriber), &req, stream)
+    let websocket = WebSocket::new(subscriber);
+    ws::start(websocket, &req, stream)
 }
 
 /// Define websocket HTTP actor
 struct WebSocket {
-    last_check: Instant,
-    client_replied: bool,
-    invoice_subscriber: Subscriber,
+    last_heartbeat: Instant,
+    invoice_subscriber: Option<Subscriber>,
 }
 
 impl WebSocket {
     fn new(invoice_subscriber: Subscriber) -> Self {
         Self {
-            last_check: Instant::now(),
-            client_replied: true,
-            invoice_subscriber,
+            last_heartbeat: Instant::now(),
+            invoice_subscriber: Some(invoice_subscriber),
         }
     }
 
-    /// Check subscriber for invoice update, and send result to user if applicable.
-    fn try_update(&mut self, ctx: &mut <Self as Actor>::Context) {
-        match self.invoice_subscriber.recv_timeout(HEARTBEAT_INTERVAL) {
-            // Send an update of we got one.
+    /// Sends ping to client every `HEARTBEAT_INTERVAL` and checks for responses from client
+    fn heartbeat(&self, ctx: &mut <Self as Actor>::Context) {
+        ctx.run_interval(HEARTBEAT_INTERVAL, |act, ctx| {
+            // check client heartbeats
+            if Instant::now().duration_since(act.last_heartbeat) > CLIENT_TIMEOUT {
+                // heartbeat timed out
+                println!("Websocket Client heartbeat failed, disconnecting!");
+                ctx.stop();
+                return;
+            }
+            ctx.ping(b"");
+        });
+    }
+}
+
+impl Actor for WebSocket {
+    type Context = ws::WebsocketContext<Self>;
+    /// This method is called on actor start. We add the invoice subscriber as a stream here, and
+    /// start heartbeat checks as well.
+    fn started(&mut self, ctx: &mut Self::Context) {
+        if let Some(subscriber) = self.invoice_subscriber.take() {
+            <WebSocket as StreamHandler<Result<Invoice, AcceptXmrError>>>::add_stream(
+                InvoiceStream(subscriber),
+                ctx,
+            );
+        }
+        self.heartbeat(ctx);
+    }
+}
+
+/// Handle incoming websocket messages.
+impl StreamHandler<Result<ws::Message, ws::ProtocolError>> for WebSocket {
+    fn handle(&mut self, msg: Result<ws::Message, ws::ProtocolError>, ctx: &mut Self::Context) {
+        match msg {
+            Ok(ws::Message::Pong(_)) => {
+                self.last_heartbeat = Instant::now();
+            }
+            Ok(ws::Message::Close(reason)) => {
+                match &reason {
+                    Some(r) => debug!("Websocket client closing: {:#?}", r.description),
+                    None => debug!("Websocket client closing"),
+                }
+                ctx.close(reason);
+                ctx.stop();
+            }
+            Ok(m) => debug!("Received unexpected message from websocket client: {:?}", m),
+            Err(e) => warn!("Received error from websocket client: {:?}", e),
+        }
+    }
+}
+
+/// Handle incoming invoice updates.
+impl StreamHandler<Result<Invoice, AcceptXmrError>> for WebSocket {
+    fn handle(&mut self, msg: Result<Invoice, AcceptXmrError>, ctx: &mut Self::Context) {
+        match msg {
             Ok(invoice_update) => {
                 // Send the update to the user.
                 ctx.text(ByteString::from(
@@ -225,11 +277,6 @@ impl WebSocket {
                     ctx.stop();
                 }
             }
-            // Do nothing if there was no update.
-            Err(AcceptXmrError::Subscriber(SubscriberError::RecvTimeout(
-                std::sync::mpsc::RecvTimeoutError::Timeout,
-            ))) => {}
-            // Otherwise, handle the error.
             Err(e) => {
                 error!("Failed to receive invoice update: {}", e);
                 ctx.stop();
@@ -238,44 +285,17 @@ impl WebSocket {
     }
 }
 
-impl Actor for WebSocket {
-    type Context = ws::WebsocketContext<Self>;
-    /// This method is called on actor start. We start waiting for updates here, periodically
-    /// sending a heartbeat ping as well.
-    fn started(&mut self, ctx: &mut Self::Context) {
-        ctx.run_interval(HEARTBEAT_INTERVAL, |act, ctx| {
-            // Wait for and then send an update.
-            if act.client_replied {
-                act.try_update(ctx);
-                ctx.ping(b"");
-                act.client_replied = false;
-                act.last_check = Instant::now();
-            // Check heartbeat.
-            } else if Instant::now().duration_since(act.last_check) > CLIENT_TIMEOUT {
-                warn!("Websocket heartbeat failed. Closing websocket.");
-                ctx.stop();
-            }
-        });
-    }
-}
+// Wrapping `Subscriber` and implementing `Stream` on the wrapper allows us to use it as an efficient
+// asynchronous stream for the Actix websocket.
+struct InvoiceStream(Subscriber);
 
-/// Handle incoming websocket messages.
-impl StreamHandler<Result<ws::Message, ws::ProtocolError>> for WebSocket {
-    fn handle(&mut self, msg: Result<ws::Message, ws::ProtocolError>, ctx: &mut Self::Context) {
-        match msg {
-            Ok(ws::Message::Pong(_)) => {
-                self.client_replied = true;
-            }
-            Ok(ws::Message::Close(reason)) => {
-                match &reason {
-                    Some(r) => debug!("Websocket client closing: {:#?}", r.description),
-                    None => debug!("Websocket client closing"),
-                }
-                ctx.close(reason);
-                ctx.stop();
-            }
-            Ok(m) => debug!("Received unexpected message from websocket client: {:?}", m),
-            Err(e) => warn!("Received error from websocket client: {:?}", e),
-        }
+impl Stream for InvoiceStream {
+    type Item = Result<Invoice, AcceptXmrError>;
+
+    fn poll_next(
+        mut self: Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> Poll<Option<Self::Item>> {
+        Pin::new(&mut self.0).poll(cx)
     }
 }
