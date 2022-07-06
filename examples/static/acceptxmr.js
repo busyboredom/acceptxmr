@@ -82,7 +82,7 @@ function displayInvoiceUpdate(invoiceUpdate) {
         document.getElementById("address").innerHTML = invoiceUpdate.address;
 
         const qr = qrcode(0, "M");
-        qr.addData(invoiceUpdate.payment_request);
+        qr.addData(invoiceUpdate.uri);
         qr.make();
         document.getElementById('qrcode-container').innerHTML = qr.createSvgTag({ scalable: true });
     } else {
