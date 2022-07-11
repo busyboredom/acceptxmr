@@ -130,16 +130,74 @@ impl Invoice {
         self.creation_height
     }
 
-    /// Returns the amount of monero requested, in piconeros.
+    /// Returns the amount of monero requested in piconeros.
     #[must_use]
     pub fn amount_requested(&self) -> u64 {
         self.amount_requested
     }
 
-    /// Returns the amount of monero paid, in piconeros.
+    /// Returns the amount of monero paid in piconeros.
     #[must_use]
     pub fn amount_paid(&self) -> u64 {
         self.amount_paid
+    }
+
+    /// Returns the amount of monero requested in XMR. 
+    /// 
+    /// Note that rounding may occur because the precision of `f64` is insufficient for
+    /// representing large amounts of XMR out to many decimal places. If accuracy is desired,
+    /// [`amount_requested()`](#method.amount_requested) should be preferred.
+    /// 
+    /// # Examples
+    /// 
+    /// ```
+    /// # #[tokio::main]
+    /// # async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    /// #
+    /// # use acceptxmr::PaymentGatewayBuilder;
+    /// #
+    /// # let private_view_key = "ad2093a5705b9f33e6f0f0c1bc1f5f639c756cdfc168c8f2ac6127ccbdab3a03";
+    /// # let primary_address = "4613YiHLM6JMH4zejMB2zJY5TwQCxL8p65ufw8kBP5yxX9itmuGLqp1dS4tkVoTxjyH3aYhYNrtGHbQzJQP5bFus3KHVdmf";
+    /// #
+    /// # let payment_gateway = PaymentGatewayBuilder::new(private_view_key.to_string(), primary_address.to_string())
+    /// #    .build()?;
+    /// // Create a new `Invoice` for 1 millinero.
+    /// let invoice_id = payment_gateway.new_invoice(1_000_000_000, 3, 5, "for pizza".to_string()).await?;
+    /// let small_invoice = payment_gateway.get_invoice(invoice_id)?.expect("invoice ID not found");
+    /// 
+    /// // One millinero, as expected.
+    /// assert_eq!(small_invoice.xmr_requested(), 0.001);
+    /// 
+    /// // Create a new `Invoice` for 18446744.073709551615 XMR.
+    /// let invoice_id = payment_gateway.new_invoice(18_446_744_073_709_551_615, 3, 5, "for lambo".to_string()).await?;
+    /// let large_invoice = payment_gateway.get_invoice(invoice_id)?.expect("invoice ID not found");
+    /// 
+    /// // The large value has been rounded slightly due to f64 precision limitations.
+    /// assert_eq!(large_invoice.xmr_requested(), 18446744.073709551245);
+    /// #   Ok(())
+    /// # }
+    /// ```
+    #[must_use]
+    pub fn xmr_requested(&self) -> f64 {
+        let whole_xmr = self.amount_requested / PICONEROS_PER_XMR;
+        let fractional_xmr =
+            (self.amount_requested % PICONEROS_PER_XMR) as f64 / PICONEROS_PER_XMR as f64;
+        whole_xmr as f64 + fractional_xmr
+    }
+
+    /// Returns the amount of monero paid in XMR.
+    /// 
+    /// Note that rounding may occur because the precision of `f64` is insufficient for
+    /// representing large amounts of XMR out to many decimal places. If accuracy is desired,
+    /// [`amount_paid()`](#method.amount_paid) should be preferred.
+    /// 
+    /// For an example of possible rounding error, see [`xmr_requested()`](#method.xmr_requested)
+    #[must_use]
+    pub fn xmr_paid(&self) -> f64 {
+        let whole_xmr = self.amount_paid / PICONEROS_PER_XMR;
+        let fractional_xmr =
+            (self.amount_paid % PICONEROS_PER_XMR) as f64 / PICONEROS_PER_XMR as f64;
+        whole_xmr as f64 + fractional_xmr
     }
 
     /// Returns the number of confirmations this `Invoice` requires before it is considered fully confirmed.

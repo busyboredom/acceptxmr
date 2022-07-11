@@ -11,8 +11,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Add a `status()` method to `PaymentGateway` for determining whether the `PaymentGateway` is
   already running.
 - Add a `stop()` method to `PaymentGateway` so that it can be gracefully shut down.
-- Add a `uri()` method to `Invoice`s which returns a valid monero URI as a string. The URI
+- Add a `uri()` method to `Invoice` which returns a valid monero URI as a string. The URI
   auto-fills the amount due for the end user.
+- Add `xmr_requested()` method to `invoice` which returns the amount requested in XMR.
+- Add `xmr_paid()` method to `invoice` which returns the amount paid in XMR.
 - Implement `Future` for `Subscriber`.
 
 ### Changed
