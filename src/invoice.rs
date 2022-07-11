@@ -83,7 +83,7 @@ impl Invoice {
             "monero:{}?tx_amount={}.{}",
             &self.address,
             whole_xmr_due,
-            &fractional_xmr_due.to_string()[2..]
+            fractional_xmr_due.to_string().trim_start_matches("0.")
         )
     }
 
@@ -142,42 +142,57 @@ impl Invoice {
         self.amount_paid
     }
 
-    /// Returns the amount of monero requested in XMR. 
-    /// 
+    /// Returns the amount of monero requested in XMR.
+    ///
     /// Note that rounding may occur because the precision of `f64` is insufficient for
     /// representing large amounts of XMR out to many decimal places. If accuracy is desired,
     /// [`amount_requested()`](#method.amount_requested) should be preferred.
-    /// 
+    ///
     /// # Examples
-    /// 
+    ///
     /// ```
     /// # #[tokio::main]
     /// # async fn main() -> Result<(), Box<dyn std::error::Error>> {
     /// #
     /// # use acceptxmr::PaymentGatewayBuilder;
+    /// # use tempfile::Builder;
+    /// #
+    /// # let temp_dir = Builder::new()
+    /// #    .prefix("temp_db_")
+    /// #    .rand_bytes(16)
+    /// #    .tempdir()
+    /// #    .expect("failed to generate temporary directory");
     /// #
     /// # let private_view_key = "ad2093a5705b9f33e6f0f0c1bc1f5f639c756cdfc168c8f2ac6127ccbdab3a03";
     /// # let primary_address = "4613YiHLM6JMH4zejMB2zJY5TwQCxL8p65ufw8kBP5yxX9itmuGLqp1dS4tkVoTxjyH3aYhYNrtGHbQzJQP5bFus3KHVdmf";
     /// #
     /// # let payment_gateway = PaymentGatewayBuilder::new(private_view_key.to_string(), primary_address.to_string())
-    /// #    .build()?;
+    /// #   .db_path(
+    /// #       temp_dir
+    /// #           .path()
+    /// #           .to_str()
+    /// #           .expect("failed to get temporary directory path")
+    /// #           .to_string(),
+    /// #   )
+    /// #   .build()?;
     /// // Create a new `Invoice` for 1 millinero.
     /// let invoice_id = payment_gateway.new_invoice(1_000_000_000, 3, 5, "for pizza".to_string()).await?;
     /// let small_invoice = payment_gateway.get_invoice(invoice_id)?.expect("invoice ID not found");
-    /// 
+    ///
     /// // One millinero, as expected.
     /// assert_eq!(small_invoice.xmr_requested(), 0.001);
-    /// 
+    ///
     /// // Create a new `Invoice` for 18446744.073709551615 XMR.
     /// let invoice_id = payment_gateway.new_invoice(18_446_744_073_709_551_615, 3, 5, "for lambo".to_string()).await?;
     /// let large_invoice = payment_gateway.get_invoice(invoice_id)?.expect("invoice ID not found");
-    /// 
+    ///
     /// // The large value has been rounded slightly due to f64 precision limitations.
     /// assert_eq!(large_invoice.xmr_requested(), 18446744.073709551245);
     /// #   Ok(())
     /// # }
     /// ```
     #[must_use]
+    #[allow(clippy::cast_precision_loss)]
     pub fn xmr_requested(&self) -> f64 {
         let whole_xmr = self.amount_requested / PICONEROS_PER_XMR;
         let fractional_xmr =
@@ -186,13 +201,14 @@ impl Invoice {
     }
 
     /// Returns the amount of monero paid in XMR.
-    /// 
+    ///
     /// Note that rounding may occur because the precision of `f64` is insufficient for
     /// representing large amounts of XMR out to many decimal places. If accuracy is desired,
     /// [`amount_paid()`](#method.amount_paid) should be preferred.
-    /// 
+    ///
     /// For an example of possible rounding error, see [`xmr_requested()`](#method.xmr_requested)
     #[must_use]
+    #[allow(clippy::cast_precision_loss)]
     pub fn xmr_paid(&self) -> f64 {
         let whole_xmr = self.amount_paid / PICONEROS_PER_XMR;
         let fractional_xmr =
@@ -487,6 +503,14 @@ mod tests {
         init_logger();
 
         check_payment_request(u64::MAX, 0, "18446744.073709551615");
+    }
+
+    #[test]
+    fn payment_request_zero() {
+        // Setup.
+        init_logger();
+
+        check_payment_request(1, 1, "0.0");
     }
 
     #[test]
