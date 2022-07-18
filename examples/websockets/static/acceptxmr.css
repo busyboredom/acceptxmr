@@ -1,3 +1,7 @@
+body {
+    background-color: #4d4d4d;
+}
+
 .acceptxmr {
     max-width: 80ch;
     margin: auto;
@@ -104,7 +108,6 @@
     min-width: 18ch;
     align-self: center;
     background-color: #dddddd;
-    image-rendering: crisp-edges;
 }
 
 .acceptxmr .details {

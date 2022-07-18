@@ -1,21 +1,13 @@
 <!DOCTYPE html>
+<meta charset="UTF-8"> 
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>AcceptXMR Demo</title>
+<title>AcceptXMR NoJS Demo</title>
 
 <div class="acceptxmr">
     <div class="instruction-container">
-        <p id="instruction">AcceptXMR Demo</p>
-        <button id="new-address-btn" onclick="newAddress()" hidden>New Address</button>
+        <p id="instruction">Address Expired!</p>
     </div>
     <hr />
-    <div id="preperation-content" class="content">
-        <div id="message-container">
-            <label for="message">Message (Optional)</label>
-            <textarea type="text" id="message" name="message" rows="2"
-                placeholder="Have anything you'd like to say?"></textarea>
-        </div>
-        <button onclick="next(false)">Next</button>
-    </div>
     <div id="payment-content" class="content">
         <div class="qrcode-container" id="qrcode-container">
             <svg viewBox="0 0 100 100" id="qrcode" src=""></svg>
@@ -23,8 +15,7 @@
         <div class="details">
             <label>Address</label>
             <div id="address-container">
-                <p id="address"></p>
-                <button id="address-copy-btn" onclick="copyInvoiceAddress()">Copy</button>
+                <p id="address">Expired!</p>
             </div>
             <label>Status</label>
             <p class="status">
@@ -34,9 +25,12 @@
             </p>
         </div>
     </div>
+    <div class="content">
+        <form id="start-over" action="/">
+            <button>Start Over</button>
+        </form>
+    </div>
 </div>
-<script type="text/javascript" src="vendor/qrcode.js"></script>
-<script type="text/javascript" src="acceptxmr.js"></script>
 <link rel="stylesheet" href="acceptxmr.css">
 
 <style>

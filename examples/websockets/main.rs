@@ -9,7 +9,7 @@ use std::{
 use actix::{prelude::Stream, Actor, ActorContext, AsyncContext, StreamHandler};
 use actix_files::Files;
 use actix_session::{
-    storage::CookieSessionStore, CookieContentSecurity, Session, SessionMiddleware,
+    config::CookieContentSecurity, storage::CookieSessionStore, Session, SessionMiddleware,
 };
 use actix_web::{cookie, get, post, web, web::Data, App, HttpRequest, HttpResponse, HttpServer};
 use actix_web_actors::ws;
@@ -34,7 +34,7 @@ const SESSION_KEY_LEN: usize = 64;
 async fn main() -> std::io::Result<()> {
     env::set_var(
         "RUST_LOG",
-        "debug,mio=debug,want=debug,sled=debug,hyper=info,tracing=debug,actix_http=debug",
+        "trace,mio=debug,want=debug,sled=debug,hyper=info,tracing=debug,actix_http=debug",
     );
     env_logger::init();
 
@@ -46,7 +46,7 @@ async fn main() -> std::io::Result<()> {
 
     let payment_gateway =
         PaymentGatewayBuilder::new(private_view_key.to_string(), primary_address.to_string())
-            .daemon_url("http://busyboredom.com:18089")
+            .daemon_url("http://node.sethforprivacy.com:18089")
             .build()
             .expect("failed to build payment gateway");
     info!("Payment gateway created.");
@@ -103,10 +103,10 @@ async fn main() -> std::io::Result<()> {
                     .build(),
             )
             .app_data(shared_payment_gateway.clone())
-            .service(index)
-            .service(check_out)
+            .service(update)
+            .service(checkout)
             .service(websocket)
-            .service(Files::new("", "./examples/static").index_file("index.html"))
+            .service(Files::new("", "./examples/websockets/static").index_file("index.html"))
     })
     .bind("0.0.0.0:8080")?
     .run()
@@ -119,14 +119,14 @@ struct CheckoutInfo {
 }
 
 /// Create new invoice and place cookie.
-#[post("/check_out")]
-async fn check_out(
+#[post("/checkout")]
+async fn checkout(
     session: Session,
     checkout_info: web::Json<CheckoutInfo>,
     payment_gateway: web::Data<PaymentGateway>,
 ) -> Result<&'static str, actix_web::Error> {
     let invoice_id = payment_gateway
-        .new_invoice(1_000_000_000, 2, 3, checkout_info.message.clone())
+        .new_invoice(1_000_000_000, 2, 5, checkout_info.message.clone())
         .await
         .unwrap();
     session.insert("id", invoice_id)?;
@@ -134,8 +134,8 @@ async fn check_out(
 }
 
 // Get invoice update without waiting for websocket.
-#[get("/invoice")]
-async fn index(
+#[get("/update")]
+async fn update(
     session: Session,
     payment_gateway: web::Data<PaymentGateway>,
 ) -> Result<HttpResponse, actix_web::Error> {

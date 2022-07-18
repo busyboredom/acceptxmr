@@ -1,5 +1,5 @@
 async function init() {
-    let response = await fetch("/invoice");
+    let response = await fetch("/update");
     if (response.status !== 410 ) {
         let invoiceUpdate = await response.json();
         displayInvoiceUpdate(invoiceUpdate);
@@ -34,10 +34,10 @@ async function newAddress() {
         }
     };
 
-    await fetch("/check_out", checkOutInfo);
+    await fetch("/checkout", checkOutInfo);
     newWebsocket();
 
-    let response = await fetch("/invoice");
+    let response = await fetch("/update");
     let invoiceUpdate = await response.json();
     displayInvoiceUpdate(invoiceUpdate);
 }

@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<meta charset="UTF-8"> 
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AcceptXMR NoJS Demo</title>
+
+<div class="acceptxmr">
+    <div class="instruction-container">
+        <p id="instruction">{{instruction}}</p>
+    </div>
+    <hr />
+    <div class="content">
+        <div class="qrcode-container" id="qrcode-container">
+            {{qrcode}}
+        </div>
+        <div class="details">
+            <label>Address</label>
+            <div id="address-container">
+                <p>{{address}}</p>
+            </div>
+            <label>Status</label>
+            <p class="status">
+                Paid: {{paid}} / {{requested}} XMR<br />
+                Confirmations: {{confirmations}} / {{confirmations-required}}<br />
+            </p>
+        </div>
+    </div>
+    <div class="content">
+        <form id="refresh" action="/checkout">
+            <button><img src="/refresh.png">Refresh</button>
+        </form>
+        <form id="start-over" action="/">
+            <button>Start Over</button>
+        </form>
+    </div>
+</div>
+<link rel="stylesheet" href="acceptxmr.css">
+
+<style>
+    body {
+        background-color: #4d4d4d;
+    }
+</style>

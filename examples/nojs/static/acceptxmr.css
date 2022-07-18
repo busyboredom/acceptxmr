@@ -1,0 +1,169 @@
+body {
+    background-color: #4d4d4d;
+}
+
+.acceptxmr {
+    max-width: 80ch;
+    margin: auto;
+    background-color: #f26822;
+    border-radius: 1em;
+    display: flex;
+    flex-flow: column wrap;
+    align-items: center;
+}
+
+.acceptxmr button {
+    background-color: #0088ff;
+    border-radius: 0.5em;
+    border: 0;
+    margin: 0;
+    font-size: medium;
+}
+
+.acceptxmr button:hover {
+    background-color: #005fb3;
+    cursor: pointer;
+}
+
+.acceptxmr button:disabled {
+    background-color: #979797;
+}
+
+.acceptxmr #message-container {
+    margin: 1em;
+    flex: 2 1 20em;
+}
+
+.acceptxmr .content form, button {
+    display: flex;
+    flex: 1 2 10ch;
+    align-self: flex-end;
+    justify-content: center;
+}
+
+.acceptxmr .content button {
+    margin: 1em;
+    padding: 12px 0.5em;
+}
+
+.acceptxmr textarea {
+    border-radius: 0.5em;
+    border: 0;
+    padding: 0.5em;
+    width: 100%;
+    margin: 0;
+    background-color: #4d4d4d;
+    color: #ffffff;
+    resize: vertical;
+}
+
+.acceptxmr .instruction-container {
+    display: flex;
+    flex-flow: row wrap;
+    align-items: center;
+    justify-content: center;
+}
+
+.acceptxmr .instruction-container p {
+    margin: 0.1em;
+    font-size: large;
+}
+
+.acceptxmr .instruction-container button {
+    margin: 0.5em;
+    padding: 0.25em 0.5em;
+}
+
+.acceptxmr .warning {
+    animation: acceptxmr-fade 2s linear;
+    animation-iteration-count: infinite;
+}
+
+@keyframes acceptxmr-fade {
+    0%,100% { opacity: 0.2 }
+    50% { opacity: 1 }
+}
+
+.acceptxmr hr {
+    width: 90%;
+    border-style: solid;
+    border-color: #000000;
+    margin: 0;
+}
+
+.content {
+    width: 100%;
+    display: flex;
+    flex-flow: row wrap;
+}
+
+.acceptxmr .qrcode-container {
+    flex: 1 1 10ch;
+    margin: 1em;
+    display: flex;
+    justify-content: center;
+}
+
+.acceptxmr .qrcode-container svg {
+    border-radius: 1em;
+    min-width: 18ch;
+    align-self: center;
+    background-color: #dddddd;
+    width: 100%;
+    height: 100%;
+}
+
+.acceptxmr .details {
+    flex: 2 2 30ch;
+    margin: 0 1em 1em 1em;
+    overflow: hidden;
+    align-self: center;
+}
+
+.acceptxmr #address-container {
+    display: flex;       
+    height: 3em;
+    border-radius: 0.5em;
+    margin-bottom: 0.5em;
+    background-color: #ffffff;
+    justify-content: space-between;
+}
+
+.acceptxmr #address-container p {
+    overflow-x: scroll;
+    overflow-y: hidden;
+    margin: 0 0.5em 0 0.5em;
+    height: 100%;
+    width: 100%;
+    display: flex;
+    align-items: center;
+}
+
+.acceptxmr .status {
+    margin: 0 0 0 0;
+    border-radius: 0.5em;
+    padding: 0.5em;
+    background-color: #ffffff;
+}
+
+.acceptxmr .content #start-over {
+    flex-basis: 20ch;
+    flex-grow: 1;
+}
+
+.acceptxmr #start-over button {
+    background-color: red;
+}
+
+.acceptxmr #refresh {
+    flex-basis: 30ch;
+    flex-grow: 10;
+}
+
+.acceptxmr #refresh img{
+    position: relative;
+    top: 0.2em;
+    margin-right: 1ch;
+    height: 1em;
+    width: 1em;
+}

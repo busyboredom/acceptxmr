@@ -226,7 +226,7 @@ impl Invoice {
     /// Returns `None` if the `Invoice` has not yet been paid in full.
     #[must_use]
     pub fn confirmations(&self) -> Option<u64> {
-        if self.amount_paid > self.amount_requested {
+        if self.amount_paid >= self.amount_requested {
             self.paid_height.map_or(Some(0), |paid_at| {
                 Some(self.current_height.saturating_sub(paid_at))
             })
