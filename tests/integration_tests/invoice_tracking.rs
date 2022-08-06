@@ -28,7 +28,7 @@ fn new_invoice() {
     )
     // Faster scan rate so the update is received sooner.
     .scan_interval(Duration::from_millis(100))
-    .daemon_url(&mock_daemon.url(""))
+    .daemon_url(mock_daemon.url(""))
     .build()
     .expect("failed to build payment gateway");
 
@@ -96,7 +96,7 @@ fn track_parallel_invoices() {
     )
     // Faster scan rate so the update is received sooner.
     .scan_interval(Duration::from_millis(100))
-    .daemon_url(&mock_daemon.url(""))
+    .daemon_url(mock_daemon.url(""))
     .seed(1)
     .build()
     .expect("failed to build payment gateway");
@@ -370,7 +370,7 @@ fn block_cache_skip_ahead() {
     )
     // Faster scan rate so the update is received sooner.
     .scan_interval(Duration::from_millis(200))
-    .daemon_url(&mock_daemon.url(""))
+    .daemon_url(mock_daemon.url(""))
     .seed(1)
     .build()
     .expect("failed to build payment gateway");
@@ -413,7 +413,7 @@ fn fix_reorg() {
     )
     // Faster scan rate so the update is received sooner.
     .scan_interval(Duration::from_millis(100))
-    .daemon_url(&mock_daemon.url(""))
+    .daemon_url(mock_daemon.url(""))
     .seed(1)
     .build()
     .expect("failed to build payment gateway");
@@ -494,7 +494,7 @@ fn fix_reorg() {
 }
 
 #[test]
-fn reproducible_seed() {
+fn reproducible_rand() {
     // Setup.
     common::init_logger();
     let temp_dir = common::new_temp_dir();
@@ -515,7 +515,7 @@ fn reproducible_seed() {
     )
     // Faster scan rate so the update is received sooner.
     .scan_interval(Duration::from_millis(100))
-    .daemon_url(&mock_daemon.url(""))
+    .daemon_url(mock_daemon.url(""))
     .seed(1)
     .build()
     .expect("failed to build payment gateway");

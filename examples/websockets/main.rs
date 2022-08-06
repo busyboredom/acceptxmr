@@ -34,7 +34,7 @@ const SESSION_KEY_LEN: usize = 64;
 async fn main() -> std::io::Result<()> {
     env::set_var(
         "RUST_LOG",
-        "trace,mio=debug,want=debug,sled=debug,hyper=info,tracing=debug,actix_http=debug",
+        "trace,mio=debug,want=debug,sled=info,hyper=info,tracing=debug,actix_http=debug,rustls=info",
     );
     env_logger::init();
 
@@ -46,7 +46,7 @@ async fn main() -> std::io::Result<()> {
 
     let payment_gateway =
         PaymentGatewayBuilder::new(private_view_key.to_string(), primary_address.to_string())
-            .daemon_url("http://node.sethforprivacy.com:18089")
+            .daemon_url("http://node.sethforprivacy.com:18089".to_string())
             .build()
             .expect("failed to build payment gateway");
     info!("Payment gateway created.");

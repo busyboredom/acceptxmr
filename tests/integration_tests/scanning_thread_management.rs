@@ -24,7 +24,7 @@ fn run_payment_gateway() {
             .expect("failed to get temporary directory path")
             .to_string(),
     )
-    .daemon_url(&mock_daemon.url(""))
+    .daemon_url(mock_daemon.url(""))
     .build()
     .expect("failed to build payment gateway");
 
@@ -57,7 +57,7 @@ fn cannot_run_payment_gateway_twice() {
             .expect("failed to get temporary directory path")
             .to_string(),
     )
-    .daemon_url(&mock_daemon.url(""))
+    .daemon_url(mock_daemon.url(""))
     .build()
     .expect("failed to build payment gateway");
 
@@ -98,7 +98,7 @@ fn stop_payment_gateway() {
             .expect("failed to get temporary directory path")
             .to_string(),
     )
-    .daemon_url(&mock_daemon.url(""))
+    .daemon_url(mock_daemon.url(""))
     .build()
     .expect("failed to build payment gateway");
 

@@ -1,34 +1,73 @@
-use std::any;
-use std::collections::HashSet;
-use std::time::Duration;
+mod authentication;
 
-use hyper::{body, client::connect::HttpConnector, Body, Method, Request, Uri};
-use log::{trace, warn};
+use std::{
+    any,
+    collections::HashSet,
+    sync::{Arc, Mutex, PoisonError},
+    time::Duration,
+};
+
+use http::StatusCode;
+use hyper::{
+    body,
+    client::connect::HttpConnector,
+    header::{AUTHORIZATION, WWW_AUTHENTICATE},
+    Body, Method, Request, Uri,
+};
+use hyper_rustls::{HttpsConnector, HttpsConnectorBuilder};
+use log::{debug, trace, warn};
 use monero::consensus::{deserialize, encode};
 use thiserror::Error;
 use tokio::time::{error, timeout};
+
+use authentication::{AuthError, AuthInfo};
 
 /// Maximum number of transactions to request at once (daemon limits this).
 const MAX_REQUESTED_TRANSACTIONS: usize = 100;
 
 #[derive(Debug, Clone)]
 pub(crate) struct RpcClient {
-    client: hyper::Client<HttpConnector>,
+    client: hyper::Client<HttpsConnector<HttpConnector>>,
     url: Uri,
     timeout: Duration,
+    auth_info: Arc<Mutex<Option<AuthInfo>>>,
 }
 
 impl RpcClient {
     /// Returns an Rpc client pointing at the specified monero daemon.
-    pub fn new(url: Uri, total_timeout: Duration, connection_timeout: Duration) -> RpcClient {
-        let mut connector = HttpConnector::new();
-        connector.set_connect_timeout(Some(connection_timeout));
-        let client = hyper::Client::builder().build(connector);
+    pub fn new(
+        url: Uri,
+        total_timeout: Duration,
+        connection_timeout: Duration,
+        username: Option<String>,
+        password: Option<String>,
+        seed: Option<u64>,
+    ) -> RpcClient {
+        let mut hyper_connector = HttpConnector::new();
+        hyper_connector.set_connect_timeout(Some(connection_timeout));
+        let rustls_connector = HttpsConnectorBuilder::new()
+            .with_native_roots()
+            .https_or_http()
+            .enable_http1()
+            .enable_http2()
+            .build();
+        //.wrap_connector(hyper_connector);
+        let client = hyper::Client::builder().build(rustls_connector);
+        let auth_info = Arc::new(Mutex::new(if username.is_some() || password.is_some() {
+            Some(AuthInfo::new(
+                username.unwrap_or_default(),
+                password.unwrap_or_default(),
+                seed,
+            ))
+        } else {
+            None
+        }));
 
         RpcClient {
             client,
             url,
             timeout: total_timeout,
+            auth_info,
         }
     }
 
@@ -193,13 +232,47 @@ impl RpcClient {
     }
 
     async fn request(&self, body: &str, endpoint: &str) -> Result<serde_json::Value, RpcError> {
-        let req = Request::builder()
+        let mut req = Request::builder()
             .method(Method::POST)
             .uri(self.url.clone().to_string() + endpoint)
             .body(Body::from(body.to_owned()))?;
+        let (method, uri) = (req.method().clone(), req.uri().clone());
+
+        // If configured with a username and password, try to authenticate with most recent nonce.
+        if let Some(auth_info) = &mut *self
+            .auth_info
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+        {
+            if let Some(auth_header) = auth_info.authenticate(&uri, &method)? {
+                req.headers_mut().insert(AUTHORIZATION, auth_header);
+            }
+        }
 
         // Await full response.
-        let response = timeout(self.timeout, self.client.request(req)).await??;
+        let mut response = timeout(self.timeout, self.client.request(req)).await??;
+
+        // If response has www-authenticate header and 401 status, perform digest authentication.
+        if response.status() == StatusCode::UNAUTHORIZED
+            && response.headers().contains_key(WWW_AUTHENTICATE)
+        {
+            debug!("Recieved 401 UNAUTHORIZED response. Performing digest authentication.");
+            let auth_header = self
+                .auth_info
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .as_mut()
+                .ok_or(AuthError::Unauthorized)?
+                .authenticate_with_resp(&response, &uri, &method)?;
+            let req = Request::builder()
+                .method(Method::POST)
+                .uri(self.url.clone().to_string() + endpoint)
+                .header(AUTHORIZATION, auth_header)
+                .body(Body::from(body.to_owned()))?;
+            // Await full response.
+            response = timeout(self.timeout, self.client.request(req)).await??;
+        }
+
         let (_parts, body) = response.into_parts();
         let full_body = body::to_bytes(body).await?;
 
@@ -233,4 +306,6 @@ pub enum RpcError {
     },
     #[error("failed to interpret response body as json: {0}")]
     InvalidJson(#[from] serde_json::Error),
+    #[error("authentication error: {0}")]
+    Auth(#[from] AuthError),
 }

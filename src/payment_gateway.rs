@@ -23,9 +23,11 @@ use crate::{
 
 const DEFAULT_SCAN_INTERVAL: Duration = Duration::from_millis(1000);
 const DEFAULT_DAEMON: &str = "http://node.moneroworld.com:18089";
-const DEFAULT_DB_PATH: &str = "AcceptXMR_DB";
+/// Timeout for RPC connection formation.
 const DEFAULT_RPC_CONNECTION_TIMEOUT: Duration = Duration::from_secs(5);
+/// Timeout for total call completion.
 const DEFAULT_RPC_TOTAL_TIMEOUT: Duration = Duration::from_secs(10);
+const DEFAULT_DB_PATH: &str = "AcceptXMR_DB";
 const DEFAULT_BLOCK_CACHE_SIZE: usize = 10;
 
 /// The `PaymentGateway` allows you to track new [`Invoice`](Invoice)s, remove old `Invoice`s from
@@ -384,12 +386,14 @@ impl PaymentGateway {
 /// // Create a payment gateway with an extra fast scan rate and a custom monero daemon URL.
 /// let payment_gateway = PaymentGatewayBuilder::new(private_view_key.to_string(), primary_address.to_string())
 ///     .scan_interval(Duration::from_millis(100)) // Scan for invoice updates every 100 ms.
-///     .daemon_url("http://example.com:18081") // Set custom monero daemon URL.
+///     .daemon_url("http://example.com:18081".to_string()) // Set custom monero daemon URL.
 /// #   .db_path(temp_dir.path().to_str().expect("Failed to get temporary directory path").to_string())
 ///     .build();
 /// ```
 pub struct PaymentGatewayBuilder {
     daemon_url: String,
+    daemon_username: Option<String>,
+    daemon_password: Option<String>,
     rpc_timeout: Duration,
     rpc_connection_timeout: Duration,
     private_view_key: String,
@@ -405,6 +409,8 @@ impl PaymentGatewayBuilder {
     pub fn new(private_view_key: String, primary_address: String) -> PaymentGatewayBuilder {
         PaymentGatewayBuilder {
             daemon_url: DEFAULT_DAEMON.to_string(),
+            daemon_username: None,
+            daemon_password: None,
             rpc_timeout: DEFAULT_RPC_TOTAL_TIMEOUT,
             rpc_connection_timeout: DEFAULT_RPC_CONNECTION_TIMEOUT,
             private_view_key,
@@ -431,7 +437,7 @@ impl PaymentGatewayBuilder {
     ///
     /// // Create a payment gateway with a custom monero daemon URL.
     /// let payment_gateway = PaymentGatewayBuilder::new(private_view_key.to_string(), primary_address.to_string())
-    ///     .daemon_url("http://example.com:18081") // Set custom monero daemon URL.
+    ///     .daemon_url("http://example.com:18081".to_string()) // Set custom monero daemon URL.
     ///     .build()?;
     ///
     /// // The payment gateway will now use the daemon specified.
@@ -440,8 +446,16 @@ impl PaymentGatewayBuilder {
     /// # }
     /// ```
     #[must_use]
-    pub fn daemon_url(mut self, url: &str) -> PaymentGatewayBuilder {
-        self.daemon_url = url.to_string();
+    pub fn daemon_url(mut self, url: String) -> PaymentGatewayBuilder {
+        self.daemon_url = url;
+        self
+    }
+
+    /// If your preferred daemon requires a password, configure it here.
+    #[must_use]
+    pub fn daemon_login(mut self, username: String, password: String) -> PaymentGatewayBuilder {
+        self.daemon_username = Some(username);
+        self.daemon_password = Some(password);
         self
     }
 
@@ -505,6 +519,9 @@ impl PaymentGatewayBuilder {
                 })?,
             self.rpc_timeout,
             self.rpc_connection_timeout,
+            self.daemon_username,
+            self.daemon_password,
+            self.seed,
         );
         let invoices_db = InvoicesDb::new(&self.db_path)?;
         info!("Opened database in \"{}/\"", self.db_path);
@@ -615,7 +632,7 @@ mod tests {
                         .expect("failed to get temporary directory path")
                         .to_string(),
                 )
-                .daemon_url("http://example.com:18081")
+                .daemon_url("http://example.com:18081".to_string())
                 .build()
                 .expect("failed to build payment gateway");
 

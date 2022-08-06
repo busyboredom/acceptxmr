@@ -15,20 +15,24 @@ name = "acceptxmr"
 path = "src/lib.rs"
 
 [dependencies]
+base64 = "0.13"
 bincode = "2.0.0-rc"
 hex = "0.4"
 http = "0.2"
 hyper = { version = "0.14", features = ["client", "http1", "http2", "tcp"] }
+hyper-rustls = { version = "0.23", features = ["http2"] }
 indexmap = "1"
 log = "0.4"
+md-5 = "0.10"
 monero = "0.17"
 rand = "0.8"
 rand_chacha = "0.3"
 serde = {version = "1", features = ["derive"], optional = true }
 serde_json = "1"
 sled = "0.34"
-tokio = { version = "1", features = ["macros", "rt-multi-thread", "time"] }
+strum = { version = "0.24", features = ["derive"] }
 thiserror = "1"
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "time"] }
 
 [dev-dependencies]
 actix = "0.13"
@@ -38,11 +42,11 @@ actix-web = "4"
 actix-web-actors = "4"
 bytestring = "1"
 env_logger = "0.9"
+handlebars = { version = "4", features = ["dir_source"] }
 httpmock = "0.6"
+qrcode = "0.12"
 serde = "1"
 tempfile = "3"
-handlebars = { version = "4", features = ["dir_source"] }
-qrcode = "0.12"
 
 [[example]]
 name = "websockets"
