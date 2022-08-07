@@ -1,3 +1,4 @@
+// Try to load existing invoice on page load.
 async function init() {
     let response = await fetch("/update");
     if (response.status !== 410 ) {
@@ -44,13 +45,14 @@ async function newAddress() {
 
 function displayInvoiceUpdate(invoiceUpdate) {
     console.log(invoiceUpdate);
+
     // Show paid/due.
     document.getElementById("paid").innerHTML = picoToXMR(invoiceUpdate.amount_paid);
     document.getElementById("due").innerHTML = picoToXMR(invoiceUpdate.amount_requested);
 
     // Show confirmations/required.
-    const confirmations = Math.max(0, invoiceUpdate.confirmations);
-    document.getElementById("confirmations").innerHTML = confirmations;
+    var confirmations = invoiceUpdate.confirmations;
+    document.getElementById("confirmations").innerHTML = Math.max(0, confirmations);
     document.getElementById("confirmations-required").innerHTML = invoiceUpdate.confirmations_required;
 
     // Show instructive text depending on invoice state.
@@ -58,10 +60,10 @@ function displayInvoiceUpdate(invoiceUpdate) {
     var instructionClass = "acceptxmr-instruction";
     var newAddressBtnHidden = true;
     var closeReason = null;
-    if (confirmations >= invoiceUpdate.confirmations_required) {
+    if (confirmations !== null && confirmations >= invoiceUpdate.confirmations_required) {
         instructionString = "Paid! Thank you"
         closeReason = "Confirmed";
-    } else if (invoiceUpdate.amount_paid > invoiceUpdate.amount_requested) {
+    } else if (invoiceUpdate.amount_paid >= invoiceUpdate.amount_requested) {
         instructionString = "Paid! Waiting for Confirmation..."
     } else if (invoiceUpdate.expiration_in > 2) {
         instructionString = "Send Monero to Address Below"

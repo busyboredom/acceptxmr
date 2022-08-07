@@ -34,7 +34,7 @@ const SESSION_KEY_LEN: usize = 64;
 async fn main() -> std::io::Result<()> {
     env::set_var(
         "RUST_LOG",
-        "trace,mio=debug,want=debug,sled=info,hyper=info,tracing=debug,actix_http=debug,rustls=info",
+        "debug,mio=debug,want=debug,sled=info,hyper=info,tracing=debug,actix_http=debug,rustls=info",
     );
     env_logger::init();
 
