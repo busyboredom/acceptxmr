@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.11.0] - 2022-08-06
+
 ### Added
 - Add a `status()` method to `PaymentGateway` for determining whether the `PaymentGateway` is
   already running.
@@ -16,6 +18,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Add `xmr_requested()` method to `invoice` which returns the amount requested in XMR.
 - Add `xmr_paid()` method to `invoice` which returns the amount paid in XMR.
 - Implement `Future` for `Subscriber`.
+- Add TLS support.
+- Add daemon login support.
 
 ### Changed
 - Replace Reqwest with Hyper to improve compile time.
