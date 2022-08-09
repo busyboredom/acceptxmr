@@ -149,17 +149,19 @@ async fn update(
 ) -> Result<HttpResponse, actix_web::Error> {
     if let Ok(Some(invoice_id)) = session.get::<InvoiceId>("id") {
         if let Ok(Some(invoice)) = payment_gateway.get_invoice(invoice_id) {
-            return Ok(HttpResponse::Ok().json(json!(
-                {
-                    "address": invoice.address(),
-                    "amount_paid": invoice.amount_paid(),
-                    "amount_requested": invoice.amount_requested(),
-                    "uri": invoice.uri(),
-                    "confirmations": invoice.confirmations(),
-                    "confirmations_required": invoice.confirmations_required(),
-                    "expiration_in": invoice.expiration_in(),
-                }
-            )));
+            return Ok(HttpResponse::Ok()
+                .append_header(CacheControl(vec![CacheDirective::NoStore]))
+                .json(json!(
+                    {
+                        "address": invoice.address(),
+                        "amount_paid": invoice.amount_paid(),
+                        "amount_requested": invoice.amount_requested(),
+                        "uri": invoice.uri(),
+                        "confirmations": invoice.confirmations(),
+                        "confirmations_required": invoice.confirmations_required(),
+                        "expiration_in": invoice.expiration_in(),
+                    }
+                )));
         };
     }
     Ok(HttpResponse::Gone()
