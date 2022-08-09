@@ -11,7 +11,13 @@ use actix_files::Files;
 use actix_session::{
     config::CookieContentSecurity, storage::CookieSessionStore, Session, SessionMiddleware,
 };
-use actix_web::{cookie, get, post, web, web::Data, App, HttpRequest, HttpResponse, HttpServer};
+use actix_web::{
+    cookie, get,
+    http::header::{CacheControl, CacheDirective},
+    post, web,
+    web::Data,
+    App, HttpRequest, HttpResponse, HttpServer,
+};
 use actix_web_actors::ws;
 use bytestring::ByteString;
 use log::{debug, error, info, warn};
@@ -124,13 +130,15 @@ async fn checkout(
     session: Session,
     checkout_info: web::Json<CheckoutInfo>,
     payment_gateway: web::Data<PaymentGateway>,
-) -> Result<&'static str, actix_web::Error> {
+) -> Result<HttpResponse, actix_web::Error> {
     let invoice_id = payment_gateway
         .new_invoice(1_000_000_000, 2, 5, checkout_info.message.clone())
         .await
         .unwrap();
     session.insert("id", invoice_id)?;
-    Ok("Success")
+    Ok(HttpResponse::Ok()
+        .append_header(CacheControl(vec![CacheDirective::NoStore]))
+        .finish())
 }
 
 // Get invoice update without waiting for websocket.
@@ -154,7 +162,9 @@ async fn update(
             )));
         };
     }
-    Ok(HttpResponse::Gone().finish())
+    Ok(HttpResponse::Gone()
+        .append_header(CacheControl(vec![CacheDirective::NoStore]))
+        .finish())
 }
 
 /// WebSocket rout.
@@ -167,11 +177,19 @@ async fn websocket(
 ) -> Result<HttpResponse, actix_web::Error> {
     let invoice_id = match session.get::<InvoiceId>("id") {
         Ok(Some(i)) => i,
-        _ => return Ok(HttpResponse::NotFound().finish()),
+        _ => {
+            return Ok(HttpResponse::NotFound()
+                .append_header(CacheControl(vec![CacheDirective::NoStore]))
+                .finish())
+        }
     };
     let subscriber = match payment_gateway.subscribe(invoice_id) {
         Ok(Some(s)) => s,
-        _ => return Ok(HttpResponse::NotFound().finish()),
+        _ => {
+            return Ok(HttpResponse::NotFound()
+                .append_header(CacheControl(vec![CacheDirective::NoStore]))
+                .finish())
+        }
     };
     let websocket = WebSocket::new(subscriber);
     ws::start(websocket, &req, stream)

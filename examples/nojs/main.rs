@@ -6,7 +6,10 @@ use actix_session::{
 };
 use actix_web::{
     cookie, get,
-    http::StatusCode,
+    http::{
+        header::{CacheControl, CacheDirective},
+        StatusCode,
+    },
     post,
     web::{Data, Form},
     App, HttpResponse, HttpServer, Result,
@@ -136,6 +139,7 @@ async fn start_checkout(
     Ok(HttpResponse::TemporaryRedirect()
         .status(StatusCode::SEE_OTHER)
         .append_header(("location", "http://localhost:8080/checkout"))
+        .append_header(CacheControl(vec![CacheDirective::NoStore]))
         .finish())
 }
 
@@ -174,12 +178,15 @@ async fn checkout(
             // So long as the invoice did not expire while unpaid, show checkout page with updated
             // info.
             if !invoice.is_expired() || invoice.amount_paid() >= invoice.amount_requested() {
-                return Ok(HttpResponse::Ok().body(body));
+                return Ok(HttpResponse::Ok()
+                    .append_header(CacheControl(vec![CacheDirective::NoStore]))
+                    .body(body));
             }
         }
     }
     Ok(HttpResponse::TemporaryRedirect()
         .append_header(("location", "http://localhost:8080/expired.html"))
+        .append_header(CacheControl(vec![CacheDirective::NoStore]))
         .finish())
 }
 
