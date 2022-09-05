@@ -338,7 +338,7 @@ impl Scanner {
                     amounts_received
                         .entry(tx.hash())
                         .or_insert_with(Vec::new)
-                        .push((sub_index, amount));
+                        .push((sub_index, amount.as_pico()));
                 }
             }
         }
