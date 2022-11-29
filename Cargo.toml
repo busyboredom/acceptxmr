@@ -16,7 +16,7 @@ path = "src/lib.rs"
 
 [dependencies]
 base64 = "0.13"
-bincode = "2.0.0-rc"
+bincode = "^2.0.0-rc.2"
 hex = "0.4"
 http = "0.2"
 hyper = { version = "0.14", features = ["client", "http1", "http2", "tcp"] }
@@ -41,7 +41,7 @@ actix-session = { version = "0.7", features = ["cookie-session"] }
 actix-web = "4"
 actix-web-actors = "4"
 bytestring = "1"
-env_logger = "0.9"
+env_logger = "0.10"
 handlebars = { version = "4", features = ["dir_source"] }
 httpmock = "0.6"
 qrcode = "0.12"
