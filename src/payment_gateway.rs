@@ -248,6 +248,7 @@ impl PaymentGateway {
     ///
     /// Returns an error if there are any underlying issues modifying data in the
     /// database.
+    #[allow(clippy::unused_async)]
     pub async fn new_invoice(
         &self,
         piconeros: u64,

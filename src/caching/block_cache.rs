@@ -34,7 +34,7 @@ impl BlockCache {
             blocks.push((block_id, height, block, transactions));
         }
 
-        let mut block_cache_summary = "".to_string();
+        let mut block_cache_summary = String::new();
         for (i, block) in blocks.iter().enumerate() {
             block_cache_summary += &format!(
                 "Index in cache: {}\nHeight: {}\nNumber of transactions: {}\nID: {}\n\n",
@@ -149,7 +149,7 @@ impl BlockCache {
     }
 
     fn log_cache_summary(&self) {
-        let mut block_cache_summary = "".to_string();
+        let mut block_cache_summary = String::new();
         for i in 0..self.blocks.len() {
             block_cache_summary += &format!(
                 "Index in cache: {}\nHeight: {}\nNumber of transactions: {}\nID: {}\nPrevious ID: {}\n\n",

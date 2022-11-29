@@ -211,7 +211,7 @@ fn split_header(header_str: &str) -> Vec<&str> {
             }
             _ => {}
         }
-        if char_iterator.peek() == None {
+        if char_iterator.peek().is_none() {
             parts.push(header_str[last_split..].trim_start_matches(',').trim());
         }
     }
