@@ -17,6 +17,7 @@ use crate::{
     caching::{BlockCache, TxpoolCache},
     invoice::Transfer,
     invoices_db::InvoicesDb,
+    pubsub::Publisher,
     rpc::RpcClient,
     AcceptXmrError, SubIndex,
 };
@@ -28,6 +29,7 @@ pub(crate) struct Scanner {
     // rust doesn't allow mutably borrowing only part of "self".
     block_cache: AsyncMutex<BlockCache>,
     txpool_cache: AsyncMutex<TxpoolCache>,
+    publisher: Arc<Publisher>,
     first_scan: bool,
 }
 
@@ -38,6 +40,7 @@ impl Scanner {
         block_cache_size: usize,
         atomic_cache_height: Arc<AtomicU64>,
         atomic_daemon_height: Arc<AtomicU64>,
+        publisher: Arc<Publisher>,
     ) -> Result<Scanner, AcceptXmrError> {
         // Determine sensible initial height for block cache.
         let daemon_height = rpc_client.daemon_height().await?;
@@ -75,6 +78,7 @@ impl Scanner {
             invoices_db,
             block_cache: AsyncMutex::new(block_cache?),
             txpool_cache: AsyncMutex::new(txpool_cache?),
+            publisher,
             first_scan: true,
         })
     }
@@ -196,6 +200,9 @@ impl Scanner {
                     invoice.index(),
                     e
                 );
+            } else {
+                // If the update was successful, send an update that down the subscriber channel.
+                self.publisher.send_updates(&invoice).await;
             }
         }
 

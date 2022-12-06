@@ -2,7 +2,7 @@ use std::cmp::Ordering;
 
 use thiserror::Error;
 
-use crate::{subscriber::Subscriber, AcceptXmrError, Invoice, InvoiceId, SubIndex};
+use crate::{AcceptXmrError, Invoice, InvoiceId, SubIndex};
 
 /// Database containing pending invoices.
 pub(crate) struct InvoicesDb(sled::Tree);
@@ -78,13 +78,6 @@ impl InvoicesDb {
         })
     }
 
-    pub fn contains_key(&self, invoice_id: InvoiceId) -> Result<bool, InvoiceStorageError> {
-        // Prepare key (invoice id).
-        let key = bincode::encode_to_vec(invoice_id, bincode::config::standard())?;
-
-        self.0.contains_key(key).map_err(InvoiceStorageError::from)
-    }
-
     pub fn contains_sub_index(&self, sub_index: SubIndex) -> Result<bool, InvoiceStorageError> {
         // Prepare key (invoice id).
         let key = bincode::encode_to_vec(sub_index, bincode::config::standard())?;
@@ -116,24 +109,6 @@ impl InvoicesDb {
                 invoice_id,
             ))),
         }
-    }
-
-    pub fn subscribe(
-        &self,
-        invoice_id: InvoiceId,
-    ) -> Result<Option<Subscriber>, InvoiceStorageError> {
-        let prefix = bincode::encode_to_vec(invoice_id, bincode::config::standard())?;
-        let sled_subscriber = self.0.watch_prefix(prefix);
-        if self.contains_key(invoice_id)? {
-            Ok(Some(Subscriber::new(sled_subscriber)))
-        } else {
-            Ok(None)
-        }
-    }
-
-    pub fn subscribe_all(&self) -> Subscriber {
-        let sled_subscriber = self.0.watch_prefix(vec![]);
-        Subscriber::new(sled_subscriber)
     }
 
     pub fn flush(&self) -> Result<(), InvoiceStorageError> {
