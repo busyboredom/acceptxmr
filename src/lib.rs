@@ -11,7 +11,7 @@
 //! ## Key Features
 //! * View pair only, no hot wallet.
 //! * Subaddress based.
-//! * Pending invoices are stored persistently, enabling recovery from power loss.
+//! * Pending invoices can be stored persistently, enabling recovery from power loss.
 //! * Number of confirmations is configurable per-invoice.
 //! * Ignores transactions with non-zero timelocks.
 //! * Payment can occur over multiple transactions.
@@ -29,14 +29,16 @@
 //! ## Reliability
 //!
 //! This library strives for reliability, but that attempt may not be successful. `AcceptXMR` is
-//! young and unproven, and relies on several crates which are undergoing rapid changes themselves
-//! (for example, the database used ([Sled](sled)) is still in beta).
+//! young and unproven, and relies on several crates which are undergoing rapid changes themselves.
+//! For example, the primary storage layer implementation ([`Sled`](https://docs.rs/sled)) is still
+//! in beta.
 //!
-//! That said, this payment gateway should survive unexpected power loss thanks to pending invoices
-//! being flushed to disk each time new blocks/transactions are scanned. A best effort is made to
-//! keep the scanning thread free any of potential panics, and RPC calls in the scanning thread are
-//! logged on failure and repeated next scan. In the event that an error does occur, the liberal use
-//! of logging within this library will hopefully facilitate a speedy diagnosis an correction.
+//! That said, this payment gateway should survive unexpected power loss thanks to the ability to
+//! flush pending invoices to disk each time new blocks/transactions are scanned. A best effort is
+//! made to keep the scanning thread free any of potential panics, and RPC calls in the scanning
+//! thread are logged on failure and repeated next scan. In the event that an error does occur, the
+//! liberal use of logging within this library will hopefully facilitate a speedy diagnosis an
+//! correction.
 //!
 //! Use this library at your own risk.
 //!
@@ -50,21 +52,16 @@
 //! the [`PaymentGateway`]'s `scan_interval` below the default of 1 second:
 //! ```
 //! # fn main() -> Result<(), Box<dyn std::error::Error>> {
-//! # use tempfile::Builder;
-//! use acceptxmr::PaymentGateway;
+//! use acceptxmr::{PaymentGateway, storage::stores::InMemory};
 //! use std::time::Duration;
-//!
-//! # let temp_dir = Builder::new()
-//! #   .prefix("temp_db_")
-//! #   .rand_bytes(16)
-//! #   .tempdir()?;
 //!
 //! let private_view_key = "ad2093a5705b9f33e6f0f0c1bc1f5f639c756cdfc168c8f2ac6127ccbdab3a03";
 //! let primary_address = "4613YiHLM6JMH4zejMB2zJY5TwQCxL8p65ufw8kBP5yxX9itmuGLqp1dS4tkVoTxjyH3aYhYNrtGHbQzJQP5bFus3KHVdmf";
 //!
-//! let payment_gateway = PaymentGateway::builder(private_view_key.to_string(), primary_address.to_string())
+//! let store = InMemory::new();
+//!
+//! let payment_gateway = PaymentGateway::builder(private_view_key.to_string(), primary_address.to_string(), store)
 //!     .scan_interval(Duration::from_millis(100)) // Scan for invoice updates every 100 ms.
-//! #   .db_path(temp_dir.path().to_str().expect("Failed to get temporary directory path").to_string())
 //!     .build()?;
 //! #   Ok(())
 //! # }
@@ -86,29 +83,30 @@
 
 mod caching;
 mod invoice;
-mod invoices_db;
 mod payment_gateway;
 mod pubsub;
 mod rpc;
 mod scanner;
+pub mod storage;
+
+use std::fmt::Debug;
 
 use thiserror::Error;
 
 pub use invoice::{Invoice, InvoiceId, SubIndex};
-use invoices_db::InvoiceStorageError;
 pub use payment_gateway::{PaymentGateway, PaymentGatewayBuilder, PaymentGatewayStatus};
 pub use pubsub::{Subscriber, SubscriberError};
 use rpc::RpcError;
 
 /// Library's custom error type.
 #[derive(Error, Debug)]
-pub enum AcceptXmrError {
+pub enum AcceptXmrError<E> {
     /// An error originating from a daemon RPC call.
     #[error("RPC error: {0}")]
     Rpc(#[from] RpcError),
     /// An error storing/retrieving [`Invoice`](crate::Invoice)s.
     #[error("invoice storage error: {0}")]
-    InvoiceStorage(#[from] InvoiceStorageError),
+    InvoiceStorage(E),
     /// [`Subscriber`](crate::Subscriber) failed to retrieve update.
     #[error("subscriber failed to receive update: {0}")]
     Subscriber(#[from] SubscriberError),
@@ -128,9 +126,6 @@ pub enum AcceptXmrError {
     /// Failure to check if output is owned.
     #[error("failed to check if output is owned: {0}")]
     OwnedOutputCheck(#[from] monero::blockdata::transaction::Error),
-    /// Scanning thread exited with error.
-    #[error("scanning thread exited with error: {0}")]
-    ScanningThread(Box<AcceptXmrError>),
     /// Scanning thread exited with panic.
     #[error("scanning thread exited with panic")]
     ScanningThreadPanic,

@@ -17,6 +17,7 @@ use hyper::{
 use hyper_rustls::{HttpsConnector, HttpsConnectorBuilder};
 use log::{debug, trace, warn};
 use monero::consensus::{deserialize, encode};
+use serde_json::json;
 use thiserror::Error;
 use tokio::time::{error, timeout};
 
@@ -181,7 +182,7 @@ impl RpcClient {
             // Build a json containing the hashes of the transactions we want.
             trace!("Requesting {} transactions", ending_index - starting_index);
             let request_body = r#"{"txs_hashes":"#.to_owned()
-                + &serde_json::json!(hashes[starting_index..ending_index]
+                + &json!(hashes[starting_index..ending_index]
                     .iter()
                     .map(|x| hex::encode(x.as_bytes())) // Convert from monero::Hash to hex.
                     .collect::<Vec<String>>())

@@ -4,7 +4,7 @@ use log::trace;
 use monero::cryptonote::hash::Hashable;
 use tokio::join;
 
-use crate::invoice::Transfer;
+use crate::{invoice::Transfer, storage::InvoiceStorage};
 use crate::{rpc::RpcClient, AcceptXmrError, SubIndex};
 
 pub(crate) struct TxpoolCache {
@@ -14,7 +14,9 @@ pub(crate) struct TxpoolCache {
 }
 
 impl TxpoolCache {
-    pub async fn init(rpc_client: RpcClient) -> Result<TxpoolCache, AcceptXmrError> {
+    pub async fn init<S: InvoiceStorage>(
+        rpc_client: RpcClient,
+    ) -> Result<TxpoolCache, AcceptXmrError<S::Error>> {
         let txs = rpc_client.txpool().await?;
         let transactions = txs.iter().map(|tx| (tx.hash(), tx.clone())).collect();
 
@@ -27,7 +29,9 @@ impl TxpoolCache {
 
     /// Update the txpool cache with newest [tansactions](monero::Transaction) from daemon txpool. Returns
     /// transactions received.
-    pub async fn update(&mut self) -> Result<Vec<monero::Transaction>, AcceptXmrError> {
+    pub async fn update<S: InvoiceStorage>(
+        &mut self,
+    ) -> Result<Vec<monero::Transaction>, AcceptXmrError<S::Error>> {
         trace!("Checking for new transactions in txpool");
 
         let txpool_hashes = self.rpc_client.txpool_hashes().await?;

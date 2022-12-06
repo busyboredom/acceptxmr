@@ -5,23 +5,24 @@ use std::{
     fmt::Display,
 };
 
+#[cfg(feature = "bincode")]
 use bincode::{Decode, Encode};
 use monero::cryptonote::subaddress;
-
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
 
 const PICONEROS_PER_XMR: u64 = 1_000_000_000_000;
 
-/// Representation of an invoice. `Invoice`s are created by the [`PaymentGateway`](crate::PaymentGateway), and are
-/// initially unpaid.
+/// Representation of an invoice. `Invoice`s are created by the
+/// [`PaymentGateway`](crate::PaymentGateway).
 ///
 /// `Invoice`s have an expiration block, after which they are considered expired. However, note that
 /// the payment gateway by default will continue updating invoices even after expiration.
 ///
-/// To receive updates for a given `Invoice`, use a [`Subscriber`](crate::subscriber::Subscriber).
-#[derive(Debug, Clone, Encode, Decode)]
+/// To receive updates for a given `Invoice`, use a [`Subscriber`](crate::pubsub::Subscriber).
+#[derive(Debug, Clone, Eq)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+#[cfg_attr(feature = "bincode", derive(Encode, Decode))]
 pub struct Invoice {
     address: String,
     index: SubIndex,
@@ -154,36 +155,24 @@ impl Invoice {
     /// # #[tokio::main]
     /// # async fn main() -> Result<(), Box<dyn std::error::Error>> {
     /// #
-    /// # use acceptxmr::PaymentGatewayBuilder;
-    /// # use tempfile::Builder;
+    /// # use acceptxmr::{PaymentGatewayBuilder, storage::stores::InMemory};
     /// #
-    /// # let temp_dir = Builder::new()
-    /// #    .prefix("temp_db_")
-    /// #    .rand_bytes(16)
-    /// #    .tempdir()
-    /// #    .expect("failed to generate temporary directory");
+    /// # let store = InMemory::new();
     /// #
     /// # let private_view_key = "ad2093a5705b9f33e6f0f0c1bc1f5f639c756cdfc168c8f2ac6127ccbdab3a03";
     /// # let primary_address = "4613YiHLM6JMH4zejMB2zJY5TwQCxL8p65ufw8kBP5yxX9itmuGLqp1dS4tkVoTxjyH3aYhYNrtGHbQzJQP5bFus3KHVdmf";
     /// #
-    /// # let payment_gateway = PaymentGatewayBuilder::new(private_view_key.to_string(), primary_address.to_string())
-    /// #   .db_path(
-    /// #       temp_dir
-    /// #           .path()
-    /// #           .to_str()
-    /// #           .expect("failed to get temporary directory path")
-    /// #           .to_string(),
-    /// #   )
+    /// # let payment_gateway = PaymentGatewayBuilder::new(private_view_key.to_string(), primary_address.to_string(), store)
     /// #   .build()?;
     /// // Create a new `Invoice` for 1 millinero.
-    /// let invoice_id = payment_gateway.new_invoice(1_000_000_000, 3, 5, "for pizza".to_string()).await?;
+    /// let invoice_id = payment_gateway.new_invoice(1_000_000_000, 3, 5, "for pizza".to_string())?;
     /// let small_invoice = payment_gateway.get_invoice(invoice_id)?.expect("invoice ID not found");
     ///
     /// // One millinero, as expected.
     /// assert_eq!(small_invoice.xmr_requested(), 0.001);
     ///
     /// // Create a new `Invoice` for 18446744.073709551615 XMR.
-    /// let invoice_id = payment_gateway.new_invoice(18_446_744_073_709_551_615, 3, 5, "for lambo".to_string()).await?;
+    /// let invoice_id = payment_gateway.new_invoice(18_446_744_073_709_551_615, 3, 5, "for lambo".to_string())?;
     /// let large_invoice = payment_gateway.get_invoice(invoice_id)?.expect("invoice ID not found");
     ///
     /// // The large value has been rounded slightly due to f64 precision limitations.
@@ -255,20 +244,22 @@ impl Invoice {
     /// # #[tokio::main]
     /// # async fn main() -> Result<(), Box<dyn std::error::Error>> {
     /// #
-    /// # use acceptxmr::PaymentGatewayBuilder;
+    /// # use acceptxmr::{PaymentGatewayBuilder, storage::stores::InMemory};
     /// #
     /// # let private_view_key = "ad2093a5705b9f33e6f0f0c1bc1f5f639c756cdfc168c8f2ac6127ccbdab3a03";
     /// # let primary_address = "4613YiHLM6JMH4zejMB2zJY5TwQCxL8p65ufw8kBP5yxX9itmuGLqp1dS4tkVoTxjyH3aYhYNrtGHbQzJQP5bFus3KHVdmf";
     /// #
-    /// # let payment_gateway = PaymentGatewayBuilder::new(private_view_key.to_string(), primary_address.to_string())
+    /// # let store = InMemory::new();
+    /// #
+    /// # let payment_gateway = PaymentGatewayBuilder::new(private_view_key.to_string(), primary_address.to_string(), store)
     /// #    .build()?;
     /// #
     /// # payment_gateway.run().await?;
     /// #
     /// // Create a new `Invoice` requiring 3 confirmations, and expiring in 5 blocks.
-    /// let invoice_id = payment_gateway.new_invoice(10000, 3, 5, "for pizza".to_string()).await?;
+    /// let invoice_id = payment_gateway.new_invoice(10000, 3, 5, "for pizza".to_string())?;
     /// let mut subscriber = payment_gateway.subscribe(invoice_id).expect("invoice ID not found");
-    /// let invoice = subscriber.recv().await.expect("invoice update not received");;
+    /// let invoice = subscriber.recv().await.expect("invoice update not received");
     ///
     /// assert_eq!(invoice.expiration_in(), 5);
     /// #   Ok(())
@@ -357,10 +348,11 @@ impl PartialEq for Invoice {
     }
 }
 
-/// An invoice ID consists uniquely identifies a given invoice by the combination of its subaddress
-/// index and creation height.
-#[derive(Debug, Copy, Clone, Hash, Encode, Decode, PartialEq, Eq)]
+/// An invoice ID uniquely identifies a given invoice by the combination of its subaddress index and
+/// creation height.
+#[derive(Debug, Copy, Clone, Hash, PartialEq, Eq)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+#[cfg_attr(feature = "bincode", derive(Encode, Decode))]
 pub struct InvoiceId {
     /// The [subaddress index](SubIndex) of the invoice.
     pub sub_index: SubIndex,
@@ -379,6 +371,22 @@ impl InvoiceId {
     }
 }
 
+impl Ord for InvoiceId {
+    fn cmp(&self, other: &Self) -> Ordering {
+        match self.sub_index.cmp(&other.sub_index) {
+            Ordering::Equal => self.creation_height.cmp(&other.creation_height),
+            Ordering::Greater => Ordering::Greater,
+            Ordering::Less => Ordering::Less,
+        }
+    }
+}
+
+impl PartialOrd for InvoiceId {
+    fn partial_cmp(&self, other: &Self) -> Option<cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
 impl Display for InvoiceId {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "({},{})", self.sub_index, self.creation_height)
@@ -386,8 +394,9 @@ impl Display for InvoiceId {
 }
 
 /// A subaddress index.
-#[derive(Debug, Copy, Clone, Hash, Encode, Decode, PartialEq, Eq)]
+#[derive(Debug, Copy, Clone, Hash, PartialEq, Eq)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+#[cfg_attr(feature = "bincode", derive(Encode, Decode))]
 pub struct SubIndex {
     /// Subadress major index.
     pub major: u32,
@@ -446,8 +455,9 @@ impl From<SubIndex> for subaddress::Index {
 /// A `Transfer` represents a sum of owned outputs at a given height. When part of an `Invoice`, it
 /// specifically represents the sum of owned outputs for that invoice's subaddress, at a given
 /// height.
-#[derive(Debug, Clone, PartialEq, Encode, Decode, Copy, Eq, PartialOrd, Ord, Hash)]
+#[derive(Debug, Clone, PartialEq, Copy, Eq, PartialOrd, Ord, Hash)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+#[cfg_attr(feature = "bincode", derive(Encode, Decode))]
 pub(crate) struct Transfer {
     /// Amount transferred in piconeros.
     pub amount: u64,

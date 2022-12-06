@@ -1,30 +1,39 @@
-use std::time::Duration;
+use std::{
+    fmt::{Debug, Display},
+    time::Duration,
+};
 
+use test_case::test_case;
 use tokio::runtime::Runtime;
 
-use acceptxmr::{PaymentGatewayBuilder, SubIndex};
+use acceptxmr::{
+    storage::{
+        stores::{InMemory, Sled},
+        InvoiceStorage,
+    },
+    PaymentGatewayBuilder, SubIndex,
+};
 
-use crate::common::{self, MockDaemon};
+use crate::common::{init_logger, new_temp_dir, MockDaemon, PRIMARY_ADDRESS, PRIVATE_VIEW_KEY};
 
-#[test]
-fn new_invoice() {
+#[test_case(Sled::new(new_temp_dir().path().to_str().unwrap(), "tree").unwrap())]
+#[test_case(InMemory::new())]
+fn new_invoice<'a, S, E, I>(store: S)
+where
+    S: InvoiceStorage<Error = E, Iter<'a> = I> + 'static,
+    E: Debug + Display + Send,
+    I: Iterator,
+{
     // Setup.
-    common::init_logger();
-    let temp_dir = common::new_temp_dir();
+    init_logger();
     let mock_daemon = MockDaemon::new_mock_daemon();
     let rt = Runtime::new().expect("failed to create tokio runtime");
 
     // Create payment gateway pointing at temp directory and mock daemon.
     let payment_gateway = PaymentGatewayBuilder::new(
-        common::PRIVATE_VIEW_KEY.to_string(),
-        common::PRIMARY_ADDRESS.to_string(),
-    )
-    .db_path(
-        temp_dir
-            .path()
-            .to_str()
-            .expect("failed to get temporary directory path")
-            .to_string(),
+        PRIVATE_VIEW_KEY.to_string(),
+        PRIMARY_ADDRESS.to_string(),
+        store,
     )
     // Faster scan rate so the update is received sooner.
     .scan_interval(Duration::from_millis(100))
@@ -42,11 +51,10 @@ fn new_invoice() {
         // Add the invoice.
         let invoice_id = payment_gateway
             .new_invoice(1, 5, 10, "test invoice".to_string())
-            .await
             .expect("failed to add new invoice to payment gateway for tracking");
         let mut subscriber = payment_gateway
             .subscribe(invoice_id)
-            .expect("invoice not in database");
+            .expect("invoice does not exist");
 
         // Get initial update.
         let update = subscriber
@@ -75,25 +83,24 @@ fn new_invoice() {
     })
 }
 
-#[test]
-fn track_parallel_invoices() {
+#[test_case(Sled::new(new_temp_dir().path().to_str().unwrap(), "tree").unwrap())]
+#[test_case(InMemory::new())]
+fn track_parallel_invoices<'a, S, E, I>(store: S)
+where
+    S: InvoiceStorage<Error = E, Iter<'a> = I> + 'static,
+    E: Debug + Display + Send,
+    I: Iterator,
+{
     // Setup.
-    common::init_logger();
-    let temp_dir = common::new_temp_dir();
+    init_logger();
     let mock_daemon = MockDaemon::new_mock_daemon();
     let rt = Runtime::new().expect("failed to create tokio runtime");
 
     // Create payment gateway pointing at temp directory and mock daemon.
     let payment_gateway = PaymentGatewayBuilder::new(
-        common::PRIVATE_VIEW_KEY.to_string(),
-        common::PRIMARY_ADDRESS.to_string(),
-    )
-    .db_path(
-        temp_dir
-            .path()
-            .to_str()
-            .expect("failed to get temporary directory path")
-            .to_string(),
+        PRIVATE_VIEW_KEY.to_string(),
+        PRIMARY_ADDRESS.to_string(),
+        store,
     )
     // Faster scan rate so the update is received sooner.
     .scan_interval(Duration::from_millis(100))
@@ -112,11 +119,10 @@ fn track_parallel_invoices() {
         // Add the invoice.
         let invoice_id = payment_gateway
             .new_invoice(70000000, 2, 7, "invoice 1".to_string())
-            .await
             .expect("failed to add new invoice to payment gateway for tracking");
         let mut subscriber_1 = payment_gateway
             .subscribe(invoice_id)
-            .expect("invoice not in database");
+            .expect("invoice does not exist");
 
         // Get initial update.
         let update = subscriber_1
@@ -139,11 +145,10 @@ fn track_parallel_invoices() {
         // Add the invoice.
         let invoice_id = payment_gateway
             .new_invoice(70000000, 2, 7, "invoice 2".to_string())
-            .await
             .expect("failed to add new invoice to payment gateway for tracking");
         let mut subscriber_2 = payment_gateway
             .subscribe(invoice_id)
-            .expect("invoice not in database");
+            .expect("invoice does not exist");
 
         // Get initial update.
         let update = subscriber_2
@@ -373,25 +378,24 @@ fn track_parallel_invoices() {
     })
 }
 
-#[test]
-fn block_cache_skip_ahead() {
+#[test_case(Sled::new(new_temp_dir().path().to_str().unwrap(), "tree").unwrap())]
+#[test_case(InMemory::new())]
+fn block_cache_skip_ahead<'a, S, E, I>(store: S)
+where
+    S: InvoiceStorage<Error = E, Iter<'a> = I> + 'static,
+    E: Debug + Display + Send,
+    I: Iterator,
+{
     // Setup.
-    common::init_logger();
-    let temp_dir = common::new_temp_dir();
+    init_logger();
     let mock_daemon = MockDaemon::new_mock_daemon();
     let rt = Runtime::new().expect("failed to create tokio runtime");
 
     // Create payment gateway pointing at temp directory and mock daemon.
     let payment_gateway = PaymentGatewayBuilder::new(
-        common::PRIVATE_VIEW_KEY.to_string(),
-        common::PRIMARY_ADDRESS.to_string(),
-    )
-    .db_path(
-        temp_dir
-            .path()
-            .to_str()
-            .expect("failed to get temporary directory path")
-            .to_string(),
+        PRIVATE_VIEW_KEY.to_string(),
+        PRIMARY_ADDRESS.to_string(),
+        store,
     )
     // Faster scan rate so the update is received sooner.
     .scan_interval(Duration::from_millis(200))
@@ -416,25 +420,24 @@ fn block_cache_skip_ahead() {
     })
 }
 
-#[test]
-fn fix_reorg() {
+#[test_case(Sled::new(new_temp_dir().path().to_str().unwrap(), "tree").unwrap())]
+#[test_case(InMemory::new())]
+fn fix_reorg<'a, S, E, I>(store: S)
+where
+    S: InvoiceStorage<Error = E, Iter<'a> = I> + 'static,
+    E: Debug + Display + Send,
+    I: Iterator,
+{
     // Setup.
-    common::init_logger();
-    let temp_dir = common::new_temp_dir();
+    init_logger();
     let mock_daemon = MockDaemon::new_mock_daemon();
     let rt = Runtime::new().expect("failed to create tokio runtime");
 
     // Create payment gateway pointing at temp directory and mock daemon.
     let payment_gateway = PaymentGatewayBuilder::new(
-        common::PRIVATE_VIEW_KEY.to_string(),
-        common::PRIMARY_ADDRESS.to_string(),
-    )
-    .db_path(
-        temp_dir
-            .path()
-            .to_str()
-            .expect("failed to get temporary directory path")
-            .to_string(),
+        PRIVATE_VIEW_KEY.to_string(),
+        PRIMARY_ADDRESS.to_string(),
+        store,
     )
     // Faster scan rate so the update is received sooner.
     .scan_interval(Duration::from_millis(100))
@@ -453,11 +456,10 @@ fn fix_reorg() {
         // Add the invoice.
         let invoice_id = payment_gateway
             .new_invoice(70000000, 2, 7, "invoice".to_string())
-            .await
             .expect("failed to add new invoice to payment gateway for tracking");
         let mut subscriber = payment_gateway
             .subscribe(invoice_id)
-            .expect("invoice not in database");
+            .expect("invoice does not exist");
 
         // Get initial update.
         let update = subscriber
@@ -524,25 +526,24 @@ fn fix_reorg() {
     })
 }
 
-#[test]
-fn reproducible_rand() {
+#[test_case(Sled::new(new_temp_dir().path().to_str().unwrap(), "tree").unwrap())]
+#[test_case(InMemory::new())]
+fn reproducible_rand<'a, S, E, I>(store: S)
+where
+    S: InvoiceStorage<Error = E, Iter<'a> = I> + 'static,
+    E: Debug + Display + Send,
+    I: Iterator,
+{
     // Setup.
-    common::init_logger();
-    let temp_dir = common::new_temp_dir();
+    init_logger();
     let mock_daemon = MockDaemon::new_mock_daemon();
     let rt = Runtime::new().expect("failed to create tokio runtime");
 
     // Create payment gateway pointing at temp directory and mock daemon.
     let payment_gateway = PaymentGatewayBuilder::new(
-        common::PRIVATE_VIEW_KEY.to_string(),
-        common::PRIMARY_ADDRESS.to_string(),
-    )
-    .db_path(
-        temp_dir
-            .path()
-            .to_str()
-            .expect("failed to get temporary directory path")
-            .to_string(),
+        PRIVATE_VIEW_KEY.to_string(),
+        PRIMARY_ADDRESS.to_string(),
+        store,
     )
     // Faster scan rate so the update is received sooner.
     .scan_interval(Duration::from_millis(100))
@@ -561,11 +562,10 @@ fn reproducible_rand() {
         // Add the invoice.
         let invoice_id = payment_gateway
             .new_invoice(1, 5, 10, "test invoice".to_string())
-            .await
             .expect("failed to add new invoice to payment gateway for tracking");
         let mut subscriber = payment_gateway
             .subscribe(invoice_id)
-            .expect("invoice not in database");
+            .expect("invoice does not exist");
 
         // Get initial update.
         let update = subscriber
