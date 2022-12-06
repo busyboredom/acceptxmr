@@ -15,9 +15,9 @@ use tokio::{join, runtime::Runtime, time};
 use crate::{
     caching::SubaddressCache,
     invoices_db::InvoicesDb,
+    pubsub::{Publisher, Subscriber},
     rpc::RpcClient,
     scanner::Scanner,
-    subscriber::Subscriber,
     {AcceptXmrError, Invoice, InvoiceId},
 };
 
@@ -50,6 +50,7 @@ pub struct PaymentGatewayInner {
         Mutex<mpsc::Sender<MessageToScanner>>,
         Arc<Mutex<mpsc::Receiver<MessageToScanner>>>,
     ),
+    publisher: Arc<Publisher>,
 }
 
 impl Deref for PaymentGateway {
@@ -107,6 +108,7 @@ impl PaymentGateway {
         let block_cache_height = self.block_cache_height.clone();
         let cached_daemon_height = self.cached_daemon_height.clone();
         let pending_invoices = self.invoices_db.clone();
+        let publisher = self.publisher.clone();
         let command_receiver = self.scanner_command_sender.1.clone();
 
         // Create scanner.
@@ -117,6 +119,7 @@ impl PaymentGateway {
             DEFAULT_BLOCK_CACHE_SIZE,
             block_cache_height,
             cached_daemon_height,
+            publisher,
         )
         .await?;
 
@@ -285,6 +288,8 @@ impl PaymentGateway {
             invoice.index()
         );
 
+        self.publisher.insert_invoice(invoice.id());
+
         // Return invoice id so the user can build identify their invoice, and make a subscriber for
         // it if desired.
         Ok(invoice.id())
@@ -310,6 +315,9 @@ impl PaymentGateway {
                     .unwrap_or_else(PoisonError::into_inner)
                     .insert(invoice_id.sub_index, old.address().to_string());
 
+                // Kill any related subscriptions.
+                self.publisher.remove_invoice(invoice_id);
+
                 Ok(Some(old))
             }
             None => Ok(None),
@@ -318,18 +326,15 @@ impl PaymentGateway {
 
     /// Returns a `Subscriber` for the given invoice ID. If a tracked invoice exists for that
     /// ID, the subscriber can be used to receive updates to for that invoice.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if there is an underlying issue retrieving data from the database.
-    pub fn subscribe(&self, invoice_id: InvoiceId) -> Result<Option<Subscriber>, AcceptXmrError> {
-        Ok(self.invoices_db.subscribe(invoice_id)?)
+    #[must_use]
+    pub fn subscribe(&self, invoice_id: InvoiceId) -> Option<Subscriber> {
+        self.publisher.subscribe(invoice_id)
     }
 
     /// Returns a `Subscriber` for all invoices.
     #[must_use]
     pub fn subscribe_all(&self) -> Subscriber {
-        self.invoices_db.subscribe_all()
+        self.publisher.subscribe_all()
     }
 
     /// Get current height of daemon using a monero daemon remote procedure call.
@@ -567,6 +572,7 @@ impl PaymentGatewayBuilder {
             cached_daemon_height: Arc::new(atomic::AtomicU64::new(0)),
             scanner_handle: Mutex::new(None),
             scanner_command_sender,
+            publisher: Arc::new(Publisher::new()),
         })))
     }
 }

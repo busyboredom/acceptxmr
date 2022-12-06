@@ -21,7 +21,7 @@ use rand::{thread_rng, Rng};
 use serde::Deserialize;
 use serde_json::json;
 
-use acceptxmr::{AcceptXmrError, InvoiceId, PaymentGateway, PaymentGatewayBuilder};
+use acceptxmr::{InvoiceId, PaymentGateway, PaymentGatewayBuilder};
 
 /// Length of secure session key for cookies.
 const SESSION_KEY_LEN: usize = 64;
@@ -59,13 +59,10 @@ async fn main() -> std::io::Result<()> {
         // Watch all invoice updates.
         let mut subscriber = gateway_copy.subscribe_all();
         loop {
-            let invoice = match subscriber.recv() {
-                Ok(p) => p,
-                Err(AcceptXmrError::Subscriber(_)) => panic!("Blockchain scanner crashed!"),
-                Err(e) => {
-                    error!("Error retrieving invoice update: {}", e);
-                    continue;
-                }
+            let invoice = match subscriber.blocking_recv() {
+                Some(p) => p,
+                // Global subscriptions should not close.
+                None => panic!("Blockchain scanner crashed!"),
             };
             // If it's been tracked for longer than an hour, remove it.
             if invoice

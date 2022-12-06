@@ -25,9 +25,7 @@ use rand::{thread_rng, Rng};
 use serde::Deserialize;
 use serde_json::json;
 
-use acceptxmr::{
-    AcceptXmrError, Invoice, InvoiceId, PaymentGateway, PaymentGatewayBuilder, Subscriber,
-};
+use acceptxmr::{Invoice, InvoiceId, PaymentGateway, PaymentGatewayBuilder, Subscriber};
 
 /// Time before lack of client response causes a timeout.
 const CLIENT_TIMEOUT: Duration = Duration::from_secs(10);
@@ -69,13 +67,10 @@ async fn main() -> std::io::Result<()> {
         // Watch all invoice updates.
         let mut subscriber = gateway_copy.subscribe_all();
         loop {
-            let invoice = match subscriber.recv() {
-                Ok(p) => p,
-                Err(AcceptXmrError::Subscriber(_)) => panic!("Blockchain scanner crashed!"),
-                Err(e) => {
-                    error!("Error retrieving invoice update: {}", e);
-                    continue;
-                }
+            let invoice = match subscriber.blocking_recv() {
+                Some(p) => p,
+                // Global subscriptions should not close.
+                None => panic!("Blockchain scanner crashed!"),
             };
             // If it's confirmed or expired, we probably shouldn't bother tracking it anymore.
             if (invoice.is_confirmed() && invoice.creation_height() < invoice.current_height())
@@ -186,7 +181,7 @@ async fn websocket(
         }
     };
     let subscriber = match payment_gateway.subscribe(invoice_id) {
-        Ok(Some(s)) => s,
+        Some(s) => s,
         _ => {
             return Ok(HttpResponse::NotFound()
                 .append_header(CacheControl(vec![CacheDirective::NoStore]))
@@ -232,10 +227,7 @@ impl Actor for WebSocket {
     /// start heartbeat checks as well.
     fn started(&mut self, ctx: &mut Self::Context) {
         if let Some(subscriber) = self.invoice_subscriber.take() {
-            <WebSocket as StreamHandler<Result<Invoice, AcceptXmrError>>>::add_stream(
-                InvoiceStream(subscriber),
-                ctx,
-            );
+            <WebSocket as StreamHandler<Invoice>>::add_stream(InvoiceStream(subscriber), ctx);
         }
         self.heartbeat(ctx);
     }
@@ -263,44 +255,36 @@ impl StreamHandler<Result<ws::Message, ws::ProtocolError>> for WebSocket {
 }
 
 /// Handle incoming invoice updates.
-impl StreamHandler<Result<Invoice, AcceptXmrError>> for WebSocket {
-    fn handle(&mut self, msg: Result<Invoice, AcceptXmrError>, ctx: &mut Self::Context) {
-        match msg {
-            Ok(invoice_update) => {
-                // Send the update to the user.
-                ctx.text(ByteString::from(
-                    json!(
-                        {
-                            "address": invoice_update.address(),
-                            "amount_paid": invoice_update.amount_paid(),
-                            "amount_requested": invoice_update.amount_requested(),
-                            "uri": invoice_update.uri(),
-                            "confirmations": invoice_update.confirmations(),
-                            "confirmations_required": invoice_update.confirmations_required(),
-                            "expiration_in": invoice_update.expiration_in(),
-                        }
-                    )
-                    .to_string(),
-                ));
-                // If the invoice is confirmed or expired, stop checking for updates.
-                if invoice_update.is_confirmed() {
-                    ctx.close(Some(ws::CloseReason::from((
-                        ws::CloseCode::Normal,
-                        "Invoice Complete",
-                    ))));
-                    ctx.stop();
-                } else if invoice_update.is_expired() {
-                    ctx.close(Some(ws::CloseReason::from((
-                        ws::CloseCode::Normal,
-                        "Invoice Expired",
-                    ))));
-                    ctx.stop();
+impl StreamHandler<Invoice> for WebSocket {
+    fn handle(&mut self, invoice_update: Invoice, ctx: &mut Self::Context) {
+        // Send the update to the user.
+        ctx.text(ByteString::from(
+            json!(
+                {
+                    "address": invoice_update.address(),
+                    "amount_paid": invoice_update.amount_paid(),
+                    "amount_requested": invoice_update.amount_requested(),
+                    "uri": invoice_update.uri(),
+                    "confirmations": invoice_update.confirmations(),
+                    "confirmations_required": invoice_update.confirmations_required(),
+                    "expiration_in": invoice_update.expiration_in(),
                 }
-            }
-            Err(e) => {
-                error!("Failed to receive invoice update: {}", e);
-                ctx.stop();
-            }
+            )
+            .to_string(),
+        ));
+        // If the invoice is confirmed or expired, stop checking for updates.
+        if invoice_update.is_confirmed() {
+            ctx.close(Some(ws::CloseReason::from((
+                ws::CloseCode::Normal,
+                "Invoice Complete",
+            ))));
+            ctx.stop();
+        } else if invoice_update.is_expired() {
+            ctx.close(Some(ws::CloseReason::from((
+                ws::CloseCode::Normal,
+                "Invoice Expired",
+            ))));
+            ctx.stop();
         }
     }
 }
@@ -310,7 +294,7 @@ impl StreamHandler<Result<Invoice, AcceptXmrError>> for WebSocket {
 struct InvoiceStream(Subscriber);
 
 impl Stream for InvoiceStream {
-    type Item = Result<Invoice, AcceptXmrError>;
+    type Item = Invoice;
 
     fn poll_next(
         mut self: Pin<&mut Self>,

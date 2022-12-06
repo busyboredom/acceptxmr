@@ -46,13 +46,14 @@ fn new_invoice() {
             .expect("failed to add new invoice to payment gateway for tracking");
         let mut subscriber = payment_gateway
             .subscribe(invoice_id)
-            .expect("failed to subscribe to invoice")
             .expect("invoice not in database");
 
         // Get initial update.
         let update = subscriber
             .recv_timeout(Duration::from_millis(5000))
-            .expect("failed to retrieve invoice update");
+            .await
+            .expect("timeout waiting for invoice update")
+            .expect("subscription channel is closed");
 
         // Check that it is as expected.
         assert_eq!(update.amount_requested(), 1);
@@ -115,13 +116,14 @@ fn track_parallel_invoices() {
             .expect("failed to add new invoice to payment gateway for tracking");
         let mut subscriber_1 = payment_gateway
             .subscribe(invoice_id)
-            .expect("failed to subscribe to invoice")
             .expect("invoice not in database");
 
         // Get initial update.
         let update = subscriber_1
             .recv_timeout(Duration::from_millis(5000))
-            .expect("failed to retrieve invoice update");
+            .await
+            .expect("timeout waiting for invoice update")
+            .expect("subscription channel is closed");
 
         // Check that it is as expected.
         assert_eq!(update.amount_requested(), 70000000);
@@ -141,13 +143,14 @@ fn track_parallel_invoices() {
             .expect("failed to add new invoice to payment gateway for tracking");
         let mut subscriber_2 = payment_gateway
             .subscribe(invoice_id)
-            .expect("failed to subscribe to invoice")
             .expect("invoice not in database");
 
         // Get initial update.
         let update = subscriber_2
             .recv_timeout(Duration::from_millis(5000))
-            .expect("failed to retrieve invoice update");
+            .await
+            .expect("timeout waiting for invoice update")
+            .expect("subscription channel is closed");
 
         // Check that it is as expected.
         assert_eq!(update.amount_requested(), 70000000);
@@ -169,7 +172,9 @@ fn track_parallel_invoices() {
         // Get update.
         let update = subscriber_1
             .recv_timeout(Duration::from_millis(5000))
-            .expect("failed to retrieve invoice update");
+            .await
+            .expect("timeout waiting for invoice update")
+            .expect("subscription channel is closed");
 
         // Check that it is as expected.
         assert_eq!(update.amount_requested(), 70000000);
@@ -185,7 +190,9 @@ fn track_parallel_invoices() {
         // Get update.
         let update = subscriber_2
             .recv_timeout(Duration::from_millis(5000))
-            .expect("failed to retrieve invoice update");
+            .await
+            .expect("timeout waiting for invoice update")
+            .expect("subscription channel is closed");
 
         // Check that it is as expected.
         assert_eq!(update.amount_requested(), 70000000);
@@ -208,7 +215,9 @@ fn track_parallel_invoices() {
 
             let update = subscriber_1
                 .recv_timeout(Duration::from_millis(5000))
-                .expect("failed to retrieve invoice update");
+                .await
+                .expect("timeout waiting for invoice update")
+                .expect("subscription channel is closed");
 
             assert_eq!(update.amount_requested(), 70000000);
             assert_eq!(update.index(), SubIndex::new(1, 97));
@@ -222,7 +231,9 @@ fn track_parallel_invoices() {
 
             let update = subscriber_2
                 .recv_timeout(Duration::from_millis(5000))
-                .expect("failed to retrieve invoice update");
+                .await
+                .expect("timeout waiting for invoice update")
+                .expect("subscription channel is closed");
 
             assert_eq!(update.amount_requested(), 70000000);
             assert_eq!(update.index(), SubIndex::new(1, 138));
@@ -248,7 +259,9 @@ fn track_parallel_invoices() {
         // Invoice 1 should be paid now.
         let update = subscriber_1
             .recv_timeout(Duration::from_millis(5000))
-            .expect("failed to retrieve invoice update");
+            .await
+            .expect("timeout waiting for invoice update")
+            .expect("subscription channel is closed");
 
         assert_eq!(update.amount_requested(), 70000000);
         assert_eq!(update.index(), SubIndex::new(1, 97));
@@ -263,6 +276,7 @@ fn track_parallel_invoices() {
         // Invoice 2 should not have an update.
         subscriber_2
             .recv_timeout(Duration::from_millis(5000))
+            .await
             .expect_err("should not have received an update, but did");
 
         assert!(txpool_hashes_mock.hits() > 0);
@@ -275,15 +289,20 @@ fn track_parallel_invoices() {
             mock_daemon.mock_txpool_hashes("tests/rpc_resources/txpool_hashes.json");
         subscriber_1
             .recv_timeout(Duration::from_millis(5000))
-            .expect("failed to retrieve invoice update");
+            .await
+            .expect("timeout waiting for invoice update")
+            .expect("subscription channel is closed");
         subscriber_2
             .recv_timeout(Duration::from_millis(5000))
+            .await
             .expect_err("should not have received an update, but did");
         let height_mock = mock_daemon.mock_daemon_height(2477663);
 
         let update = subscriber_1
             .recv_timeout(Duration::from_millis(5000))
-            .expect("failed to retrieve invoice update");
+            .await
+            .expect("timeout waiting for invoice update")
+            .expect("subscription channel is closed");
 
         assert_eq!(update.amount_requested(), 70000000);
         assert_eq!(update.index(), SubIndex::new(1, 97));
@@ -297,7 +316,9 @@ fn track_parallel_invoices() {
 
         let update = subscriber_2
             .recv_timeout(Duration::from_millis(5000))
-            .expect("failed to retrieve invoice update");
+            .await
+            .expect("timeout waiting for invoice update")
+            .expect("subscription channel is closed");
 
         assert_eq!(update.amount_requested(), 70000000);
         assert_eq!(update.index(), SubIndex::new(1, 138));
@@ -317,7 +338,9 @@ fn track_parallel_invoices() {
 
         let update = subscriber_1
             .recv_timeout(Duration::from_millis(5000))
-            .expect("failed to retrieve invoice update");
+            .await
+            .expect("timeout waiting for invoice update")
+            .expect("subscription channel is closed");
 
         assert_eq!(update.amount_requested(), 70000000);
         assert_eq!(update.index(), SubIndex::new(1, 97));
@@ -331,7 +354,9 @@ fn track_parallel_invoices() {
 
         let update = subscriber_2
             .recv_timeout(Duration::from_millis(5000))
-            .expect("failed to retrieve invoice update");
+            .await
+            .expect("timeout waiting for invoice update")
+            .expect("subscription channel is closed");
 
         assert_eq!(update.amount_requested(), 70000000);
         assert_eq!(update.index(), SubIndex::new(1, 138));
@@ -432,13 +457,14 @@ fn fix_reorg() {
             .expect("failed to add new invoice to payment gateway for tracking");
         let mut subscriber = payment_gateway
             .subscribe(invoice_id)
-            .expect("failed to subscribe to invoice")
             .expect("invoice not in database");
 
         // Get initial update.
         let update = subscriber
             .recv_timeout(Duration::from_millis(5000))
-            .expect("failed to retrieve invoice update");
+            .await
+            .expect("timeout waiting for invoice update")
+            .expect("subscription channel is closed");
 
         // Check that it is as expected.
         assert_eq!(update.amount_requested(), 70000000);
@@ -455,7 +481,9 @@ fn fix_reorg() {
 
         let update = subscriber
             .recv_timeout(Duration::from_millis(5000))
-            .expect("failed to retrieve invoice update");
+            .await
+            .expect("timeout waiting for invoice update")
+            .expect("subscription channel is closed");
 
         assert_eq!(update.amount_requested(), 70000000);
         assert_eq!(update.index(), SubIndex::new(1, 97));
@@ -473,13 +501,16 @@ fn fix_reorg() {
 
         subscriber
             .recv_timeout(Duration::from_millis(5000))
+            .await
             .expect_err("should not have received an update, but did");
 
         mock_daemon.mock_daemon_height(24776659);
 
         let update = subscriber
             .recv_timeout(Duration::from_millis(5000))
-            .expect("failed to retrieve invoice update");
+            .await
+            .expect("timeout waiting for invoice update")
+            .expect("subscription channel is closed");
 
         assert_eq!(update.amount_requested(), 70000000);
         assert_eq!(update.index(), SubIndex::new(1, 97));
@@ -534,13 +565,14 @@ fn reproducible_rand() {
             .expect("failed to add new invoice to payment gateway for tracking");
         let mut subscriber = payment_gateway
             .subscribe(invoice_id)
-            .expect("failed to subscribe to invoice")
             .expect("invoice not in database");
 
         // Get initial update.
         let update = subscriber
             .recv_timeout(Duration::from_millis(5000))
-            .expect("failed to retrieve invoice update");
+            .await
+            .expect("timeout waiting for invoice update")
+            .expect("subscription channel is closed");
 
         // Check that it is as expected.
         assert_eq!(update.index(), SubIndex::new(1, 97));

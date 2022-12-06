@@ -88,17 +88,17 @@ mod caching;
 mod invoice;
 mod invoices_db;
 mod payment_gateway;
+mod pubsub;
 mod rpc;
 mod scanner;
-mod subscriber;
 
 use thiserror::Error;
 
 pub use invoice::{Invoice, InvoiceId, SubIndex};
 use invoices_db::InvoiceStorageError;
 pub use payment_gateway::{PaymentGateway, PaymentGatewayBuilder, PaymentGatewayStatus};
+pub use pubsub::{Subscriber, SubscriberError};
 use rpc::RpcError;
-pub use subscriber::{Subscriber, SubscriberError};
 
 /// Library's custom error type.
 #[derive(Error, Debug)]
