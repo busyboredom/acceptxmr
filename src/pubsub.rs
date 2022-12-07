@@ -204,6 +204,8 @@ impl Publisher {
         }
     }
 
+    /// It's important that this function is only called within `send_updates`, because changing the
+    /// order of senders could cause some [`Subscriber`]s to miss updates if done at the wrong time.
     fn remove_sender(&self, invoice_id: Option<InvoiceId>, sender_id: SenderId) {
         if let Some(id) = invoice_id {
             let mut invoice_subs = self

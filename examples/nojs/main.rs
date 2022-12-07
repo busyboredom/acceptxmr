@@ -21,7 +21,7 @@ use rand::{thread_rng, Rng};
 use serde::Deserialize;
 use serde_json::json;
 
-use acceptxmr::{InvoiceId, PaymentGateway, PaymentGatewayBuilder};
+use acceptxmr::{storage::stores::InMemory, InvoiceId, PaymentGateway, PaymentGatewayBuilder};
 
 /// Length of secure session key for cookies.
 const SESSION_KEY_LEN: usize = 64;
@@ -40,11 +40,14 @@ async fn main() -> std::io::Result<()> {
     // No need to keep the primary address secret.
     let primary_address = "4613YiHLM6JMH4zejMB2zJY5TwQCxL8p65ufw8kBP5yxX9itmuGLqp1dS4tkVoTxjyH3aYhYNrtGHbQzJQP5bFus3KHVdmf";
 
-    let payment_gateway =
-        PaymentGatewayBuilder::new(private_view_key.to_string(), primary_address.to_string())
-            .daemon_url("http://node.sethforprivacy.com:18089".to_string())
-            .build()
-            .expect("failed to build payment gateway");
+    let payment_gateway = PaymentGatewayBuilder::new(
+        private_view_key.to_string(),
+        primary_address.to_string(),
+        InMemory::new(),
+    )
+    .daemon_url("http://node.sethforprivacy.com:18089".to_string())
+    .build()
+    .expect("failed to build payment gateway");
     info!("Payment gateway created.");
 
     payment_gateway
@@ -126,11 +129,10 @@ struct CheckoutInfo {
 async fn start_checkout(
     session: Session,
     checkout_info: Form<CheckoutInfo>,
-    payment_gateway: Data<PaymentGateway>,
+    payment_gateway: Data<PaymentGateway<InMemory>>,
 ) -> Result<HttpResponse, actix_web::Error> {
     let invoice_id = payment_gateway
         .new_invoice(1_000_000_000, 2, 5, checkout_info.message.clone())
-        .await
         .unwrap();
     session.insert("id", invoice_id)?;
     Ok(HttpResponse::TemporaryRedirect()
@@ -144,7 +146,7 @@ async fn start_checkout(
 #[get("/checkout")]
 async fn checkout(
     session: Session,
-    payment_gateway: Data<PaymentGateway>,
+    payment_gateway: Data<PaymentGateway<InMemory>>,
     templater: Data<Handlebars<'_>>,
 ) -> Result<HttpResponse, actix_web::Error> {
     if let Ok(Some(invoice_id)) = session.get::<InvoiceId>("id") {
