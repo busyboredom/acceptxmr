@@ -11,7 +11,7 @@ use acceptxmr::{
         stores::{InMemory, Sled},
         InvoiceStorage,
     },
-    PaymentGatewayBuilder, SubIndex,
+    Invoice, PaymentGatewayBuilder, SubIndex,
 };
 
 use crate::common::{init_logger, new_temp_dir, MockDaemon, PRIMARY_ADDRESS, PRIVATE_VIEW_KEY};
@@ -132,15 +132,7 @@ where
             .expect("subscription channel is closed");
 
         // Check that it is as expected.
-        assert_eq!(update.amount_requested(), 70000000);
-        assert_eq!(update.index(), SubIndex::new(1, 97));
-        assert_eq!(update.amount_paid(), 0);
-        assert!(!update.is_expired());
-        assert!(!update.is_confirmed());
-        assert_eq!(update.expiration_height() - update.creation_height(), 7);
-        assert_eq!(update.creation_height(), update.current_height());
-        assert_eq!(update.confirmations_required(), 2);
-        assert_eq!(update.confirmations(), None);
+        assert_invoice(&update, 97, 0, false, false, 7, 2477657, None);
 
         // Add the invoice.
         let invoice_id = payment_gateway
@@ -158,15 +150,7 @@ where
             .expect("subscription channel is closed");
 
         // Check that it is as expected.
-        assert_eq!(update.amount_requested(), 70000000);
-        assert_eq!(update.index(), SubIndex::new(1, 138));
-        assert_eq!(update.amount_paid(), 0);
-        assert!(!update.is_expired());
-        assert!(!update.is_confirmed());
-        assert_eq!(update.expiration_height() - update.creation_height(), 7);
-        assert_eq!(update.creation_height(), update.current_height());
-        assert_eq!(update.confirmations_required(), 2);
-        assert_eq!(update.confirmations(), None);
+        assert_invoice(&update, 138, 0, false, false, 7, 2477657, None);
 
         // Add double transfer to txpool.
         let txpool_hashes_mock =
@@ -182,15 +166,7 @@ where
             .expect("subscription channel is closed");
 
         // Check that it is as expected.
-        assert_eq!(update.amount_requested(), 70000000);
-        assert_eq!(update.index(), SubIndex::new(1, 97));
-        assert_eq!(update.amount_paid(), 37419570);
-        assert!(!update.is_expired());
-        assert!(!update.is_confirmed());
-        assert_eq!(update.expiration_height() - update.creation_height(), 7);
-        assert_eq!(update.creation_height(), update.current_height());
-        assert_eq!(update.confirmations_required(), 2);
-        assert_eq!(update.confirmations(), None);
+        assert_invoice(&update, 97, 37419570, false, false, 7, 2477657, None);
 
         // Get update.
         let update = subscriber_2
@@ -200,21 +176,29 @@ where
             .expect("subscription channel is closed");
 
         // Check that it is as expected.
-        assert_eq!(update.amount_requested(), 70000000);
-        assert_eq!(update.index(), SubIndex::new(1, 138));
-        assert_eq!(update.amount_paid(), 37419570);
-        assert!(!update.is_expired());
-        assert!(!update.is_confirmed());
-        assert_eq!(update.expiration_height() - update.creation_height(), 7);
-        assert_eq!(update.creation_height(), update.current_height());
-        assert_eq!(update.confirmations_required(), 2);
-        assert_eq!(update.confirmations(), None);
+        assert_invoice(&update, 138, 37419570, false, false, 7, 2477657, None);
 
         // Check that the mock server did in fact receive the requests.
         assert!(txpool_hashes_mock.hits() > 0);
 
-        // Move forward a few blocks.
+        // Mock txpool with no payments (as if the payment moved to a block).
         mock_daemon.mock_txpool_hashes("tests/rpc_resources/txpool_hashes.json");
+
+        // Both invoices should now show zero paid.
+        let update = subscriber_1
+            .recv_timeout(Duration::from_millis(5000))
+            .await
+            .expect("timeout waiting for invoice update")
+            .expect("subscription channel is closed");
+        assert_eq!(update.amount_paid(), 0);
+        let update = subscriber_2
+            .recv_timeout(Duration::from_millis(5000))
+            .await
+            .expect("timeout waiting for invoice update")
+            .expect("subscription channel is closed");
+        assert_eq!(update.amount_paid(), 0);
+
+        // Move forward a few blocks.
         for height in 2477658..2477663 {
             let height_mock = mock_daemon.mock_daemon_height(height);
 
@@ -224,15 +208,10 @@ where
                 .expect("timeout waiting for invoice update")
                 .expect("subscription channel is closed");
 
-            assert_eq!(update.amount_requested(), 70000000);
-            assert_eq!(update.index(), SubIndex::new(1, 97));
-            assert_eq!(update.amount_paid(), 37419570);
-            assert!(!update.is_expired());
-            assert!(!update.is_confirmed());
-            assert_eq!(update.expiration_height() - update.creation_height(), 7);
-            assert_eq!(update.current_height(), height);
-            assert_eq!(update.confirmations_required(), 2);
-            assert_eq!(update.confirmations(), None);
+            let expires_in = 2477664 - height;
+            assert_invoice(
+                &update, 97, 37419570, false, false, expires_in, height, None,
+            );
 
             let update = subscriber_2
                 .recv_timeout(Duration::from_millis(5000))
@@ -240,15 +219,9 @@ where
                 .expect("timeout waiting for invoice update")
                 .expect("subscription channel is closed");
 
-            assert_eq!(update.amount_requested(), 70000000);
-            assert_eq!(update.index(), SubIndex::new(1, 138));
-            assert_eq!(update.amount_paid(), 37419570);
-            assert!(!update.is_expired());
-            assert!(!update.is_confirmed());
-            assert_eq!(update.expiration_height() - update.creation_height(), 7);
-            assert_eq!(update.current_height(), height);
-            assert_eq!(update.confirmations_required(), 2);
-            assert_eq!(update.confirmations(), None);
+            assert_invoice(
+                &update, 138, 37419570, false, false, expires_in, height, None,
+            );
 
             assert!(height_mock.hits() > 0);
         }
@@ -268,15 +241,7 @@ where
             .expect("timeout waiting for invoice update")
             .expect("subscription channel is closed");
 
-        assert_eq!(update.amount_requested(), 70000000);
-        assert_eq!(update.index(), SubIndex::new(1, 97));
-        assert_eq!(update.amount_paid(), 74839140);
-        assert!(!update.is_expired());
-        assert!(!update.is_confirmed());
-        assert_eq!(update.expiration_height() - update.creation_height(), 7);
-        assert_eq!(update.current_height(), 2477662);
-        assert_eq!(update.confirmations_required(), 2);
-        assert_eq!(update.confirmations(), Some(0));
+        assert_invoice(&update, 97, 74839140, false, false, 2, 2477662, Some(0));
 
         // Invoice 2 should not have an update.
         subscriber_2
@@ -309,15 +274,7 @@ where
             .expect("timeout waiting for invoice update")
             .expect("subscription channel is closed");
 
-        assert_eq!(update.amount_requested(), 70000000);
-        assert_eq!(update.index(), SubIndex::new(1, 97));
-        assert_eq!(update.amount_paid(), 74839140);
-        assert!(!update.is_expired());
-        assert!(!update.is_confirmed());
-        assert_eq!(update.expiration_height() - update.creation_height(), 7);
-        assert_eq!(update.current_height(), 2477663);
-        assert_eq!(update.confirmations_required(), 2);
-        assert_eq!(update.confirmations(), Some(1));
+        assert_invoice(&update, 97, 74839140, false, false, 1, 2477663, Some(1));
 
         let update = subscriber_2
             .recv_timeout(Duration::from_millis(5000))
@@ -325,15 +282,7 @@ where
             .expect("timeout waiting for invoice update")
             .expect("subscription channel is closed");
 
-        assert_eq!(update.amount_requested(), 70000000);
-        assert_eq!(update.index(), SubIndex::new(1, 138));
-        assert_eq!(update.amount_paid(), 37419570);
-        assert!(!update.is_expired());
-        assert!(!update.is_confirmed());
-        assert_eq!(update.expiration_height() - update.creation_height(), 7);
-        assert_eq!(update.current_height(), 2477663);
-        assert_eq!(update.confirmations_required(), 2);
-        assert_eq!(update.confirmations(), None);
+        assert_invoice(&update, 138, 37419570, false, false, 1, 2477663, None);
 
         assert!(txpool_hashes_mock.hits() > 0);
         assert!(height_mock.hits() > 0);
@@ -347,15 +296,7 @@ where
             .expect("timeout waiting for invoice update")
             .expect("subscription channel is closed");
 
-        assert_eq!(update.amount_requested(), 70000000);
-        assert_eq!(update.index(), SubIndex::new(1, 97));
-        assert_eq!(update.amount_paid(), 74839140);
-        assert!(!update.is_expired());
-        assert!(update.is_confirmed());
-        assert_eq!(update.expiration_height() - update.creation_height(), 7);
-        assert_eq!(update.current_height(), 2477664);
-        assert_eq!(update.confirmations_required(), 2);
-        assert_eq!(update.confirmations(), Some(2));
+        assert_invoice(&update, 97, 74839140, false, true, 0, 2477664, Some(2));
 
         let update = subscriber_2
             .recv_timeout(Duration::from_millis(5000))
@@ -363,15 +304,7 @@ where
             .expect("timeout waiting for invoice update")
             .expect("subscription channel is closed");
 
-        assert_eq!(update.amount_requested(), 70000000);
-        assert_eq!(update.index(), SubIndex::new(1, 138));
-        assert_eq!(update.amount_paid(), 37419570);
-        assert!(update.is_expired());
-        assert!(!update.is_confirmed());
-        assert_eq!(update.expiration_height() - update.creation_height(), 7);
-        assert_eq!(update.current_height(), 2477664);
-        assert_eq!(update.confirmations_required(), 2);
-        assert_eq!(update.confirmations(), None);
+        assert_invoice(&update, 138, 37419570, true, false, 0, 2477664, None);
 
         assert!(txpool_hashes_mock.hits() > 0);
         assert!(height_mock.hits() > 0);
@@ -469,15 +402,7 @@ where
             .expect("subscription channel is closed");
 
         // Check that it is as expected.
-        assert_eq!(update.amount_requested(), 70000000);
-        assert_eq!(update.index(), SubIndex::new(1, 97));
-        assert_eq!(update.amount_paid(), 0);
-        assert!(!update.is_expired());
-        assert!(!update.is_confirmed());
-        assert_eq!(update.expiration_height() - update.creation_height(), 7);
-        assert_eq!(update.creation_height(), update.current_height());
-        assert_eq!(update.confirmations_required(), 2);
-        assert_eq!(update.confirmations(), None);
+        assert_invoice(&update, 97, 0, false, false, 7, 2477657, None);
 
         mock_daemon.mock_daemon_height(2477658);
 
@@ -487,15 +412,7 @@ where
             .expect("timeout waiting for invoice update")
             .expect("subscription channel is closed");
 
-        assert_eq!(update.amount_requested(), 70000000);
-        assert_eq!(update.index(), SubIndex::new(1, 97));
-        assert_eq!(update.amount_paid(), 37419570);
-        assert!(!update.is_expired());
-        assert!(!update.is_confirmed());
-        assert_eq!(update.expiration_height() - update.creation_height(), 7);
-        assert_eq!(update.current_height(), 2477658);
-        assert_eq!(update.confirmations_required(), 2);
-        assert_eq!(update.confirmations(), None);
+        assert_invoice(&update, 97, 37419570, false, false, 6, 2477658, None);
 
         // Reorg to invalidate payment.
         mock_daemon.mock_alt_2477657();
@@ -514,15 +431,7 @@ where
             .expect("timeout waiting for invoice update")
             .expect("subscription channel is closed");
 
-        assert_eq!(update.amount_requested(), 70000000);
-        assert_eq!(update.index(), SubIndex::new(1, 97));
-        assert_eq!(update.amount_paid(), 0);
-        assert!(!update.is_expired());
-        assert!(!update.is_confirmed());
-        assert_eq!(update.expiration_height() - update.creation_height(), 7);
-        assert_eq!(update.current_height(), 2477659);
-        assert_eq!(update.confirmations_required(), 2);
-        assert_eq!(update.confirmations(), None);
+        assert_invoice(&update, 97, 0, false, false, 5, 2477659, None);
     })
 }
 
@@ -577,4 +486,30 @@ where
         // Check that it is as expected.
         assert_eq!(update.index(), SubIndex::new(1, 97));
     })
+}
+
+#[allow(clippy::too_many_arguments)]
+fn assert_invoice(
+    update: &Invoice,
+    minor_index: u32,
+    paid: u64,
+    is_expired: bool,
+    is_confirmed: bool,
+    expires_in: u64,
+    height: u64,
+    confirmations: Option<u64>,
+) {
+    assert_eq!(update.amount_requested(), 70000000);
+    assert_eq!(update.confirmations_required(), 2);
+    assert_eq!(update.index(), SubIndex::new(1, minor_index));
+    assert_eq!(update.amount_paid(), paid);
+    assert_eq!(update.is_expired(), is_expired);
+    assert_eq!(update.is_confirmed(), is_confirmed);
+    assert_eq!(update.expiration_height() - update.creation_height(), 7);
+    assert_eq!(
+        update.expiration_height() - update.current_height(),
+        expires_in
+    );
+    assert_eq!(update.current_height(), height);
+    assert_eq!(update.confirmations(), confirmations);
 }
