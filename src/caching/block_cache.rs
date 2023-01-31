@@ -73,7 +73,7 @@ impl BlockCache {
             ))
                 .rev()
             {
-                let height = blockchain_height - 1 - i as u64;
+                let height = blockchain_height - 1 - i;
                 let (block_id, block) = self.rpc_client.block(height).await?;
                 let transactions = self.rpc_client.block_transactions(&block).await?;
                 self.blocks

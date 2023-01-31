@@ -317,7 +317,7 @@ impl fmt::Display for Invoice {
         } else {
             str.push_str("\n]");
         }
-        write!(f, "{}", str)
+        write!(f, "{str}")
     }
 }
 
@@ -545,7 +545,7 @@ mod tests {
 
         assert_eq!(
             invoice.uri(),
-            format!("monero:testaddress?tx_amount={}", expected_tx_amount)
+            format!("monero:testaddress?tx_amount={expected_tx_amount}")
         );
     }
 }
