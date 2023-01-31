@@ -58,9 +58,8 @@ impl AuthInfo {
             .last_auth_params
             .lock()
             .unwrap_or_else(PoisonError::into_inner);
-        let auth_params = match maybe_auth_params {
-            Some(params) => params,
-            None => return Ok(None),
+        let Some(auth_params) = maybe_auth_params else {
+            return Ok(None)
         };
         let mut cnonce_bytes: [u8; 16] = [0; 16]; // 128 bits
         self.rng.fill(&mut cnonce_bytes[..]);
@@ -86,11 +85,11 @@ impl AuthInfo {
         let ha1_input = format!("{}:{}:{}", &self.username, realm, &self.password);
         let mut ha1 = md5_str(ha1_input);
         if algorithm.is_sess() {
-            ha1 = md5_str(format!("{}:{}:{}", ha1, nonce, cnonce));
+            ha1 = md5_str(format!("{ha1}:{nonce}:{cnonce}"));
         }
-        let ha2_input = format!("{}:{}", method, path_and_query);
+        let ha2_input = format!("{method}:{path_and_query}");
         let ha2 = md5_str(ha2_input);
-        let response_input = format!("{}:{}:{}:{}:{}:{}", ha1, nonce, nc, cnonce, qop, ha2);
+        let response_input = format!("{ha1}:{nonce}:{nc}:{cnonce}:{qop}:{ha2}");
         let response = md5_str(response_input);
 
         let mut auth_header = format!(
@@ -106,7 +105,7 @@ impl AuthInfo {
             algorithm,
         );
         if let Some(opaque_val) = opaque {
-            let opaque_str = format!(", opaque={}", opaque_val);
+            let opaque_str = format!(", opaque={opaque_val}");
             auth_header.push_str(&opaque_str);
         }
 
@@ -162,8 +161,7 @@ fn parse_header(header: &str) -> Result<AuthParams, AuthError> {
         .map(|s| match s.trim() {
             "" | "auth" => Ok(Qop::Auth),
             q => Err(AuthError::InvalidHeader(format!(
-                "unknown QoP directive: {}",
-                q
+                "unknown QoP directive: {q}"
             ))),
         })
         .collect::<Result<Vec<Qop>, AuthError>>()?;
@@ -173,12 +171,7 @@ fn parse_header(header: &str) -> Result<AuthParams, AuthError> {
     {
         "" | "MD5" => Algorithm::Md5,
         "MD5-sess" => Algorithm::Md5Sess,
-        a => {
-            return Err(AuthError::InvalidHeader(format!(
-                "unknown algorithm: {}",
-                a
-            )))
-        }
+        a => return Err(AuthError::InvalidHeader(format!("unknown algorithm: {a}"))),
     };
     let nonce = find_string_value(&str_params, "nonce")
         .ok_or_else(|| AuthError::InvalidHeader("no nonce provided".to_string()))?;
@@ -221,7 +214,7 @@ fn split_header(header_str: &str) -> Vec<&str> {
 fn find_string_value(parts: &Vec<&str>, field: &'static str) -> Option<String> {
     for &p in parts {
         if p.starts_with(field) {
-            let formatted = format!("{}=", field);
+            let formatted = format!("{field}=");
             return Some(
                 p.replace(&formatted, "")
                     .trim_start_matches('\"')

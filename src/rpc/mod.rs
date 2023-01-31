@@ -118,9 +118,7 @@ impl RpcClient {
 
         let res = self.request(request_body, request_endpoint).await?;
 
-        let blobs = if let Some(txs) = res["transactions"].as_array() {
-            txs
-        } else {
+        let Some(blobs) = res["transactions"].as_array() else {
             // If there are no transactions in the txpool, just return an empty list.
             return Ok(transactions);
         };
@@ -143,9 +141,7 @@ impl RpcClient {
 
         let res = self.request(request_body, request_endpoint).await?;
 
-        let blobs = if let Some(tx_hashes) = res["tx_hashes"].as_array() {
-            tx_hashes
-        } else {
+        let Some(blobs) = res["tx_hashes"].as_array() else {
             // If there are no tx hashes, just return an empty list.
             return Ok(transactions);
         };
