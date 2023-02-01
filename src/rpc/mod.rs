@@ -38,21 +38,17 @@ impl RpcClient {
     /// Returns an Rpc client pointing at the specified monero daemon.
     pub fn new(
         url: Uri,
-        total_timeout: Duration,
-        connection_timeout: Duration,
+        timeout: Duration,
         username: Option<String>,
         password: Option<String>,
         seed: Option<u64>,
     ) -> RpcClient {
-        let mut hyper_connector = HttpConnector::new();
-        hyper_connector.set_connect_timeout(Some(connection_timeout));
         let rustls_connector = HttpsConnectorBuilder::new()
             .with_native_roots()
             .https_or_http()
             .enable_http1()
             .enable_http2()
             .build();
-        //.wrap_connector(hyper_connector);
         let client = hyper::Client::builder().build(rustls_connector);
         let auth_info = Arc::new(Mutex::new(if username.is_some() || password.is_some() {
             Some(AuthInfo::new(
@@ -67,7 +63,7 @@ impl RpcClient {
         RpcClient {
             client,
             url,
-            timeout: total_timeout,
+            timeout,
             auth_info,
         }
     }

@@ -545,7 +545,6 @@ impl<S: InvoiceStorage> PaymentGatewayBuilder<S> {
                     error: e.to_string(),
                 })?,
             self.rpc_timeout,
-            self.rpc_connection_timeout,
             self.daemon_username,
             self.daemon_password,
             self.seed,
