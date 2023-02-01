@@ -46,13 +46,13 @@ impl RpcClient {
     ) -> RpcClient {
         let mut hyper_connector = HttpConnector::new();
         hyper_connector.set_connect_timeout(Some(connection_timeout));
+        hyper_connector.enforce_http(false);
         let rustls_connector = HttpsConnectorBuilder::new()
             .with_native_roots()
             .https_or_http()
             .enable_http1()
             .enable_http2()
-            .build();
-        //.wrap_connector(hyper_connector);
+            .wrap_connector(hyper_connector);
         let client = hyper::Client::builder().build(rustls_connector);
         let auth_info = Arc::new(Mutex::new(if username.is_some() || password.is_some() {
             Some(AuthInfo::new(
