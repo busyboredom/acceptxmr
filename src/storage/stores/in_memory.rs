@@ -1,4 +1,7 @@
-use std::collections::{btree_map, BTreeMap};
+use std::collections::{
+    btree_map::{self, Entry},
+    BTreeMap,
+};
 
 use thiserror::Error;
 
@@ -26,8 +29,12 @@ impl InvoiceStorage for InMemory {
     type Error = InMemoryStorageError;
     type Iter<'a> = InMemoryIter<'a>;
 
-    fn insert(&mut self, invoice: Invoice) -> Result<Option<Invoice>, Self::Error> {
-        Ok(self.0.insert(invoice.id(), invoice))
+    fn insert(&mut self, invoice: Invoice) -> Result<(), Self::Error> {
+        if self.0.contains_key(&invoice.id()) {
+            return Err(InMemoryStorageError::DuplicateEntry);
+        }
+        self.0.insert(invoice.id(), invoice);
+        Ok(())
     }
 
     fn remove(&mut self, invoice_id: InvoiceId) -> Result<Option<Invoice>, Self::Error> {
@@ -35,8 +42,8 @@ impl InvoiceStorage for InMemory {
     }
 
     fn update(&mut self, invoice: Invoice) -> Result<Option<Invoice>, Self::Error> {
-        if self.0.contains_key(&invoice.id()) {
-            return self.insert(invoice);
+        if let Entry::Occupied(mut entry) = self.0.entry(invoice.id()) {
+            return Ok(Some(entry.insert(invoice)));
         }
         Ok(None)
     }
@@ -53,9 +60,9 @@ impl InvoiceStorage for InMemory {
             .is_some())
     }
 
-    fn iter(&self) -> Self::Iter<'_> {
+    fn try_iter(&self) -> Result<Self::Iter<'_>, InMemoryStorageError> {
         let iter = self.0.values();
-        InMemoryIter(iter)
+        Ok(InMemoryIter(iter))
     }
 }
 
@@ -72,4 +79,8 @@ impl<'a> Iterator for InMemoryIter<'a> {
 /// An error occurring while storing or retrieving pending invoices in memory.
 #[derive(Error, Debug)]
 #[error("in-memory invoice storage error")]
-pub enum InMemoryStorageError {}
+pub enum InMemoryStorageError {
+    /// Attempted to insert an invoice which already exists
+    #[error("attempted to insert an invoice which already exists")]
+    DuplicateEntry,
+}

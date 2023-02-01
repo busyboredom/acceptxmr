@@ -8,7 +8,7 @@ use tokio::runtime::Runtime;
 
 use acceptxmr::{
     storage::{
-        stores::{InMemory, Sled},
+        stores::{InMemory, Sled, Sqlite},
         InvoiceStorage,
     },
     Invoice, PaymentGatewayBuilder, SubIndex,
@@ -16,8 +16,9 @@ use acceptxmr::{
 
 use crate::common::{init_logger, new_temp_dir, MockDaemon, PRIMARY_ADDRESS, PRIVATE_VIEW_KEY};
 
-#[test_case(Sled::new(new_temp_dir().path().to_str().unwrap(), "tree").unwrap())]
+#[test_case(Sled::new(&new_temp_dir(), "tree").unwrap())]
 #[test_case(InMemory::new())]
+#[test_case(Sqlite::new(":memory:", "invoices").unwrap())]
 fn new_invoice<'a, S, E, I>(store: S)
 where
     S: InvoiceStorage<Error = E, Iter<'a> = I> + 'static,
@@ -83,8 +84,9 @@ where
     })
 }
 
-#[test_case(Sled::new(new_temp_dir().path().to_str().unwrap(), "tree").unwrap())]
+#[test_case(Sled::new(&new_temp_dir(), "tree").unwrap())]
 #[test_case(InMemory::new())]
+#[test_case(Sqlite::new(":memory:", "invoices").unwrap())]
 fn track_parallel_invoices<'a, S, E, I>(store: S)
 where
     S: InvoiceStorage<Error = E, Iter<'a> = I> + 'static,
@@ -311,8 +313,9 @@ where
     })
 }
 
-#[test_case(Sled::new(new_temp_dir().path().to_str().unwrap(), "tree").unwrap())]
+#[test_case(Sled::new(&new_temp_dir(), "tree").unwrap())]
 #[test_case(InMemory::new())]
+#[test_case(Sqlite::new(":memory:", "invoices").unwrap())]
 fn block_cache_skip_ahead<'a, S, E, I>(store: S)
 where
     S: InvoiceStorage<Error = E, Iter<'a> = I> + 'static,
@@ -348,13 +351,19 @@ where
 
         mock_daemon.mock_daemon_height(2477666);
 
-        tokio::time::sleep(tokio::time::Duration::from_millis(600)).await;
-        assert_eq!(payment_gateway.cache_height(), 2477665);
+        tokio::time::timeout(Duration::from_millis(1000), async {
+            while payment_gateway.cache_height() != 2477665 {
+                tokio::time::sleep(Duration::from_millis(100)).await;
+            }
+        })
+        .await
+        .expect("timed out waiting for gateway to fast forward");
     })
 }
 
-#[test_case(Sled::new(new_temp_dir().path().to_str().unwrap(), "tree").unwrap())]
+#[test_case(Sled::new(&new_temp_dir(), "tree").unwrap())]
 #[test_case(InMemory::new())]
+#[test_case(Sqlite::new(":memory:", "invoices").unwrap())]
 fn fix_reorg<'a, S, E, I>(store: S)
 where
     S: InvoiceStorage<Error = E, Iter<'a> = I> + 'static,
@@ -435,8 +444,9 @@ where
     })
 }
 
-#[test_case(Sled::new(new_temp_dir().path().to_str().unwrap(), "tree").unwrap())]
+#[test_case(Sled::new(&new_temp_dir(), "tree").unwrap())]
 #[test_case(InMemory::new())]
+#[test_case(Sqlite::new(":memory:", "invoices").unwrap())]
 fn reproducible_rand<'a, S, E, I>(store: S)
 where
     S: InvoiceStorage<Error = E, Iter<'a> = I> + 'static,

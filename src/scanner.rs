@@ -128,7 +128,12 @@ impl<S: InvoiceStorage> Scanner<S> {
         // TODO: Break this out into its own function.
         let deepest_update = block_cache_height - blocks_updated as u64 + 1;
         let mut updated_invoices = Vec::new();
-        for invoice_or_err in self.invoice_store.lock().iter() {
+        for invoice_or_err in self
+            .invoice_store
+            .lock()
+            .try_iter()
+            .map_err(AcceptXmrError::InvoiceStorage)?
+        {
             // Retrieve old invoice object.
             let old_invoice = match invoice_or_err {
                 Ok(p) => p,
@@ -217,7 +222,11 @@ impl<S: InvoiceStorage> Scanner<S> {
     async fn update_caches(&self) -> Result<(usize, Vec<Transaction>), AcceptXmrError<S::Error>> {
         // Update block cache.
         let mut block_cache = self.block_cache.lock().await;
-        let blocks_updated = if self.invoice_store.is_empty() {
+        let blocks_updated = if self
+            .invoice_store
+            .is_empty()
+            .map_err(AcceptXmrError::InvoiceStorage)?
+        {
             // Skip ahead to blockchain tip if there are no pending invoices.
             block_cache.skip_ahead::<S>().await?
         } else {

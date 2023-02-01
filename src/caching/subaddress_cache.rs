@@ -33,7 +33,7 @@ impl SubaddressCache {
         // available subindexes.
         let used_sub_indexes = invoice_storage
             .lock()
-            .iter()
+            .try_iter()?
             .map(|invoice_or_err| match invoice_or_err {
                 Ok(invoice) => Ok(invoice.index()),
                 Err(e) => Err(e),
