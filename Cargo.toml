@@ -51,7 +51,7 @@ httpmock = "0.6"
 qrcode = "0.12"
 serde = "1"
 tempfile = "3"
-test-case = "2.2.2"
+test-case = "3"
 # This is a workaround to enable features in tests.
 acceptxmr = { path = ".", features = ["sled", "in-memory"] }
 
