@@ -4,8 +4,7 @@ use log::trace;
 use monero::cryptonote::hash::Hashable;
 use tokio::join;
 
-use crate::{invoice::Transfer, storage::InvoiceStorage};
-use crate::{rpc::RpcClient, AcceptXmrError, SubIndex};
+use crate::{invoice::Transfer, rpc::RpcClient, storage::InvoiceStorage, AcceptXmrError, SubIndex};
 
 pub(crate) struct TxpoolCache {
     rpc_client: RpcClient,
@@ -27,8 +26,8 @@ impl TxpoolCache {
         })
     }
 
-    /// Update the txpool cache with newest [tansactions](monero::Transaction) from daemon txpool. Returns
-    /// transactions received.
+    /// Update the txpool cache with newest [tansactions](monero::Transaction)
+    /// from daemon txpool. Returns transactions received.
     pub async fn update<S: InvoiceStorage>(
         &mut self,
     ) -> Result<Vec<monero::Transaction>, AcceptXmrError<S::Error>> {
@@ -43,7 +42,9 @@ impl TxpoolCache {
             }
         }
 
-        // Cloning RPC client because async block below requires unique access to `self`.
+        // Cloning RPC client because async block below requires unique access to
+        // `self`.
+        //
         // TODO: Find a way to do this without cloning.
         let rpc_client = self.rpc_client.clone();
         let (new_transactions, _) = join!(rpc_client.transactions_by_hashes(&new_hashes), async {

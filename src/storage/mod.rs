@@ -1,6 +1,7 @@
-//! `AcceptXMR` can store pending invoices using a storage layer of your choosing. Consumers of this
-//! library can use one of the existing storage layers found in [`stores`], or can implement the
-//! [`InvoiceStorage`] trait themselves for a custom storage solution.
+//! `AcceptXMR` can store pending invoices using a storage layer of your
+//! choosing. Consumers of this library can use one of the existing storage
+//! layers found in [`stores`], or can implement the [`InvoiceStorage`] trait
+//! themselves for a custom storage solution.
 
 pub mod stores;
 
@@ -12,9 +13,10 @@ use std::{
 
 use crate::{Invoice, InvoiceId, SubIndex};
 
-/// The [`InvoiceStorage`] trait describes the storage layer for pending invoices. Consumers of this
-/// library can use one of the existing storage layers found in [`stores`], or implement this trait
-/// themselves for a custom storage solution.
+/// The [`InvoiceStorage`] trait describes the storage layer for pending
+/// invoices. Consumers of this library can use one of the existing storage
+/// layers found in [`stores`], or implement this trait themselves for a custom
+/// storage solution.
 pub trait InvoiceStorage: Send + Sync {
     /// Error type for the storage layer.
     type Error: Display + Send;
@@ -27,7 +29,8 @@ pub trait InvoiceStorage: Send + Sync {
     ///
     /// # Errors
     ///
-    /// Returns an error if the invoice could not be inserted, or if it already exists.
+    /// Returns an error if the invoice could not be inserted, or if it already
+    /// exists.
     fn insert(&mut self, invoice: Invoice) -> Result<(), Self::Error>;
 
     /// Remove invoice from storage, returning the invoice if it existed.
@@ -37,8 +40,8 @@ pub trait InvoiceStorage: Send + Sync {
     /// Returns an error if the invoice could not be removed.
     fn remove(&mut self, invoice_id: InvoiceId) -> Result<Option<Invoice>, Self::Error>;
 
-    /// Update existing invoice in storage, returning old value if it existed. If the invoice does
-    /// not already exist, does nothing.
+    /// Update existing invoice in storage, returning old value if it existed.
+    /// If the invoice does not already exist, does nothing.
     ///
     /// # Errors
     ///
@@ -56,24 +59,25 @@ pub trait InvoiceStorage: Send + Sync {
     ///
     /// # Errors
     ///
-    /// Returns an error if the existence of an invoice for the given subaddress could not be
-    /// determined.
+    /// Returns an error if the existence of an invoice for the given subaddress
+    /// could not be determined.
     fn contains_sub_index(&self, sub_index: SubIndex) -> Result<bool, Self::Error>;
 
     /// Returns an iterator over all invoices in storage.
     ///
     /// # Errors
     ///
-    /// Returns an error if the iterator could not be created due to an underlying issue with the
-    /// storage layer.
+    /// Returns an error if the iterator could not be created due to an
+    /// underlying issue with the storage layer.
     fn try_iter(&self) -> Result<Self::Iter<'_>, Self::Error>;
 
-    /// Recover lowest current height of an invoice in storage. Scanning will resume from this
-    /// height.
+    /// Recover lowest current height of an invoice in storage. Scanning will
+    /// resume from this height.
     ///
     /// # Errors
     ///
-    /// Returns an error if the lowest height of an invoice could not be determined.
+    /// Returns an error if the lowest height of an invoice could not be
+    /// determined.
     fn lowest_height(&self) -> Result<Option<u64>, Self::Error> {
         self.try_iter()?
             .min_by(|invoice_1, invoice_2| {
@@ -93,13 +97,15 @@ pub trait InvoiceStorage: Send + Sync {
     ///
     /// # Errors
     ///
-    /// Returns an error if there was an underlying issue with the storage layer.
+    /// Returns an error if there was an underlying issue with the storage
+    /// layer.
     fn is_empty(&self) -> Result<bool, Self::Error> {
         Ok(self.try_iter()?.next().is_none())
     }
 
-    /// Flush all changes to disk. This method should be manually implemented for any storage layer
-    /// that does not automatically flush on write. The default implementation does nothing.
+    /// Flush all changes to disk. This method should be manually implemented
+    /// for any storage layer that does not automatically flush on write. The
+    /// default implementation does nothing.
     ///
     /// # Errors
     ///
@@ -141,8 +147,9 @@ impl<S: InvoiceStorage> Store<S> {
         store.contains_sub_index(sub_index)
     }
 
-    /// Return an the inner [`InvoiceStorage`] object wrapped in a [`RwLockReadGuard`]. This allows the
-    /// caller to call [`InvoiceStorage::iter`] without encountering lifetime issues.
+    /// Return an the inner [`InvoiceStorage`] object wrapped in a
+    /// [`RwLockReadGuard`]. This allows the caller to call
+    /// [`InvoiceStorage::iter`] without encountering lifetime issues.
     pub fn lock(&self) -> RwLockReadGuard<'_, S> {
         self.0.read().unwrap_or_else(PoisonError::into_inner)
     }

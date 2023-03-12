@@ -3,9 +3,6 @@ use std::{
     time::Duration,
 };
 
-use test_case::test_case;
-use tokio::runtime::Runtime;
-
 use acceptxmr::{
     storage::{
         stores::{InMemory, Sled, Sqlite},
@@ -13,6 +10,8 @@ use acceptxmr::{
     },
     Invoice, PaymentGatewayBuilder, SubIndex,
 };
+use test_case::test_case;
+use tokio::runtime::Runtime;
 
 use crate::common::{init_logger, new_temp_dir, MockDaemon, PRIMARY_ADDRESS, PRIVATE_VIEW_KEY};
 
@@ -157,8 +156,8 @@ where
         // Add double transfer to txpool.
         let txpool_hashes_mock =
             mock_daemon.mock_txpool_hashes("tests/rpc_resources/txpool_hashes_with_payment.json");
-        // Mock for these transactions themselves is unnecessary, because they are all in block
-        // 2477657.
+        // Mock for these transactions themselves is unnecessary, because they are all
+        // in block 2477657.
 
         // Get update.
         let update = subscriber_1
@@ -255,8 +254,8 @@ where
         assert!(txpool_transactions_mock.hits() > 0);
 
         // Move forward a block
-        // (getting update after txpool change, so there's no data race between the scanner and
-        // these two mock changes).
+        // (getting update after txpool change, so there's no data race between the
+        // scanner and these two mock changes).
         let txpool_hashes_mock =
             mock_daemon.mock_txpool_hashes("tests/rpc_resources/txpool_hashes.json");
         subscriber_1

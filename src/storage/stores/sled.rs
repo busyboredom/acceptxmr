@@ -3,16 +3,18 @@ use thiserror::Error;
 
 use crate::{storage::InvoiceStorage, Invoice, InvoiceId, SubIndex};
 
-/// Sled database containing pending invoices. Note that [sled](sled) is still in beta.
+/// Sled database containing pending invoices. Note that [sled](sled) is still
+/// in beta.
 pub struct Sled(sled::Tree);
 
 impl Sled {
-    /// Open a [Sled](sled) database at the specified location, and use the specified tree. Creates
-    /// a new database if one does not exist.
+    /// Open a [Sled](sled) database at the specified location, and use the
+    /// specified tree. Creates a new database if one does not exist.
     ///
     /// # Errors
     ///
-    /// Returns an error if the database could not be opened at the specified path.
+    /// Returns an error if the database could not be opened at the specified
+    /// path.
     pub fn new(path: &str, tree: &str) -> Result<Sled, SledStorageError> {
         let db = sled::Config::default()
             .path(path)
@@ -147,13 +149,15 @@ impl Iterator for SledIter {
     }
 }
 
-/// An error occurring while storing or retrieving pending invoices from a `sled` database.
+/// An error occurring while storing or retrieving pending invoices from a
+/// `sled` database.
 #[derive(Error, Debug)]
 pub enum SledStorageError {
     /// An error caused by the database, or some interaction with it.
     #[error("database error: {0}")]
     Database(#[from] sled::Error),
-    /// Failed to insert an [`Invoice`] because one with the same ID already exists.
+    /// Failed to insert an [`Invoice`] because one with the same ID already
+    /// exists.
     #[error("duplicate invoice ID")]
     DuplicateInvoiceId,
     /// Failed to serialize an [`Invoice`].

@@ -5,6 +5,10 @@ use std::{
     time::{Duration, Instant},
 };
 
+use acceptxmr::{
+    storage::stores::InMemory, Invoice, InvoiceId, PaymentGateway, PaymentGatewayBuilder,
+    Subscriber,
+};
 use actix::{prelude::Stream, Actor, ActorContext, AsyncContext, StreamHandler};
 use actix_files::Files;
 use actix_session::{
@@ -24,11 +28,6 @@ use rand::{thread_rng, Rng};
 use serde::Deserialize;
 use serde_json::json;
 
-use acceptxmr::{
-    storage::stores::InMemory, Invoice, InvoiceId, PaymentGateway, PaymentGatewayBuilder,
-    Subscriber,
-};
-
 /// Time before lack of client response causes a timeout.
 const CLIENT_TIMEOUT: Duration = Duration::from_secs(10);
 /// Time between sending heartbeat pings.
@@ -44,8 +43,8 @@ async fn main() -> std::io::Result<()> {
         .filter_module("websockets", log::LevelFilter::Trace)
         .init();
 
-    // The private view key should be stored securely outside of the git repository. It is hardcoded
-    // here for demonstration purposes only.
+    // The private view key should be stored securely outside of the git repository.
+    // It is hardcoded here for demonstration purposes only.
     let private_view_key = "ad2093a5705b9f33e6f0f0c1bc1f5f639c756cdfc168c8f2ac6127ccbdab3a03";
     // No need to keep the primary address secret.
     let primary_address = "4613YiHLM6JMH4zejMB2zJY5TwQCxL8p65ufw8kBP5yxX9itmuGLqp1dS4tkVoTxjyH3aYhYNrtGHbQzJQP5bFus3KHVdmf";
@@ -78,7 +77,8 @@ async fn main() -> std::io::Result<()> {
                 // Global subscriptions should not close.
                 None => panic!("Blockchain scanner crashed!"),
             };
-            // If it's confirmed or expired, we probably shouldn't bother tracking it anymore.
+            // If it's confirmed or expired, we probably shouldn't bother tracking it
+            // anymore.
             if (invoice.is_confirmed() && invoice.creation_height() < invoice.current_height())
                 || invoice.is_expired()
             {
@@ -211,7 +211,8 @@ impl WebSocket {
         }
     }
 
-    /// Sends ping to client every `HEARTBEAT_INTERVAL` and checks for responses from client
+    /// Sends ping to client every `HEARTBEAT_INTERVAL` and checks for responses
+    /// from client
     fn heartbeat(&self, ctx: &mut <Self as Actor>::Context) {
         ctx.run_interval(HEARTBEAT_INTERVAL, |act, ctx| {
             // check client heartbeats
@@ -228,8 +229,9 @@ impl WebSocket {
 
 impl Actor for WebSocket {
     type Context = ws::WebsocketContext<Self>;
-    /// This method is called on actor start. We add the invoice subscriber as a stream here, and
-    /// start heartbeat checks as well.
+
+    /// This method is called on actor start. We add the invoice subscriber as a
+    /// stream here, and start heartbeat checks as well.
     fn started(&mut self, ctx: &mut Self::Context) {
         if let Some(subscriber) = self.invoice_subscriber.take() {
             <WebSocket as StreamHandler<Invoice>>::add_stream(InvoiceStream(subscriber), ctx);
@@ -294,8 +296,8 @@ impl StreamHandler<Invoice> for WebSocket {
     }
 }
 
-// Wrapping `Subscriber` and implementing `Stream` on the wrapper allows us to use it as an efficient
-// asynchronous stream for the Actix websocket.
+// Wrapping `Subscriber` and implementing `Stream` on the wrapper allows us to
+// use it as an efficient asynchronous stream for the Actix websocket.
 struct InvoiceStream(Subscriber);
 
 impl Stream for InvoiceStream {

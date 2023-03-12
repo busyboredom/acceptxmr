@@ -45,7 +45,8 @@ impl AuthInfo {
         }
     }
 
-    /// Build `AUTHORIZATION` header value by re-using most recent auth parameters.
+    /// Build `AUTHORIZATION` header value by re-using most recent auth
+    /// parameters.
     ///
     /// Returns `None` if no recent parameters are available.
     #[allow(clippy::similar_names)]
@@ -113,8 +114,8 @@ impl AuthInfo {
         Ok(Some(HeaderValue::from_str(&auth_header)?))
     }
 
-    /// Build `AUTHORIZATION` header value given a `Response` containing `WWW-AUTHENTICATE`
-    /// header(s).
+    /// Build `AUTHORIZATION` header value given a `Response` containing
+    /// `WWW-AUTHENTICATE` header(s).
     pub fn authenticate_with_resp<T>(
         &mut self,
         response: &Response<T>,
@@ -137,7 +138,9 @@ impl AuthInfo {
         let mut auth_choices = digest_headers
             .map(parse_header)
             .collect::<Result<Vec<AuthParams>, AuthError>>()?;
-        auth_choices.sort_unstable(); // AuthParams Ord implementation attempts to select the best available authentication options.
+        // AuthParams Ord implementation attempts to select the best available
+        // authentication options.
+        auth_choices.sort_unstable();
         let auth_params = auth_choices.last().ok_or(AuthError::Unsupported)?;
 
         *self
@@ -259,7 +262,8 @@ impl PartialOrd for AuthParams {
     }
 }
 
-/// Quality of protection directives in order of preference with the best option last.
+/// Quality of protection directives in order of preference with the best option
+/// last.
 #[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Display, Debug)]
 #[strum(serialize_all = "kebab-case")]
 enum Qop {

@@ -3,10 +3,9 @@ use std::collections::{
     BTreeMap,
 };
 
+use acceptxmr::{storage::InvoiceStorage, Invoice, InvoiceId, PaymentGatewayBuilder, SubIndex};
 use log::{error, info, LevelFilter};
 use thiserror::Error;
-
-use acceptxmr::{storage::InvoiceStorage, Invoice, InvoiceId, PaymentGatewayBuilder, SubIndex};
 
 #[tokio::main]
 async fn main() {
@@ -16,8 +15,8 @@ async fn main() {
         .filter_module("custom_storage", log::LevelFilter::Trace)
         .init();
 
-    // The private view key should be stored securely outside of the git repository. It is hardcoded
-    // here for demonstration purposes only.
+    // The private view key should be stored securely outside of the git repository.
+    // It is hardcoded here for demonstration purposes only.
     let private_view_key = "ad2093a5705b9f33e6f0f0c1bc1f5f639c756cdfc168c8f2ac6127ccbdab3a03";
     // No need to keep the primary address secret.
     let primary_address = "4613YiHLM6JMH4zejMB2zJY5TwQCxL8p65ufw8kBP5yxX9itmuGLqp1dS4tkVoTxjyH3aYhYNrtGHbQzJQP5bFus3KHVdmf";
@@ -33,8 +32,8 @@ async fn main() {
 
     info!("Payment gateway created.");
 
-    // Any invoices created with this payment gateway will now be stored in your custom storage
-    // layer.
+    // Any invoices created with this payment gateway will now be stored in your
+    // custom storage layer.
     let invoice_id = payment_gateway
         .new_invoice(1000, 2, 5, "Demo invoice".to_string())
         .unwrap();
@@ -49,9 +48,9 @@ async fn main() {
     );
 }
 
-// This example uses a BTreeMap for simplicity, but you can implement this trait on virtually any
-// storage layer you choose. Postgress or MySQL, CSV files, whatever works best for your
-// application.
+// This example uses a BTreeMap for simplicity, but you can implement this trait
+// on virtually any storage layer you choose. Postgres or MySQL, CSV files,
+// whatever works best for your application.
 struct MyCustomStorage(BTreeMap<InvoiceId, Invoice>);
 
 impl MyCustomStorage {

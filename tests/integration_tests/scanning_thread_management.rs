@@ -1,8 +1,7 @@
-use tokio::runtime::Runtime;
-
 use acceptxmr::{
     storage::stores::Sled, AcceptXmrError, PaymentGatewayBuilder, PaymentGatewayStatus,
 };
+use tokio::runtime::Runtime;
 
 use crate::common::{init_logger, new_temp_dir, MockDaemon, PRIMARY_ADDRESS, PRIVATE_VIEW_KEY};
 

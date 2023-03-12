@@ -7,6 +7,7 @@ use std::{
     time::Duration,
 };
 
+use authentication::{AuthError, AuthInfo};
 use http::StatusCode;
 use hyper::{
     body,
@@ -20,8 +21,6 @@ use monero::consensus::{deserialize, encode};
 use serde_json::json;
 use thiserror::Error;
 use tokio::time::{error, timeout};
-
-use authentication::{AuthError, AuthInfo};
 
 /// Maximum number of transactions to request at once (daemon limits this).
 const MAX_REQUESTED_TRANSACTIONS: usize = 100;
@@ -163,8 +162,10 @@ impl RpcClient {
     ) -> Result<Vec<monero::Transaction>, RpcError> {
         let mut transactions = Vec::new();
         for i in 0..=hashes.len() / MAX_REQUESTED_TRANSACTIONS {
-            // We've gotta grab these in parts to avoid putting too much load on the RPC server, so
-            // these are the start and end indexes of the hashes we're grabbing for now.
+            // We've gotta grab these in parts to avoid putting too much load on the RPC
+            // server, so these are the start and end indexes of the hashes
+            // we're grabbing for now.
+            //
             // TODO: Get them concurrently.
             let starting_index: usize = i * MAX_REQUESTED_TRANSACTIONS;
             let ending_index: usize =
@@ -235,7 +236,8 @@ impl RpcClient {
             .body(Body::from(body.to_owned()))?;
         let (method, uri) = (req.method().clone(), req.uri().clone());
 
-        // If configured with a username and password, try to authenticate with most recent nonce.
+        // If configured with a username and password, try to authenticate with most
+        // recent nonce.
         if let Some(auth_info) = &mut *self
             .auth_info
             .lock()
@@ -249,7 +251,8 @@ impl RpcClient {
         // Await full response.
         let mut response = timeout(self.timeout, self.client.request(req)).await??;
 
-        // If response has www-authenticate header and 401 status, perform digest authentication.
+        // If response has www-authenticate header and 401 status, perform digest
+        // authentication.
         if response.status() == StatusCode::UNAUTHORIZED
             && response.headers().contains_key(WWW_AUTHENTICATE)
         {

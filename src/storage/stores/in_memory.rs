@@ -7,8 +7,8 @@ use thiserror::Error;
 
 use crate::{storage::InvoiceStorage, Invoice, InvoiceId, SubIndex};
 
-/// In-memory store of pending invoices. Note that invoices stored in memory will not be recoverable
-/// on power loss.
+/// In-memory store of pending invoices. Note that invoices stored in memory
+/// will not be recoverable on power loss.
 pub struct InMemory(BTreeMap<InvoiceId, Invoice>);
 
 impl InMemory {

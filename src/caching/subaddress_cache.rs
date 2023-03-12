@@ -1,17 +1,22 @@
-use std::cmp;
-use std::ops::Range;
-use std::sync::atomic::{AtomicU32, Ordering};
-use std::sync::Arc;
+use std::{
+    cmp,
+    ops::Range,
+    sync::{
+        atomic::{AtomicU32, Ordering},
+        Arc,
+    },
+};
 
 use indexmap::{IndexMap, IndexSet};
+use log::{debug, error};
+use monero::{cryptonote::subaddress, ViewPair};
 use rand::{Rng, SeedableRng};
 use rand_chacha::ChaCha12Rng;
 
-use log::{debug, error};
-use monero::{cryptonote::subaddress, ViewPair};
-
-use crate::storage::{InvoiceStorage, Store};
-use crate::SubIndex;
+use crate::{
+    storage::{InvoiceStorage, Store},
+    SubIndex,
+};
 
 const MIN_AVAILABLE_SUBADDRESSES: u32 = 100;
 
@@ -29,8 +34,8 @@ impl SubaddressCache {
         highest_minor_index: Arc<AtomicU32>,
         seed: Option<u64>,
     ) -> Result<SubaddressCache, S::Error> {
-        // Get currently used subindexes from database, so they won't be put in the list of
-        // available subindexes.
+        // Get currently used subindexes from database, so they won't be put in the list
+        // of available subindexes.
         let used_sub_indexes = invoice_storage
             .lock()
             .try_iter()?
@@ -102,11 +107,11 @@ impl SubaddressCache {
         self.available_subaddresses.len()
     }
 
-    /// Generates `n` subaddresses at the end of the current range, and appends them to the
-    /// subaddress cache.
+    /// Generates `n` subaddresses at the end of the current range, and appends
+    /// them to the subaddress cache.
     ///
-    /// If adding `n` additional subaddresses would extend the cache beyond the maximum index of
-    /// `(1, u32::MAX)`, generation stops prematurely.
+    /// If adding `n` additional subaddresses would extend the cache beyond the
+    /// maximum index of `(1, u32::MAX)`, generation stops prematurely.
     ///
     /// Returns the number of subaddresses appended to the subaddress cache.
     pub fn extend_by(&mut self, n: u32) -> u32 {
@@ -134,8 +139,8 @@ impl SubaddressCache {
     ///
     /// # Panics
     ///
-    /// Panics if both major and minor ranges start at 0, because (0, 0) is the primary
-    /// address index (and therefor is an invalid subaddress index).
+    /// Panics if both major and minor ranges start at 0, because (0, 0) is the
+    /// primary address index (and therefor is an invalid subaddress index).
     fn generate_range(
         major: Range<u32>,
         minor: Range<u32>,

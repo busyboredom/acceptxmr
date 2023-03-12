@@ -1,7 +1,7 @@
-use std::fmt;
 use std::{
     cmp::{self, Ordering},
     collections::HashMap,
+    fmt,
     fmt::Display,
 };
 
@@ -16,10 +16,12 @@ const PICONEROS_PER_XMR: u64 = 1_000_000_000_000;
 /// Representation of an invoice. `Invoice`s are created by the
 /// [`PaymentGateway`](crate::PaymentGateway).
 ///
-/// `Invoice`s have an expiration block, after which they are considered expired. However, note that
-/// the payment gateway by default will continue updating invoices even after expiration.
+/// `Invoice`s have an expiration block, after which they are considered
+/// expired. However, note that the payment gateway by default will continue
+/// updating invoices even after expiration.
 ///
-/// To receive updates for a given `Invoice`, use a [`Subscriber`](crate::pubsub::Subscriber).
+/// To receive updates for a given `Invoice`, use a
+/// [`Subscriber`](crate::pubsub::Subscriber).
 #[derive(Debug, Clone, Eq)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[cfg_attr(feature = "bincode", derive(Encode, Decode))]
@@ -54,8 +56,9 @@ impl Invoice {
             creation_height,
             amount_requested,
             amount_paid: 0,
-            /// The height at which the `Invoice` was fully paid. Will be `None` if not yet fully
-            /// paid, or if the required XMR is still in the txpool (which has no height).
+            /// The height at which the `Invoice` was fully paid. Will be `None`
+            /// if not yet fully paid, or if the required XMR is still in the
+            /// txpool (which has no height).
             paid_height: None,
             confirmations_required,
             current_height: 0,
@@ -65,14 +68,16 @@ impl Invoice {
         }
     }
 
-    /// Returns a URI containing the address and amount due as a `String`. For example:
+    /// Returns a URI containing the address and amount due as a `String`. For
+    /// example:
     ///
     /// ```no run
     /// "monero:4A1WSBQdCbUCqt3DaGfmqVFchXScF43M6c5r4B6JXT3dUwuALncU9XTEnRPmUMcB3c16kVP9Y7thFLCJ5BaMW3UmSy93w3w?tx_amount=0.001"
     /// ```
     ///
-    /// Monero URIs can be thought of as fancy addresses that pre-fill the amount field for the user
-    /// (and sometimes the description field as well). They are supported by all major wallets.
+    /// Monero URIs can be thought of as fancy addresses that pre-fill the
+    /// amount field for the user (and sometimes the description field as
+    /// well). They are supported by all major wallets.
     #[must_use]
     #[allow(clippy::cast_precision_loss)]
     pub fn uri(&self) -> String {
@@ -88,7 +93,8 @@ impl Invoice {
         )
     }
 
-    /// Returns `true` if the `Invoice` has received the required number of confirmations.
+    /// Returns `true` if the `Invoice` has received the required number of
+    /// confirmations.
     #[must_use]
     pub fn is_confirmed(&self) -> bool {
         self.confirmations().map_or(false, |confirmations| {
@@ -96,8 +102,8 @@ impl Invoice {
         })
     }
 
-    /// Returns `true` if the `Invoice`'s current block is greater than or equal to its expiration
-    /// block.
+    /// Returns `true` if the `Invoice`'s current block is greater than or equal
+    /// to its expiration block.
     #[must_use]
     pub fn is_expired(&self) -> bool {
         // At or passed the expiration block, AND not paid in full.
@@ -145,8 +151,9 @@ impl Invoice {
 
     /// Returns the amount of monero requested in XMR.
     ///
-    /// Note that rounding may occur because the precision of `f64` is insufficient for
-    /// representing large amounts of XMR out to many decimal places. If accuracy is desired,
+    /// Note that rounding may occur because the precision of `f64` is
+    /// insufficient for representing large amounts of XMR out to many decimal
+    /// places. If accuracy is desired,
     /// [`amount_requested()`](#method.amount_requested) should be preferred.
     ///
     /// # Examples
@@ -191,11 +198,13 @@ impl Invoice {
 
     /// Returns the amount of monero paid in XMR.
     ///
-    /// Note that rounding may occur because the precision of `f64` is insufficient for
-    /// representing large amounts of XMR out to many decimal places. If accuracy is desired,
-    /// [`amount_paid()`](#method.amount_paid) should be preferred.
+    /// Note that rounding may occur because the precision of `f64` is
+    /// insufficient for representing large amounts of XMR out to many decimal
+    /// places. If accuracy is desired, [`amount_paid()`](#method.amount_paid)
+    /// should be preferred.
     ///
-    /// For an example of possible rounding error, see [`xmr_requested()`](#method.xmr_requested)
+    /// For an example of possible rounding error, see
+    /// [`xmr_requested()`](#method.xmr_requested)
     #[must_use]
     #[allow(clippy::cast_precision_loss)]
     pub fn xmr_paid(&self) -> f64 {
@@ -205,14 +214,16 @@ impl Invoice {
         whole_xmr as f64 + fractional_xmr
     }
 
-    /// Returns the number of confirmations this `Invoice` requires before it is considered fully confirmed.
+    /// Returns the number of confirmations this `Invoice` requires before it is
+    /// considered fully confirmed.
     #[must_use]
     pub fn confirmations_required(&self) -> u64 {
         self.confirmations_required
     }
 
-    /// Returns the number of confirmations this `Invoice` has received since it was paid in full.
-    /// Returns `None` if the `Invoice` has not yet been paid in full.
+    /// Returns the number of confirmations this `Invoice` has received since it
+    /// was paid in full. Returns `None` if the `Invoice` has not yet been paid
+    /// in full.
     #[must_use]
     pub fn confirmations(&self) -> Option<u64> {
         if self.amount_paid >= self.amount_requested {
@@ -321,8 +332,8 @@ impl fmt::Display for Invoice {
     }
 }
 
-/// This custom `PartialEq` implementation is necessary so that the order of `Transfer`s can be
-/// ignored while comparing `Invoice`s.
+/// This custom `PartialEq` implementation is necessary so that the order of
+/// `Transfer`s can be ignored while comparing `Invoice`s.
 impl PartialEq for Invoice {
     fn eq(&self, other: &Self) -> bool {
         let mut lhs_transfers = HashMap::new();
@@ -348,8 +359,8 @@ impl PartialEq for Invoice {
     }
 }
 
-/// An invoice ID uniquely identifies a given invoice by the combination of its subaddress index and
-/// creation height.
+/// An invoice ID uniquely identifies a given invoice by the combination of its
+/// subaddress index and creation height.
 #[derive(Debug, Copy, Clone, Hash, PartialEq, Eq)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[cfg_attr(feature = "bincode", derive(Encode, Decode))]
@@ -398,7 +409,7 @@ impl Display for InvoiceId {
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[cfg_attr(feature = "bincode", derive(Encode, Decode))]
 pub struct SubIndex {
-    /// Subadress major index.
+    /// Subaddress major index.
     pub major: u32,
     /// Subaddress minor index.
     pub minor: u32,
@@ -452,9 +463,9 @@ impl From<SubIndex> for subaddress::Index {
     }
 }
 
-/// A `Transfer` represents a sum of owned outputs at a given height. When part of an `Invoice`, it
-/// specifically represents the sum of owned outputs for that invoice's subaddress, at a given
-/// height.
+/// A `Transfer` represents a sum of owned outputs at a given height. When part
+/// of an `Invoice`, it specifically represents the sum of owned outputs for
+/// that invoice's subaddress, at a given height.
 #[derive(Debug, Clone, PartialEq, Copy, Eq, PartialOrd, Ord, Hash)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[cfg_attr(feature = "bincode", derive(Encode, Decode))]
@@ -533,7 +544,7 @@ mod tests {
 
     fn check_payment_request(requested: u64, paid: u64, expected_tx_amount: &str) {
         let mut invoice = Invoice::new(
-            "testaddress".to_string(),
+            "testAddress".to_string(),
             SubIndex::new(0, 1),
             0,
             requested,
@@ -545,7 +556,7 @@ mod tests {
 
         assert_eq!(
             invoice.uri(),
-            format!("monero:testaddress?tx_amount={expected_tx_amount}")
+            format!("monero:testAddress?tx_amount={expected_tx_amount}")
         );
     }
 }
