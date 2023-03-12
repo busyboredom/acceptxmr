@@ -1,3 +1,4 @@
+use sled::IVec;
 use thiserror::Error;
 
 use crate::{storage::InvoiceStorage, Invoice, InvoiceId, SubIndex};
@@ -38,7 +39,7 @@ impl InvoiceStorage for Sled {
     type Error = SledStorageError;
     type Iter<'a> = SledIter;
 
-    fn insert(&mut self, invoice: Invoice) -> Result<Option<Invoice>, SledStorageError> {
+    fn insert(&mut self, invoice: Invoice) -> Result<(), SledStorageError> {
         // Prepare key (invoice id).
         let invoice_id = invoice.id();
         let key = bincode::encode_to_vec(invoice_id, bincode::config::standard())?;
@@ -47,13 +48,9 @@ impl InvoiceStorage for Sled {
         let value = bincode::encode_to_vec(invoice, bincode::config::standard())?;
 
         // Insert the invoice into the database.
-        let maybe_old = self.0.insert(key, value)?;
-
-        match maybe_old {
-            Some(ivec) => Ok(Some(
-                bincode::decode_from_slice(&ivec, bincode::config::standard())?.0,
-            )),
-            None => Ok(None),
+        match self.0.compare_and_swap(key, None::<IVec>, Some(value))? {
+            Ok(_) => Ok(()),
+            Err(_) => Err(SledStorageError::DuplicateInvoiceId),
         }
     }
 
@@ -75,8 +72,15 @@ impl InvoiceStorage for Sled {
         // Prepare values.
         let new_ivec = bincode::encode_to_vec(invoice, bincode::config::standard())?;
 
-        // Do the insert using the merge operator configured.
-        let maybe_old = self.0.merge(key, new_ivec)?;
+        // Do the update using the merge operator configured.
+        let maybe_old = self.0.fetch_and_update(key, move |old| {
+            if old.is_some() {
+                // Clone is necessary because the closure may be called multiple times.
+                Some(new_ivec.clone())
+            } else {
+                None
+            }
+        })?;
 
         match maybe_old {
             Some(ivec) => Ok(Some(
@@ -105,8 +109,8 @@ impl InvoiceStorage for Sled {
         Ok(self.0.scan_prefix(key).next().is_some())
     }
 
-    fn iter(&self) -> Self::Iter<'_> {
-        SledIter(self.0.iter())
+    fn try_iter(&self) -> Result<Self::Iter<'_>, SledStorageError> {
+        Ok(SledIter(self.0.iter()))
     }
 
     /// Flush all changes to disk.
@@ -119,8 +123,8 @@ impl InvoiceStorage for Sled {
         Ok(())
     }
 
-    fn is_empty(&self) -> bool {
-        self.0.is_empty()
+    fn is_empty(&self) -> Result<bool, SledStorageError> {
+        Ok(self.0.is_empty())
     }
 }
 
@@ -149,10 +153,13 @@ pub enum SledStorageError {
     /// An error caused by the database, or some interaction with it.
     #[error("database error: {0}")]
     Database(#[from] sled::Error),
+    /// Failed to insert an [`Invoice`] because one with the same ID already exists.
+    #[error("duplicate invoice ID")]
+    DuplicateInvoiceId,
     /// Failed to serialize an [`Invoice`].
-    #[error("Serialization error: {0}")]
+    #[error("serialization error: {0}")]
     Serialize(#[from] bincode::error::EncodeError),
     /// Failed to deserialize an [`Invoice`].
-    #[error("Deserialization error: {0}")]
+    #[error("deserialization error: {0}")]
     Deserialize(#[from] bincode::error::DecodeError),
 }

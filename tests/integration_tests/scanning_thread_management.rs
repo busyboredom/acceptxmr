@@ -14,14 +14,7 @@ fn run_payment_gateway() {
     let mock_daemon = MockDaemon::new_mock_daemon();
     let rt = Runtime::new().expect("failed to create tokio runtime");
 
-    let store = Sled::new(
-        temp_dir
-            .path()
-            .to_str()
-            .expect("failed to get temporary directory path"),
-        "tree name",
-    )
-    .expect("failed to create sled storage layer.");
+    let store = Sled::new(&temp_dir, "tree name").expect("failed to create sled storage layer.");
 
     // Create payment gateway pointing at temp directory and mock daemon.
     let payment_gateway = PaymentGatewayBuilder::new(
@@ -50,14 +43,7 @@ fn cannot_run_payment_gateway_twice() {
     let mock_daemon = MockDaemon::new_mock_daemon();
     let rt = Runtime::new().expect("failed to create tokio runtime");
 
-    let store = Sled::new(
-        temp_dir
-            .path()
-            .to_str()
-            .expect("failed to get temporary directory path"),
-        "tree name",
-    )
-    .expect("failed to create sled storage layer.");
+    let store = Sled::new(&temp_dir, "tree name").expect("failed to create sled storage layer.");
 
     // Create payment gateway pointing at temp directory and mock daemon.
     let payment_gateway = PaymentGatewayBuilder::new(
@@ -94,14 +80,7 @@ fn stop_payment_gateway() {
     let mock_daemon = MockDaemon::new_mock_daemon();
     let rt = Runtime::new().expect("failed to create tokio runtime");
 
-    let store = Sled::new(
-        temp_dir
-            .path()
-            .to_str()
-            .expect("failed to get temporary directory path"),
-        "tree name",
-    )
-    .expect("failed to create sled storage layer.");
+    let store = Sled::new(&temp_dir, "tree name").expect("failed to create sled storage layer.");
 
     // Create payment gateway pointing at temp directory and mock daemon.
     let payment_gateway = PaymentGatewayBuilder::new(

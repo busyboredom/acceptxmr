@@ -7,19 +7,23 @@ use std::{
 
 use httpmock::{Mock, MockServer};
 use serde_json::{json, Value};
-use tempfile::{Builder, TempDir};
+use tempfile::Builder;
 
 pub const PRIVATE_VIEW_KEY: &str =
     "ad2093a5705b9f33e6f0f0c1bc1f5f639c756cdfc168c8f2ac6127ccbdab3a03";
 pub const PRIMARY_ADDRESS: &str =
     "4613YiHLM6JMH4zejMB2zJY5TwQCxL8p65ufw8kBP5yxX9itmuGLqp1dS4tkVoTxjyH3aYhYNrtGHbQzJQP5bFus3KHVdmf";
 
-pub fn new_temp_dir() -> TempDir {
+pub fn new_temp_dir() -> String {
     Builder::new()
         .prefix("temp_db_")
         .rand_bytes(16)
         .tempdir()
         .expect("failed to generate temporary directory")
+        .path()
+        .to_str()
+        .expect("failed to get temporary directory path")
+        .to_string()
 }
 
 pub fn init_logger() {

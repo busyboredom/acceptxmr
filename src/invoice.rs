@@ -34,7 +34,7 @@ pub struct Invoice {
     pub(crate) current_height: u64,
     expiration_height: u64,
     pub(crate) transfers: Vec<Transfer>,
-    description: String,
+    pub(crate) description: String,
 }
 
 impl Invoice {
