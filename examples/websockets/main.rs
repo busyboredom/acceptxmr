@@ -1,5 +1,4 @@
 use std::{
-    env,
     future::Future,
     pin::Pin,
     task::Poll,
@@ -20,7 +19,7 @@ use actix_web::{
 };
 use actix_web_actors::ws;
 use bytestring::ByteString;
-use log::{debug, error, info, warn};
+use log::{debug, error, info, warn, LevelFilter};
 use rand::{thread_rng, Rng};
 use serde::Deserialize;
 use serde_json::json;
@@ -39,11 +38,11 @@ const SESSION_KEY_LEN: usize = 64;
 
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
-    env::set_var(
-        "RUST_LOG",
-        "debug,mio=debug,want=debug,sled=info,hyper=info,tracing=debug,actix_http=debug,rustls=info",
-    );
-    env_logger::init();
+    env_logger::builder()
+        .filter_level(LevelFilter::Warn)
+        .filter_module("acceptxmr", log::LevelFilter::Debug)
+        .filter_module("websockets", log::LevelFilter::Trace)
+        .init();
 
     // The private view key should be stored securely outside of the git repository. It is hardcoded
     // here for demonstration purposes only.

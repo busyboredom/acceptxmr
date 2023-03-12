@@ -487,16 +487,16 @@ impl Transfer {
 
 #[cfg(test)]
 mod tests {
-    use std::env;
+    use log::LevelFilter;
 
     use crate::{Invoice, SubIndex};
 
     fn init_logger() {
-        env::set_var(
-            "RUST_LOG",
-            "debug,mio=debug,want=debug,reqwest=info,sled=info,hyper=info,tracing=debug,httpmock=info,isahc=info",
-        );
-        let _ = env_logger::builder().is_test(true).try_init();
+        let _ = env_logger::builder()
+            .filter_level(LevelFilter::Warn)
+            .filter_module("acceptxmr", log::LevelFilter::Debug)
+            .is_test(true)
+            .try_init();
     }
 
     #[test]

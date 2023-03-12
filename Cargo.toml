@@ -64,3 +64,6 @@ required-features = ["serde", "in-memory"]
 [[example]]
 name = "nojs"
 required-features = ["serde", "in-memory"]
+
+[[example]]
+name = "custom_storage"

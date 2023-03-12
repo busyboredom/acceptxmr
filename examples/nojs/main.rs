@@ -1,5 +1,3 @@
-use std::env;
-
 use actix_files::Files;
 use actix_session::{
     config::CookieContentSecurity, storage::CookieSessionStore, Session, SessionMiddleware,
@@ -15,7 +13,7 @@ use actix_web::{
     App, HttpResponse, HttpServer, Result,
 };
 use handlebars::{no_escape, Handlebars};
-use log::{debug, error, info};
+use log::{debug, error, info, LevelFilter};
 use qrcode::{render::svg, EcLevel, QrCode};
 use rand::{thread_rng, Rng};
 use serde::Deserialize;
@@ -28,11 +26,11 @@ const SESSION_KEY_LEN: usize = 64;
 
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
-    env::set_var(
-        "RUST_LOG",
-        "debug,mio=debug,want=debug,sled=info,hyper=info,tracing=debug,actix_http=debug,rustls=info,handlebars=info",
-    );
-    env_logger::init();
+    env_logger::builder()
+        .filter_level(LevelFilter::Warn)
+        .filter_module("acceptxmr", log::LevelFilter::Debug)
+        .filter_module("nojs", log::LevelFilter::Trace)
+        .init();
 
     // The private view key should be stored securely outside of the git repository. It is hardcoded
     // here for demonstration purposes only.
