@@ -622,16 +622,16 @@ pub(crate) enum MessageToScanner {
 #[cfg(test)]
 #[allow(clippy::expect_used)]
 mod tests {
-    use std::env;
+    use log::LevelFilter;
 
     use crate::{storage::stores::InMemory, PaymentGateway, PaymentGatewayBuilder};
 
     fn init_logger() {
-        env::set_var(
-            "RUST_LOG",
-            "debug,mio=debug,want=debug,reqwest=info,sled=info,hyper=info,tracing=debug,httpmock=info,isahc=info",
-        );
-        let _ = env_logger::builder().is_test(true).try_init();
+        let _ = env_logger::builder()
+            .filter_level(LevelFilter::Warn)
+            .filter_module("acceptxmr", log::LevelFilter::Debug)
+            .is_test(true)
+            .try_init();
     }
 
     const PRIVATE_VIEW_KEY: &str =
