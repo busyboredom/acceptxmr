@@ -106,6 +106,7 @@ where
     // Faster scan rate so the update is received sooner.
     .scan_interval(Duration::from_millis(100))
     .daemon_url(mock_daemon.url(""))
+    .account_index(1)
     .seed(1)
     .build()
     .expect("failed to build payment gateway");
@@ -383,6 +384,7 @@ where
     // Faster scan rate so the update is received sooner.
     .scan_interval(Duration::from_millis(100))
     .daemon_url(mock_daemon.url(""))
+    .account_index(1)
     .seed(1)
     .build()
     .expect("failed to build payment gateway");
@@ -466,6 +468,7 @@ where
     // Faster scan rate so the update is received sooner.
     .scan_interval(Duration::from_millis(100))
     .daemon_url(mock_daemon.url(""))
+    .account_index(1)
     .seed(1)
     .build()
     .expect("failed to build payment gateway");

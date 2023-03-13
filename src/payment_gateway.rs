@@ -442,6 +442,7 @@ pub struct PaymentGatewayBuilder<S> {
     primary_address: String,
     scan_interval: Duration,
     invoice_store: S,
+    major_index: u32,
     seed: Option<u64>,
 }
 
@@ -463,6 +464,7 @@ impl<S: InvoiceStorage> PaymentGatewayBuilder<S> {
             primary_address,
             scan_interval: DEFAULT_SCAN_INTERVAL,
             invoice_store: store,
+            major_index: 0,
             seed: None,
         }
     }
@@ -551,6 +553,14 @@ impl<S: InvoiceStorage> PaymentGatewayBuilder<S> {
         self
     }
 
+    /// Set the account index (i.e. subaddress major index) the payment gateway
+    /// should use. Defaults to account index 0.
+    #[must_use]
+    pub fn account_index(mut self, index: u32) -> PaymentGatewayBuilder<S> {
+        self.major_index = index;
+        self
+    }
+
     /// Build the payment gateway.
     ///
     /// # Errors
@@ -597,6 +607,7 @@ impl<S: InvoiceStorage> PaymentGatewayBuilder<S> {
         let subaddresses = SubaddressCache::init(
             &invoice_store,
             viewpair,
+            self.major_index,
             highest_minor_index.clone(),
             self.seed,
         )
