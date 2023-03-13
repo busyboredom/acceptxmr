@@ -45,6 +45,7 @@ pub struct PaymentGatewayInner<S: InvoiceStorage> {
     scan_interval: Duration,
     invoice_store: Store<S>,
     subaddresses: Mutex<SubaddressCache>,
+    major_index: u32,
     highest_minor_index: Arc<AtomicU32>,
     block_cache_height: Arc<AtomicU64>,
     cached_daemon_height: Arc<AtomicU64>,
@@ -118,6 +119,7 @@ impl<S: InvoiceStorage + 'static> PaymentGateway<S> {
         let rpc_client = self.rpc_client.clone();
         let viewpair = self.viewpair;
         let scan_interval = self.scan_interval;
+        let major_index = self.major_index;
         let highest_minor_index = self.highest_minor_index.clone();
         let block_cache_height = self.block_cache_height.clone();
         let cached_daemon_height = self.cached_daemon_height.clone();
@@ -173,8 +175,8 @@ impl<S: InvoiceStorage + 'static> PaymentGateway<S> {
                         {
                             sub_key_checker = SubKeyChecker::new(
                                 &viewpair,
-                                1..2,
-                                0..highest_minor_index.load(atomic::Ordering::Relaxed) + 1,
+                                major_index..major_index.saturating_add(1),
+                                0..highest_minor_index.load(atomic::Ordering::Relaxed).saturating_add(1),
                             );
                         }
                         // Scan!
@@ -626,6 +628,7 @@ impl<S: InvoiceStorage> PaymentGatewayBuilder<S> {
             scan_interval: self.scan_interval,
             invoice_store,
             subaddresses: Mutex::new(subaddresses),
+            major_index: self.major_index,
             highest_minor_index,
             block_cache_height: Arc::new(atomic::AtomicU64::new(0)),
             cached_daemon_height: Arc::new(atomic::AtomicU64::new(0)),
