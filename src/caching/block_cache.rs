@@ -55,8 +55,8 @@ impl BlockCache {
         })
     }
 
-    /// Update the block cache with newest blocks from daemon and apply reorg if one has occurred.
-    /// Returns number of blocks updated.
+    /// Update the block cache with newest blocks from daemon and apply reorg if
+    /// one has occurred. Returns number of blocks updated.
     pub async fn skip_ahead<S: InvoiceStorage>(
         &mut self,
     ) -> Result<usize, AcceptXmrError<S::Error>> {
@@ -94,8 +94,8 @@ impl BlockCache {
         Ok(updated)
     }
 
-    /// Advance block cache by 1 block if new block is available and apply reorg if one has
-    /// occurred. Returns number of blocks updated.
+    /// Advance block cache by 1 block if new block is available and apply reorg
+    /// if one has occurred. Returns number of blocks updated.
     pub async fn update<S: InvoiceStorage>(&mut self) -> Result<usize, AcceptXmrError<S::Error>> {
         trace!("Checking for block cache updates");
         let mut updated = 0;

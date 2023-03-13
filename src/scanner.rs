@@ -25,9 +25,10 @@ use crate::{
 
 pub(crate) struct Scanner<S: InvoiceStorage> {
     invoice_store: Store<S>,
-    // Block cache and txpool cache are mutexed to allow concurrent block & txpool scanning. This is
-    // necessary even though txpool scanning doesn't use the block cache, and vice versa, because
-    // rust doesn't allow mutably borrowing only part of "self".
+    // Block cache and txpool cache are mutexed to allow concurrent block &
+    // txpool scanning. This is necessary even though txpool scanning doesn't
+    // use the block cache, and vice versa, because rust doesn't allow mutably
+    // borrowing only part of "self".
     block_cache: Mutex<BlockCache>,
     txpool_cache: Mutex<TxpoolCache>,
     publisher: Arc<Publisher>,
@@ -59,8 +60,8 @@ impl<S: InvoiceStorage> Scanner<S> {
             Err(e) => return Err(AcceptXmrError::InvoiceStorage(e)),
         };
 
-        // Set atomic height to the above determined initial height. This sets the height of the
-        // main PaymentGateway as well.
+        // Set atomic height to the above determined initial height. This sets the
+        // height of the main PaymentGateway as well.
         atomic_cache_height.store(cache_height, Ordering::Relaxed);
         atomic_daemon_height.store(daemon_height, Ordering::Relaxed);
 
@@ -207,7 +208,8 @@ impl<S: InvoiceStorage> Scanner<S> {
                     e
                 );
             } else {
-                // If the update was successful, send an update that down the subscriber channel.
+                // If the update was successful, send an update that down the subscriber
+                // channel.
                 self.publisher.send_updates(&invoice).await;
             }
         }
@@ -242,7 +244,8 @@ impl<S: InvoiceStorage> Scanner<S> {
 
     /// Scan the block cache up to `updated_blocks` deep.
     ///
-    /// Returns a vector of tuples containing [`Transfer`]s and their associated subaddress indices.
+    /// Returns a vector of tuples containing [`Transfer`]s and their associated
+    /// subaddress indices.
     async fn scan_blocks(
         &self,
         sub_key_checker: &SubKeyChecker<'_>,
@@ -298,8 +301,8 @@ impl<S: InvoiceStorage> Scanner<S> {
     ) -> Result<Vec<(SubIndex, Transfer)>, AcceptXmrError<S::Error>> {
         let mut txpool_cache = self.txpool_cache.lock().await;
 
-        // Transfers previously discovered in the txpool (no reason to scan the same transactions
-        // twice).
+        // Transfers previously discovered in the txpool (no reason to scan the same
+        // transactions twice).
         let discovered_transfers = txpool_cache.discovered_transfers();
 
         // Scan txpool.
@@ -356,7 +359,8 @@ impl<S: InvoiceStorage> Scanner<S> {
             for transfer in &transfers {
                 let sub_index = SubIndex::from(transfer.sub_index());
 
-                // If this invoice is being tracked, add the amount and subindex to the result set.
+                // If this invoice is being tracked, add the amount and subindex to the result
+                // set.
                 if self
                     .invoice_store
                     .contains_sub_index(sub_index)

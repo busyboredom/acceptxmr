@@ -13,12 +13,13 @@ pub struct Sqlite {
 }
 
 impl Sqlite {
-    /// Open a [`SQLite`](sqlite) database at the specified location, and use the specified table. Creates
-    /// a new database if one does not exist.
+    /// Open a [`SQLite`](sqlite) database at the specified location, and use
+    /// the specified table. Creates a new database if one does not exist.
     ///
     /// # Errors
     ///
-    /// Returns an error if the database could not be opened at the specified path.
+    /// Returns an error if the database could not be opened at the specified
+    /// path.
     pub fn new(path: &str, table: &str) -> Result<Sqlite, SqliteStorageError> {
         let db = Connection::open_with_full_mutex(path)?;
         debug!("Connection to SQLite v{} database established", version());
@@ -279,7 +280,8 @@ impl Display for TableName {
     }
 }
 
-/// An error occurring while storing or retrieving pending invoices from a `sqlite` database.
+/// An error occurring while storing or retrieving pending invoices from a
+/// `sqlite` database.
 #[derive(Error, Debug)]
 pub enum SqliteStorageError {
     /// An error caused by the database, or some interaction with it.

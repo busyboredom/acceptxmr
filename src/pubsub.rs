@@ -50,8 +50,8 @@ impl Subscriber {
         self.0.blocking_recv()
     }
 
-    /// Attempts to wait for a invoice update from this subscriber without blocking. Returns
-    /// immediately if no update is available.
+    /// Attempts to wait for a invoice update from this subscriber without
+    /// blocking. Returns immediately if no update is available.
     ///
     /// # Errors
     ///
@@ -60,8 +60,9 @@ impl Subscriber {
         Ok(self.0.try_recv()?)
     }
 
-    /// Attempts to wait for a invoice update from this subscriber, returning an error if no update
-    /// arrives within the provided `Duration`. Returns `None` if the channel is closed.
+    /// Attempts to wait for a invoice update from this subscriber, returning an
+    /// error if no update arrives within the provided `Duration`. Returns
+    /// `None` if the channel is closed.
     ///
     /// # Errors
     ///
@@ -133,8 +134,8 @@ impl Publisher {
             .invoice_subs
             .lock()
             .unwrap_or_else(PoisonError::into_inner);
-        // Removes sub, moving the sub at the end of the indexmap into its place to avoid shifting
-        // all proceeding elements.
+        // Removes sub, moving the sub at the end of the indexmap into its place to
+        // avoid shifting all proceeding elements.
         invoice_subs.remove(&invoice_id);
     }
 
@@ -204,8 +205,9 @@ impl Publisher {
         }
     }
 
-    /// It's important that this function is only called within `send_updates`, because changing the
-    /// order of senders could cause some [`Subscriber`]s to miss updates if done at the wrong time.
+    /// It's important that this function is only called within `send_updates`,
+    /// because changing the order of senders could cause some [`Subscriber`]s
+    /// to miss updates if done at the wrong time.
     fn remove_sender(&self, invoice_id: Option<InvoiceId>, sender_id: SenderId) {
         if let Some(id) = invoice_id {
             let mut invoice_subs = self

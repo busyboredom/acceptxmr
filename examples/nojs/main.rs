@@ -1,3 +1,4 @@
+use acceptxmr::{storage::stores::InMemory, InvoiceId, PaymentGateway, PaymentGatewayBuilder};
 use actix_files::Files;
 use actix_session::{
     config::CookieContentSecurity, storage::CookieSessionStore, Session, SessionMiddleware,
@@ -19,8 +20,6 @@ use rand::{thread_rng, Rng};
 use serde::Deserialize;
 use serde_json::json;
 
-use acceptxmr::{storage::stores::InMemory, InvoiceId, PaymentGateway, PaymentGatewayBuilder};
-
 /// Length of secure session key for cookies.
 const SESSION_KEY_LEN: usize = 64;
 
@@ -32,8 +31,8 @@ async fn main() -> std::io::Result<()> {
         .filter_module("nojs", log::LevelFilter::Trace)
         .init();
 
-    // The private view key should be stored securely outside of the git repository. It is hardcoded
-    // here for demonstration purposes only.
+    // The private view key should be stored securely outside of the git repository.
+    // It is hardcoded here for demonstration purposes only.
     let private_view_key = "ad2093a5705b9f33e6f0f0c1bc1f5f639c756cdfc168c8f2ac6127ccbdab3a03";
     // No need to keep the primary address secret.
     let primary_address = "4613YiHLM6JMH4zejMB2zJY5TwQCxL8p65ufw8kBP5yxX9itmuGLqp1dS4tkVoTxjyH3aYhYNrtGHbQzJQP5bFus3KHVdmf";
@@ -172,8 +171,8 @@ async fn checkout(
             });
             let body = templater.render("checkout", &data).unwrap();
 
-            // So long as the invoice did not expire while unpaid, show checkout page with updated
-            // info.
+            // So long as the invoice did not expire while unpaid, show checkout page with
+            // updated info.
             if !invoice.is_expired() || invoice.amount_paid() >= invoice.amount_requested() {
                 return Ok(HttpResponse::Ok()
                     .append_header(CacheControl(vec![CacheDirective::NoStore]))

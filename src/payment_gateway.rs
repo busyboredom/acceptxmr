@@ -5,8 +5,8 @@ use std::{
     sync::{
         atomic::{self, AtomicU32, AtomicU64},
         mpsc::{channel, Receiver, Sender, TryRecvError},
+        Arc, Mutex, PoisonError,
     },
-    sync::{Arc, Mutex, PoisonError},
     thread,
     time::Duration,
 };
@@ -22,7 +22,7 @@ use crate::{
     rpc::RpcClient,
     scanner::{Scanner, ScannerHandle},
     storage::{InvoiceStorage, Store},
-    {AcceptXmrError, Invoice, InvoiceId},
+    AcceptXmrError, Invoice, InvoiceId,
 };
 
 const DEFAULT_SCAN_INTERVAL: Duration = Duration::from_millis(1000);
@@ -33,8 +33,9 @@ const DEFAULT_RPC_CONNECTION_TIMEOUT: Duration = Duration::from_secs(5);
 const DEFAULT_RPC_TOTAL_TIMEOUT: Duration = Duration::from_secs(10);
 const DEFAULT_BLOCK_CACHE_SIZE: usize = 10;
 
-/// The `PaymentGateway` allows you to track new [`Invoice`](Invoice)s, remove old `Invoice`s from
-/// tracking, and subscribe to `Invoice`s that are already pending.
+/// The `PaymentGateway` allows you to track new [`Invoice`](Invoice)s, remove
+/// old `Invoice`s from tracking, and subscribe to `Invoice`s that are already
+/// pending.
 pub struct PaymentGateway<S: InvoiceStorage>(pub(crate) Arc<PaymentGatewayInner<S>>);
 
 #[doc(hidden)]
@@ -81,23 +82,23 @@ impl<S: InvoiceStorage + 'static> PaymentGateway<S> {
         PaymentGatewayBuilder::new(private_view_key, primary_address, store)
     }
 
-    /// Runs the payment gateway. This function spawns a new thread, which periodically scans new
-    /// blocks and transactions from the configured daemon and updates pending [`Invoice`](Invoice)s
-    /// in the database.
+    /// Runs the payment gateway. This function spawns a new thread, which
+    /// periodically scans new blocks and transactions from the configured
+    /// daemon and updates pending [`Invoice`](Invoice)s in the database.
     ///
     /// # Errors
     ///
-    /// * Returns an [`AcceptXmrError::InvoiceStorage`] error if there was an underlying issue with
-    ///   the database.
+    /// * Returns an [`AcceptXmrError::InvoiceStorage`] error if there was an
+    ///   underlying issue with the database.
     ///
-    /// * Returns an [`AcceptXmrError::Rpc`] error if there was an issue getting necessary data from
-    ///   the monero daemon while starting.
+    /// * Returns an [`AcceptXmrError::Rpc`] error if there was an issue getting
+    ///   necessary data from the monero daemon while starting.
     ///
-    /// * Returns an [`AcceptXmrError::AlreadyRunning`] error if the payment gateway is already
-    ///   running.
+    /// * Returns an [`AcceptXmrError::AlreadyRunning`] error if the payment
+    ///   gateway is already running.
     ///
-    /// * Returns an [`AcceptXmrError::Threading`] error if there was an error creating the scanning
-    ///   thread.
+    /// * Returns an [`AcceptXmrError::Threading`] error if there was an error
+    ///   creating the scanning thread.
     #[allow(clippy::range_plus_one, clippy::missing_panics_doc)]
     pub async fn run(&self) -> Result<(), AcceptXmrError<S::Error>> {
         // Determine if the scanning thread is already running.
@@ -188,8 +189,8 @@ impl<S: InvoiceStorage + 'static> PaymentGateway<S> {
         Ok(())
     }
 
-    /// Returns the enum [`PaymentGatewayStatus`] describing whether the payment gateway is running,
-    /// not running, or has experienced an error.
+    /// Returns the enum [`PaymentGatewayStatus`] describing whether the payment
+    /// gateway is running, not running, or has experienced an error.
     #[must_use]
     pub fn status(&self) -> PaymentGatewayStatus<S> {
         let scanner_handle = self
@@ -216,17 +217,19 @@ impl<S: InvoiceStorage + 'static> PaymentGateway<S> {
         }
     }
 
-    /// Stops the payment gateway, blocking until complete. If the payment gateway is not running,
-    /// this method does nothing.
+    /// Stops the payment gateway, blocking until complete. If the payment
+    /// gateway is not running, this method does nothing.
     ///
     /// # Errors
     ///
-    /// * Returns an [`AcceptXmrError::StopSignal`] error if the payment gateway could not be stopped.
+    /// * Returns an [`AcceptXmrError::StopSignal`] error if the payment gateway
+    ///   could not be stopped.
     ///
-    /// * Returns an [`AcceptXmrError::ScanningThreadPanic`] error if the scanning thread exited
-    ///   with a panic.
+    /// * Returns an [`AcceptXmrError::ScanningThreadPanic`] error if the
+    ///   scanning thread exited with a panic.
     ///
-    /// * If the scanning thread exited with an error, returns the error encountered.
+    /// * If the scanning thread exited with an error, returns the error
+    ///   encountered.
     pub fn stop(&self) -> Result<(), AcceptXmrError<S::Error>> {
         match self
             .scanner_handle
@@ -256,13 +259,14 @@ impl<S: InvoiceStorage + 'static> PaymentGateway<S> {
         }
     }
 
-    /// Adds a new [`Invoice`] to the payment gateway for tracking, and returns the ID of the new
-    /// invoice. Use a [`Subscriber`] to receive updates on the new invoice invoice as they occur.
+    /// Adds a new [`Invoice`] to the payment gateway for tracking, and returns
+    /// the ID of the new invoice. Use a [`Subscriber`] to receive updates
+    /// on the new invoice invoice as they occur.
     ///
     /// # Errors
     ///
-    /// Returns an error if there are any underlying issues modifying data in the
-    /// database.
+    /// Returns an error if there are any underlying issues modifying data in
+    /// the database.
     #[allow(clippy::unused_async)]
     pub fn new_invoice(
         &self,
@@ -304,17 +308,18 @@ impl<S: InvoiceStorage + 'static> PaymentGateway<S> {
 
         self.publisher.insert_invoice(invoice.id());
 
-        // Return invoice id so the user can build identify their invoice, and make a subscriber for
-        // it if desired.
+        // Return invoice id so the user can build identify their invoice, and make a
+        // subscriber for it if desired.
         Ok(invoice.id())
     }
 
-    /// Remove (i.e. stop tracking) invoice, returning the old invoice if it existed.
+    /// Remove (i.e. stop tracking) invoice, returning the old invoice if it
+    /// existed.
     ///
     /// # Errors
     ///
-    /// Returns an error if there are any underlying issues modifying/retrieving data in the
-    /// database.
+    /// Returns an error if there are any underlying issues modifying/retrieving
+    /// data in the database.
     pub fn remove_invoice(
         &self,
         invoice_id: InvoiceId,
@@ -345,8 +350,9 @@ impl<S: InvoiceStorage + 'static> PaymentGateway<S> {
         }
     }
 
-    /// Returns a `Subscriber` for the given invoice ID. If a tracked invoice exists for that
-    /// ID, the subscriber can be used to receive updates to for that invoice.
+    /// Returns a `Subscriber` for the given invoice ID. If a tracked invoice
+    /// exists for that ID, the subscriber can be used to receive updates to
+    /// for that invoice.
     #[must_use]
     pub fn subscribe(&self, invoice_id: InvoiceId) -> Option<Subscriber> {
         self.publisher.subscribe(invoice_id)
@@ -358,12 +364,13 @@ impl<S: InvoiceStorage + 'static> PaymentGateway<S> {
         self.publisher.subscribe_all()
     }
 
-    /// Get current height of daemon using a monero daemon remote procedure call.
+    /// Get current height of daemon using a monero daemon remote procedure
+    /// call.
     ///
     /// # Errors
     ///
-    /// Returns an error if a connection can not be made to the daemon, or if the daemon's response
-    /// cannot be parsed.
+    /// Returns an error if a connection can not be made to the daemon, or if
+    /// the daemon's response cannot be parsed.
     pub async fn daemon_height(&self) -> Result<u64, AcceptXmrError<S::Error>> {
         Ok(self.rpc_client.daemon_height().await?)
     }
@@ -376,11 +383,13 @@ impl<S: InvoiceStorage + 'static> PaymentGateway<S> {
         self.block_cache_height.load(Ordering::Relaxed)
     }
 
-    /// Get the up-to-date invoice associated with the given [`InvoiceId`], if it exists.
+    /// Get the up-to-date invoice associated with the given [`InvoiceId`], if
+    /// it exists.
     ///
     /// # Errors
     ///
-    /// Returns an error if there are any underlying issues retrieving data from the database.
+    /// Returns an error if there are any underlying issues retrieving data from
+    /// the database.
     pub fn get_invoice(
         &self,
         invoice_id: InvoiceId,
@@ -397,8 +406,8 @@ impl<S: InvoiceStorage + 'static> PaymentGateway<S> {
     }
 }
 
-/// A builder for the payment gateway. Used to configure your desired monero daemon, scan interval,
-/// view key, etc.
+/// A builder for the payment gateway. Used to configure your desired monero
+/// daemon, scan interval, view key, etc.
 ///
 /// # Examples
 ///
@@ -406,16 +415,22 @@ impl<S: InvoiceStorage + 'static> PaymentGateway<S> {
 /// use acceptxmr::{PaymentGatewayBuilder, storage::stores::InMemory};
 /// use std::time::Duration;
 ///
-/// let private_view_key = "ad2093a5705b9f33e6f0f0c1bc1f5f639c756cdfc168c8f2ac6127ccbdab3a03";
-/// let primary_address = "4613YiHLM6JMH4zejMB2zJY5TwQCxL8p65ufw8kBP5yxX9itmuGLqp1dS4tkVoTxjyH3aYhYNrtGHbQzJQP5bFus3KHVdmf";
+/// let private_view_key =
+///     "ad2093a5705b9f33e6f0f0c1bc1f5f639c756cdfc168c8f2ac6127ccbdab3a03";
+/// let primary_address =
+///     "4613YiHLM6JMH4zejMB2zJY5TwQCxL8p65ufw8kBP5yxX9itmuGLqp1dS4tkVoTxjyH3aYhYNrtGHbQzJQP5bFus3KHVdmf";
 ///
 /// let store = InMemory::new();
 ///
 /// // Create a payment gateway with an extra fast scan rate and a custom monero daemon URL.
-/// let payment_gateway = PaymentGatewayBuilder::new(private_view_key.to_string(), primary_address.to_string(), store)
-///     .scan_interval(Duration::from_millis(100)) // Scan for invoice updates every 100 ms.
-///     .daemon_url("http://example.com:18081".to_string()) // Set custom monero daemon URL.
-///     .build();
+/// let payment_gateway = PaymentGatewayBuilder::new(
+///     private_view_key.to_string(),
+///     primary_address.to_string(),
+///     store
+/// )
+/// .scan_interval(Duration::from_millis(100)) // Scan for updates every 100 ms.
+/// .daemon_url("http://example.com:18081".to_string()) // Set custom monero daemon URL.
+/// .build();
 /// ```
 pub struct PaymentGatewayBuilder<S> {
     daemon_url: String,
@@ -463,16 +478,22 @@ impl<S: InvoiceStorage> PaymentGatewayBuilder<S> {
     /// #
     /// use acceptxmr::{PaymentGatewayBuilder, storage::stores::InMemory};
     ///
-    /// let private_view_key = "ad2093a5705b9f33e6f0f0c1bc1f5f639c756cdfc168c8f2ac6127ccbdab3a03";
-    /// let primary_address = "4613YiHLM6JMH4zejMB2zJY5TwQCxL8p65ufw8kBP5yxX9itmuGLqp1dS4tkVoTxjyH3aYhYNrtGHbQzJQP5bFus3KHVdmf";
+    /// let private_view_key =
+    ///     "ad2093a5705b9f33e6f0f0c1bc1f5f639c756cdfc168c8f2ac6127ccbdab3a03";
+    /// let primary_address =
+    ///     "4613YiHLM6JMH4zejMB2zJY5TwQCxL8p65ufw8kBP5yxX9itmuGLqp1dS4tkVoTxjyH3aYhYNrtGHbQzJQP5bFus3KHVdmf";
     ///
     /// // Pick a storage layer for pending invoices. We'll store them in-memory here for simplicity.
     /// let store = InMemory::new();
     ///
     /// // Create a payment gateway with a custom monero daemon URL.
-    /// let payment_gateway = PaymentGatewayBuilder::new(private_view_key.to_string(), primary_address.to_string(), store)
-    ///     .daemon_url("http://example.com:18081".to_string()) // Set custom monero daemon URL.
-    ///     .build()?;
+    /// let payment_gateway = PaymentGatewayBuilder::new(
+    ///     private_view_key.to_string(),
+    ///     primary_address.to_string(),
+    ///     store
+    /// )
+    /// .daemon_url("http://example.com:18081".to_string()) // Set custom monero daemon URL.
+    /// .build()?;
     ///
     /// // The payment gateway will now use the daemon specified.
     /// payment_gateway.run().await?;
@@ -493,34 +514,36 @@ impl<S: InvoiceStorage> PaymentGatewayBuilder<S> {
         self
     }
 
-    /// Time before an remote procedure call times out. If this amount of time elapses without
-    /// receiving a full response from the RPC daemon, the current scan will be aborted and
-    /// restarted. Defaults to 10 seconds.
+    /// Time before an remote procedure call times out. If this amount of time
+    /// elapses without receiving a full response from the RPC daemon, the
+    /// current scan will be aborted and restarted. Defaults to 10 seconds.
     #[must_use]
     pub fn rpc_timeout(mut self, timeout: Duration) -> PaymentGatewayBuilder<S> {
         self.rpc_timeout = timeout;
         self
     }
 
-    /// Time before a remote procedure call times out while failing to connect. If this amount of
-    /// time elapses without managing to connect to the monero daemon, the current scan will be
-    /// aborted and restarted. Defaults to 5 seconds.
+    /// Time before a remote procedure call times out while failing to connect.
+    /// If this amount of time elapses without managing to connect to the
+    /// monero daemon, the current scan will be aborted and restarted.
+    /// Defaults to 5 seconds.
     #[must_use]
     pub fn rpc_connection_timeout(mut self, timeout: Duration) -> PaymentGatewayBuilder<S> {
         self.rpc_connection_timeout = timeout;
         self
     }
 
-    /// Set the minimum scan interval. New blocks and transactions will be scanned for relevant
-    /// outputs at most every `interval`. Defaults to 1 second.
+    /// Set the minimum scan interval. New blocks and transactions will be
+    /// scanned for relevant outputs at most every `interval`. Defaults to 1
+    /// second.
     #[must_use]
     pub fn scan_interval(mut self, interval: Duration) -> PaymentGatewayBuilder<S> {
         self.scan_interval = interval;
         self
     }
 
-    /// Seed for random number generator. Use only for reproducible testing. Do not set in a
-    /// production environment.
+    /// Seed for random number generator. Use only for reproducible testing. Do
+    /// not set in a production environment.
     #[must_use]
     pub fn seed(mut self, seed: u64) -> PaymentGatewayBuilder<S> {
         warn!("Seed set to {}. Some operations intended to be random (like the order in which subaddresses are used) will be predictable.", seed);
@@ -532,9 +555,9 @@ impl<S: InvoiceStorage> PaymentGatewayBuilder<S> {
     ///
     /// # Errors
     ///
-    /// Returns an error if the database cannot be opened at the path specified, if the internal RPC
-    /// client cannot parse the provided URL, or if the primary address or private view key cannot
-    /// be parsed.
+    /// Returns an error if the database cannot be opened at the path specified,
+    /// if the internal RPC client cannot parse the provided URL, or if the
+    /// primary address or private view key cannot be parsed.
     pub fn build(self) -> Result<PaymentGateway<S>, AcceptXmrError<S::Error>> {
         let rpc_client = RpcClient::new(
             self.daemon_url
@@ -609,8 +632,8 @@ pub enum PaymentGatewayStatus<S: InvoiceStorage> {
     Running,
     /// The payment gateway is not scanning for incoming payments.
     NotRunning,
-    /// The payment gateway encountered an error while scanning for incoming payments, and had to
-    /// stop.
+    /// The payment gateway encountered an error while scanning for incoming
+    /// payments, and had to stop.
     Error(AcceptXmrError<S::Error>),
 }
 
