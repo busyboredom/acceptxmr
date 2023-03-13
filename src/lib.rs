@@ -10,7 +10,7 @@
 //!
 //! Use this library at your own risk, it is young and unproven.
 //!
-//! ## Key Features
+//! ## Key Advantages
 //! * View pair only, no hot wallet.
 //! * Subaddress based.
 //! * Pending invoices can be stored persistently, enabling recovery from power
@@ -86,6 +86,33 @@
 //! updates. If your daemon's response time is already greater than your
 //! `scan_interval`, or if your CPU is unable to scan new transactions fast
 //! enough, reducing your `scan_interval` will do nothing.
+//!
+//! ## Features
+//!
+//! ### `Serde`
+//!
+//! The `serde` feature enables `serde` (de)serialization on select types.
+//!
+//! ### `bincode`
+//!
+//! The `bincode` feature enables `bincode` (de)serialization on select types.
+//!
+//! ### `in-memory`
+//!
+//! The `in-memory` feature enables the [`InMemory`](storage::stores::InMemory)
+//! invoice storage implementation.
+//!
+//! ### `sled`
+//!
+//! The `sled` feature enables the [`Sled`](storage::stores::Sled) invoice
+//! storage implementation. The `bincode` feature will also be enabled by this
+//! feature.
+//!
+//! ### `sqlite`
+//!
+//! The `sqlite` feature enables the [`Sqlite`](storage::stores::Sqlite) invoice
+//! storage implementation. The `bincode` feature will also be enabled by this
+//! feature.
 
 #![warn(clippy::pedantic)]
 #![warn(missing_docs)]
