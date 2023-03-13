@@ -1,4 +1,4 @@
-[![Build Status](https://img.shields.io/github/workflow/status/busyboredom/acceptxmr/CI/main)](https://github.com/busyboredom/acceptxmr/actions/workflows/ci.yml)
+[![BuildStatus](https://github.com/busyboredom/acceptxmr/workflows/CI/badge.svg)](https://img.shields.io/github/actions/workflow/status/busyboredom/acceptxmr/ci.yml?branch=main)
 [![Crates.io](https://img.shields.io/crates/v/acceptxmr.svg)](https://crates.io/crates/acceptxmr)
 [![Documentation](https://docs.rs/acceptxmr/badge.svg)](https://docs.rs/acceptxmr)
 [![MSRV](https://img.shields.io/badge/MSRV-1.65.0-blue)](https://blog.rust-lang.org/2022/11/03/Rust-1.65.0.html)
@@ -13,7 +13,7 @@ choosing, your private view key and your primary address.
 
 Use this library at your own risk, it is young and unproven.
 
-## Key Features
+## Key Advantages
 * View pair only, no hot wallet.
 * Subaddress based. 
 * Pending invoices can be stored persistently, enabling recovery from power loss. 
@@ -56,14 +56,20 @@ the `PaymentGateway`'s `scan_interval` below the default of 1 second:
 use acceptxmr::PaymentGateway;
 use std::time::Duration;
 
-let private_view_key = "ad2093a5705b9f33e6f0f0c1bc1f5f639c756cdfc168c8f2ac6127ccbdab3a03";
-let primary_address = "4613YiHLM6JMH4zejMB2zJY5TwQCxL8p65ufw8kBP5yxX9itmuGLqp1dS4tkVoTxjyH3aYhYNrtGHbQzJQP5bFus3KHVdmf";
+let private_view_key = 
+  "ad2093a5705b9f33e6f0f0c1bc1f5f639c756cdfc168c8f2ac6127ccbdab3a03";
+let primary_address = 
+  "4613YiHLM6JMH4zejMB2zJY5TwQCxL8p65ufw8kBP5yxX9itmuGLqp1dS4tkVoTxjyH3aYhYNrtGHbQzJQP5bFus3KHVdmf";
 
 let store = InMemory::new();
 
-let payment_gateway = PaymentGateway::builder(private_view_key.to_string(), primary_address.to_string(), store)
-    .scan_interval(Duration::from_millis(100)) // Scan for invoice updates every 100 ms.
-    .build()?;
+let payment_gateway = PaymentGateway::builder(
+  private_view_key.to_string(), 
+  primary_address.to_string(), 
+  store
+)
+.scan_interval(Duration::from_millis(100)) // Scan for updates every 100 ms.
+.build()?;
 ```
 
 Please note that `scan_interval` is the minimum time between scanning for updates. If your
