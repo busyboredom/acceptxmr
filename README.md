@@ -92,3 +92,12 @@ at your option.
 Unless you explicitly state otherwise, any contribution intentionally submitted
 for inclusion in the work by you, as defined in the Apache-2.0 license, shall be
 dual licensed as above, without any additional terms or conditions.
+
+### Donations
+
+AcceptXMR is a hobby project which generates no revenue for the developer(s).
+Donations from generous users and community members help keep it economically
+viable to work on.
+
+XMR:
+`82assiV5dy7guoxxV7vSReZTyY5rGMrWg6BsfvFqiEKRcTiDs7LGMpg5dF5gXVGUWPEXQxyt8SNYx8L8HiGAzvtBK3eJ3EY`
