@@ -350,6 +350,7 @@ impl<S: InvoiceStorage> Scanner<S> {
         for tx in transactions {
             // Ensure the time lock is zero.
             if tx.prefix().unlock_time != VarInt(0) {
+                debug!("Saw time locked transaction with hash {}", tx.hash());
                 continue;
             }
 

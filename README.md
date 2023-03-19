@@ -18,7 +18,7 @@ Use this library at your own risk, it is young and unproven.
 * Subaddress based. 
 * Pending invoices can be stored persistently, enabling recovery from power loss. 
 * Number of confirmations is configurable per-invoice.
-* Ignores transactions with non-zero timelocks.
+* Ignores transactions with timelocks.
 * Payment can occur over multiple transactions.
 
 ## Security
