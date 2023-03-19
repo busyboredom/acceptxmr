@@ -8,12 +8,14 @@ use acceptxmr::{
         stores::{InMemory, Sled, Sqlite},
         InvoiceStorage,
     },
-    Invoice, PaymentGatewayBuilder, SubIndex,
+    PaymentGatewayBuilder, SubIndex,
 };
 use test_case::test_case;
 use tokio::runtime::Runtime;
 
-use crate::common::{init_logger, new_temp_dir, MockDaemon, PRIMARY_ADDRESS, PRIVATE_VIEW_KEY};
+use crate::common::{
+    init_logger, new_temp_dir, MockDaemon, MockInvoice, PRIMARY_ADDRESS, PRIVATE_VIEW_KEY,
+};
 
 #[test_case(Sled::new(&new_temp_dir(), "tree").unwrap())]
 #[test_case(InMemory::new())]
@@ -132,17 +134,18 @@ where
             .expect("timeout waiting for invoice update")
             .expect("subscription channel is closed");
 
+        let mut expected = MockInvoice::new(
+            Some(update.address().to_string()),
+            SubIndex::new(0, 97),
+            2477657,
+            1,
+            5,
+            10,
+            "test invoice".to_string(),
+        );
+
         // Check that it is as expected.
-        assert_eq!(update.amount_requested(), 1);
-        assert_eq!(update.amount_paid(), 0);
-        assert!(!update.is_expired());
-        assert!(!update.is_confirmed());
-        assert_eq!(update.expiration_height() - update.creation_height(), 10);
-        assert_eq!(update.creation_height(), update.current_height());
-        assert_eq!(update.confirmations_required(), 5);
-        assert_eq!(update.confirmations(), None);
-        assert_eq!(update.description(), "test invoice".to_string());
-        assert_eq!(update.index(), SubIndex::new(0, 97));
+        expected.assert_eq(&update);
         assert_eq!(
             update.current_height(),
             payment_gateway
@@ -153,10 +156,10 @@ where
 
         // Add transfer to txpool.
         let _txpool_hashes_mock = mock_daemon
-            .mock_txpool_hashes("tests/rpc_resources/txpool_hashes_with_payment_account_0.json");
+            .mock_txpool_hashes("tests/rpc_resources/txpools/hashes_with_payment_account_0.json");
         let _transactions_mock = mock_daemon.mock_transactions(
-            "tests/rpc_resources/transaction_hashes_with_payment_account_0.json",
-            "tests/rpc_resources/transactions_with_payment_account_0.json",
+            "tests/rpc_resources/transactions/hashes_with_payment_account_0.json",
+            "tests/rpc_resources/transactions/txs_with_payment_account_0.json",
         );
 
         // Get update.
@@ -165,7 +168,169 @@ where
             .await
             .expect("timeout waiting for invoice update")
             .expect("subscription channel is closed");
-        assert_eq!(update.amount_paid(), 1468383460);
+
+        expected.amount_paid = 1468383460;
+        expected.confirmations = Some(0);
+        expected.assert_eq(&update);
+    })
+}
+
+#[test_case(Sled::new(&new_temp_dir(), "tree").unwrap())]
+#[test_case(InMemory::new())]
+#[test_case(Sqlite::new(":memory:", "invoices").unwrap())]
+fn zero_conf_invoice<'a, S, E, I>(store: S)
+where
+    S: InvoiceStorage<Error = E, Iter<'a> = I> + 'static,
+    E: Debug + Display + Send,
+    I: Iterator,
+{
+    // Setup.
+    init_logger();
+    let mock_daemon = MockDaemon::new_mock_daemon();
+    let rt = Runtime::new().expect("failed to create tokio runtime");
+
+    // Create payment gateway pointing at temp directory and mock daemon.
+    let payment_gateway = PaymentGatewayBuilder::new(
+        PRIVATE_VIEW_KEY.to_string(),
+        PRIMARY_ADDRESS.to_string(),
+        store,
+    )
+    // Faster scan rate so the update is received sooner.
+    .scan_interval(Duration::from_millis(100))
+    .daemon_url(mock_daemon.url(""))
+    .account_index(1)
+    .seed(1)
+    .build()
+    .expect("failed to build payment gateway");
+
+    // Run it.
+    rt.block_on(async {
+        payment_gateway
+            .run()
+            .await
+            .expect("failed to run payment gateway");
+
+        // Add the invoice.
+        let invoice_id = payment_gateway
+            .new_invoice(37419570, 0, 10, "test invoice".to_string())
+            .expect("failed to add new invoice to payment gateway for tracking");
+        let mut subscriber = payment_gateway
+            .subscribe(invoice_id)
+            .expect("invoice does not exist");
+
+        // Get initial update.
+        let update = subscriber
+            .recv_timeout(Duration::from_millis(5000))
+            .await
+            .expect("timeout waiting for invoice update")
+            .expect("subscription channel is closed");
+
+        let mut expected = MockInvoice::new(
+            Some(update.address().to_string()),
+            SubIndex::new(1, 97),
+            2477657,
+            37419570,
+            0,
+            10,
+            "test invoice".to_string(),
+        );
+
+        // Check that it is as expected.
+        expected.assert_eq(&update);
+
+        // Add transfer to txpool.
+        let _txpool_hashes_mock =
+            mock_daemon.mock_txpool_hashes("tests/rpc_resources/txpools/hashes_with_payment.json");
+
+        // Get update.
+        let update = subscriber
+            .recv_timeout(Duration::from_millis(5000))
+            .await
+            .expect("timeout waiting for invoice update")
+            .expect("subscription channel is closed");
+
+        expected.amount_paid = 37419570;
+        expected.confirmations = Some(0);
+        expected.is_confirmed = true;
+        expected.assert_eq(&update);
+    })
+}
+
+#[test_case(Sled::new(&new_temp_dir(), "tree").unwrap())]
+#[test_case(InMemory::new())]
+#[test_case(Sqlite::new(":memory:", "invoices").unwrap())]
+fn timelock_rejection<'a, S, E, I>(store: S)
+where
+    S: InvoiceStorage<Error = E, Iter<'a> = I> + 'static,
+    E: Debug + Display + Send,
+    I: Iterator,
+{
+    // Setup.
+    init_logger();
+    let mock_daemon = MockDaemon::new_mock_daemon();
+    let rt = Runtime::new().expect("failed to create tokio runtime");
+
+    // Create payment gateway pointing at temp directory and mock daemon.
+    let payment_gateway = PaymentGatewayBuilder::new(
+        PRIVATE_VIEW_KEY.to_string(),
+        PRIMARY_ADDRESS.to_string(),
+        store,
+    )
+    // Faster scan rate so the update is received sooner.
+    .scan_interval(Duration::from_millis(100))
+    .daemon_url(mock_daemon.url(""))
+    .seed(1)
+    .build()
+    .expect("failed to build payment gateway");
+
+    // Run it.
+    rt.block_on(async {
+        payment_gateway
+            .run()
+            .await
+            .expect("failed to run payment gateway");
+
+        // Add the invoice.
+        let invoice_id = payment_gateway
+            .new_invoice(123, 1, 1, "test invoice".to_string())
+            .expect("failed to add new invoice to payment gateway for tracking");
+        let mut subscriber = payment_gateway
+            .subscribe(invoice_id)
+            .expect("invoice does not exist");
+
+        // Get initial update.
+        let update = subscriber
+            .recv_timeout(Duration::from_millis(5000))
+            .await
+            .expect("timeout waiting for invoice update")
+            .expect("subscription channel is closed");
+
+        let expected = MockInvoice::new(
+            Some(update.address().to_string()),
+            SubIndex::new(0, 97),
+            2477657,
+            123,
+            1,
+            1,
+            "test invoice".to_string(),
+        );
+
+        // Check that it is as expected.
+        expected.assert_eq(&update);
+
+        // Add transfer to txpool.
+        let _txpool_hashes_mock = mock_daemon
+            .mock_txpool_hashes("tests/rpc_resources/txpools/hashes_with_payment_timelock.json");
+        let _transactions_mock = mock_daemon.mock_transactions(
+            "tests/rpc_resources/transactions/hashes_with_payment_timelock.json",
+            "tests/rpc_resources/transactions/txs_with_payment_timelock.json",
+        );
+
+        // There shouldn't be any update.
+        subscriber
+            .recv_timeout(Duration::from_millis(5000))
+            .await
+            .expect_err("timeout waiting for invoice update");
     })
 }
 
@@ -219,8 +384,18 @@ where
             .expect("timeout waiting for invoice update")
             .expect("subscription channel is closed");
 
+        let mut expected_1 = MockInvoice::new(
+            Some(update.address().to_string()),
+            SubIndex::new(1, 97),
+            2477657,
+            70000000,
+            2,
+            7,
+            "invoice 1".to_string(),
+        );
+
         // Check that it is as expected.
-        assert_invoice(&update, 97, 0, false, false, 7, 2477657, None);
+        expected_1.assert_eq(&update);
 
         // Add the invoice.
         let invoice_id = payment_gateway
@@ -237,12 +412,17 @@ where
             .expect("timeout waiting for invoice update")
             .expect("subscription channel is closed");
 
+        let mut expected_2 = expected_1.clone();
+        expected_2.address = Some(update.address().to_string());
+        expected_2.index = SubIndex::new(1, 138);
+        expected_2.description = "invoice 2".to_string();
+
         // Check that it is as expected.
-        assert_invoice(&update, 138, 0, false, false, 7, 2477657, None);
+        expected_2.assert_eq(&update);
 
         // Add double transfer to txpool.
         let txpool_hashes_mock =
-            mock_daemon.mock_txpool_hashes("tests/rpc_resources/txpool_hashes_with_payment.json");
+            mock_daemon.mock_txpool_hashes("tests/rpc_resources/txpools/hashes_with_payment.json");
         // Mock for these transactions themselves is unnecessary, because they are all
         // in block 2477657.
 
@@ -254,7 +434,8 @@ where
             .expect("subscription channel is closed");
 
         // Check that it is as expected.
-        assert_invoice(&update, 97, 37419570, false, false, 7, 2477657, None);
+        expected_1.amount_paid = 37419570;
+        expected_1.assert_eq(&update);
 
         // Get update.
         let update = subscriber_2
@@ -264,13 +445,14 @@ where
             .expect("subscription channel is closed");
 
         // Check that it is as expected.
-        assert_invoice(&update, 138, 37419570, false, false, 7, 2477657, None);
+        expected_2.amount_paid = 37419570;
+        expected_2.assert_eq(&update);
 
         // Check that the mock server did in fact receive the requests.
         assert!(txpool_hashes_mock.hits() > 0);
 
         // Mock txpool with no payments (as if the payment moved to a block).
-        mock_daemon.mock_txpool_hashes("tests/rpc_resources/txpool_hashes.json");
+        mock_daemon.mock_txpool_hashes("tests/rpc_resources/txpools/hashes.json");
 
         // Both invoices should now show zero paid.
         let update = subscriber_1
@@ -296,10 +478,9 @@ where
                 .expect("timeout waiting for invoice update")
                 .expect("subscription channel is closed");
 
-            let expires_in = 2477664 - height;
-            assert_invoice(
-                &update, 97, 37419570, false, false, expires_in, height, None,
-            );
+            expected_1.expires_in = 2477664 - height;
+            expected_1.current_height = height;
+            expected_1.assert_eq(&update);
 
             let update = subscriber_2
                 .recv_timeout(Duration::from_millis(5000))
@@ -307,19 +488,19 @@ where
                 .expect("timeout waiting for invoice update")
                 .expect("subscription channel is closed");
 
-            assert_invoice(
-                &update, 138, 37419570, false, false, expires_in, height, None,
-            );
+            expected_2.expires_in = 2477664 - height;
+            expected_2.current_height = height;
+            expected_2.assert_eq(&update);
 
             assert!(height_mock.hits() > 0);
         }
 
         // Put second payment in txpool.
-        let txpool_hashes_mock =
-            mock_daemon.mock_txpool_hashes("tests/rpc_resources/txpool_hashes_with_payment_2.json");
+        let txpool_hashes_mock = mock_daemon
+            .mock_txpool_hashes("tests/rpc_resources/txpools/hashes_with_payment_2.json");
         let txpool_transactions_mock = mock_daemon.mock_txpool_transactions(
-            "tests/rpc_resources/transaction_hashes_with_payment_2.json",
-            "tests/rpc_resources/transactions_with_payment_2.json",
+            "tests/rpc_resources/transactions/hashes_with_payment_2.json",
+            "tests/rpc_resources/transactions/txs_with_payment_2.json",
         );
 
         // Invoice 1 should be paid now.
@@ -329,7 +510,9 @@ where
             .expect("timeout waiting for invoice update")
             .expect("subscription channel is closed");
 
-        assert_invoice(&update, 97, 74839140, false, false, 2, 2477662, Some(0));
+        expected_1.amount_paid = 74839140;
+        expected_1.confirmations = Some(0);
+        expected_1.assert_eq(&update);
 
         // Invoice 2 should not have an update.
         subscriber_2
@@ -344,7 +527,7 @@ where
         // (getting update after txpool change, so there's no data race between the
         // scanner and these two mock changes).
         let txpool_hashes_mock =
-            mock_daemon.mock_txpool_hashes("tests/rpc_resources/txpool_hashes.json");
+            mock_daemon.mock_txpool_hashes("tests/rpc_resources/txpools/hashes.json");
         subscriber_1
             .recv_timeout(Duration::from_millis(5000))
             .await
@@ -362,7 +545,10 @@ where
             .expect("timeout waiting for invoice update")
             .expect("subscription channel is closed");
 
-        assert_invoice(&update, 97, 74839140, false, false, 1, 2477663, Some(1));
+        expected_1.confirmations = Some(1);
+        expected_1.expires_in = 1;
+        expected_1.current_height = 2477663;
+        expected_1.assert_eq(&update);
 
         let update = subscriber_2
             .recv_timeout(Duration::from_millis(5000))
@@ -370,7 +556,9 @@ where
             .expect("timeout waiting for invoice update")
             .expect("subscription channel is closed");
 
-        assert_invoice(&update, 138, 37419570, false, false, 1, 2477663, None);
+        expected_2.expires_in = 1;
+        expected_2.current_height = 2477663;
+        expected_2.assert_eq(&update);
 
         assert!(txpool_hashes_mock.hits() > 0);
         assert!(height_mock.hits() > 0);
@@ -384,7 +572,11 @@ where
             .expect("timeout waiting for invoice update")
             .expect("subscription channel is closed");
 
-        assert_invoice(&update, 97, 74839140, false, true, 0, 2477664, Some(2));
+        expected_1.confirmations = Some(2);
+        expected_1.is_confirmed = true;
+        expected_1.expires_in = 0;
+        expected_1.current_height = 2477664;
+        expected_1.assert_eq(&update);
 
         let update = subscriber_2
             .recv_timeout(Duration::from_millis(5000))
@@ -392,222 +584,12 @@ where
             .expect("timeout waiting for invoice update")
             .expect("subscription channel is closed");
 
-        assert_invoice(&update, 138, 37419570, true, false, 0, 2477664, None);
+        expected_2.expires_in = 0;
+        expected_2.is_expired = true;
+        expected_2.current_height = 2477664;
+        expected_2.assert_eq(&update);
 
         assert!(txpool_hashes_mock.hits() > 0);
         assert!(height_mock.hits() > 0);
     })
-}
-
-#[test_case(Sled::new(&new_temp_dir(), "tree").unwrap())]
-#[test_case(InMemory::new())]
-#[test_case(Sqlite::new(":memory:", "invoices").unwrap())]
-fn block_cache_skip_ahead<'a, S, E, I>(store: S)
-where
-    S: InvoiceStorage<Error = E, Iter<'a> = I> + 'static,
-    E: Debug + Display + Send,
-    I: Iterator,
-{
-    // Setup.
-    init_logger();
-    let mock_daemon = MockDaemon::new_mock_daemon();
-    let rt = Runtime::new().expect("failed to create tokio runtime");
-
-    // Create payment gateway pointing at temp directory and mock daemon.
-    let payment_gateway = PaymentGatewayBuilder::new(
-        PRIVATE_VIEW_KEY.to_string(),
-        PRIMARY_ADDRESS.to_string(),
-        store,
-    )
-    // Faster scan rate so the update is received sooner.
-    .scan_interval(Duration::from_millis(200))
-    .daemon_url(mock_daemon.url(""))
-    .seed(1)
-    .build()
-    .expect("failed to build payment gateway");
-
-    // Run it.
-    rt.block_on(async {
-        payment_gateway
-            .run()
-            .await
-            .expect("failed to run payment gateway");
-
-        assert_eq!(payment_gateway.cache_height(), 2477656);
-
-        mock_daemon.mock_daemon_height(2477666);
-
-        tokio::time::timeout(Duration::from_millis(1000), async {
-            while payment_gateway.cache_height() != 2477665 {
-                tokio::time::sleep(Duration::from_millis(100)).await;
-            }
-        })
-        .await
-        .expect("timed out waiting for gateway to fast forward");
-    })
-}
-
-#[test_case(Sled::new(&new_temp_dir(), "tree").unwrap())]
-#[test_case(InMemory::new())]
-#[test_case(Sqlite::new(":memory:", "invoices").unwrap())]
-fn fix_reorg<'a, S, E, I>(store: S)
-where
-    S: InvoiceStorage<Error = E, Iter<'a> = I> + 'static,
-    E: Debug + Display + Send,
-    I: Iterator,
-{
-    // Setup.
-    init_logger();
-    let mock_daemon = MockDaemon::new_mock_daemon();
-    let rt = Runtime::new().expect("failed to create tokio runtime");
-
-    // Create payment gateway pointing at temp directory and mock daemon.
-    let payment_gateway = PaymentGatewayBuilder::new(
-        PRIVATE_VIEW_KEY.to_string(),
-        PRIMARY_ADDRESS.to_string(),
-        store,
-    )
-    // Faster scan rate so the update is received sooner.
-    .scan_interval(Duration::from_millis(100))
-    .daemon_url(mock_daemon.url(""))
-    .account_index(1)
-    .seed(1)
-    .build()
-    .expect("failed to build payment gateway");
-
-    // Run it.
-    rt.block_on(async {
-        payment_gateway
-            .run()
-            .await
-            .expect("failed to run payment gateway");
-
-        // Add the invoice.
-        let invoice_id = payment_gateway
-            .new_invoice(70000000, 2, 7, "invoice".to_string())
-            .expect("failed to add new invoice to payment gateway for tracking");
-        let mut subscriber = payment_gateway
-            .subscribe(invoice_id)
-            .expect("invoice does not exist");
-
-        // Get initial update.
-        let update = subscriber
-            .recv_timeout(Duration::from_millis(5000))
-            .await
-            .expect("timeout waiting for invoice update")
-            .expect("subscription channel is closed");
-
-        // Check that it is as expected.
-        assert_invoice(&update, 97, 0, false, false, 7, 2477657, None);
-
-        mock_daemon.mock_daemon_height(2477658);
-
-        let update = subscriber
-            .recv_timeout(Duration::from_millis(5000))
-            .await
-            .expect("timeout waiting for invoice update")
-            .expect("subscription channel is closed");
-
-        assert_invoice(&update, 97, 37419570, false, false, 6, 2477658, None);
-
-        // Reorg to invalidate payment.
-        mock_daemon.mock_alt_2477657();
-        mock_daemon.mock_alt_2477658();
-
-        subscriber
-            .recv_timeout(Duration::from_millis(5000))
-            .await
-            .expect_err("should not have received an update, but did");
-
-        mock_daemon.mock_daemon_height(24776659);
-
-        let update = subscriber
-            .recv_timeout(Duration::from_millis(5000))
-            .await
-            .expect("timeout waiting for invoice update")
-            .expect("subscription channel is closed");
-
-        assert_invoice(&update, 97, 0, false, false, 5, 2477659, None);
-    })
-}
-
-#[test_case(Sled::new(&new_temp_dir(), "tree").unwrap())]
-#[test_case(InMemory::new())]
-#[test_case(Sqlite::new(":memory:", "invoices").unwrap())]
-fn reproducible_rand<'a, S, E, I>(store: S)
-where
-    S: InvoiceStorage<Error = E, Iter<'a> = I> + 'static,
-    E: Debug + Display + Send,
-    I: Iterator,
-{
-    // Setup.
-    init_logger();
-    let mock_daemon = MockDaemon::new_mock_daemon();
-    let rt = Runtime::new().expect("failed to create tokio runtime");
-
-    // Create payment gateway pointing at temp directory and mock daemon.
-    let payment_gateway = PaymentGatewayBuilder::new(
-        PRIVATE_VIEW_KEY.to_string(),
-        PRIMARY_ADDRESS.to_string(),
-        store,
-    )
-    // Faster scan rate so the update is received sooner.
-    .scan_interval(Duration::from_millis(100))
-    .daemon_url(mock_daemon.url(""))
-    .account_index(1)
-    .seed(1)
-    .build()
-    .expect("failed to build payment gateway");
-
-    // Run it.
-    rt.block_on(async {
-        payment_gateway
-            .run()
-            .await
-            .expect("failed to run payment gateway");
-
-        // Add the invoice.
-        let invoice_id = payment_gateway
-            .new_invoice(1, 5, 10, "test invoice".to_string())
-            .expect("failed to add new invoice to payment gateway for tracking");
-        let mut subscriber = payment_gateway
-            .subscribe(invoice_id)
-            .expect("invoice does not exist");
-
-        // Get initial update.
-        let update = subscriber
-            .recv_timeout(Duration::from_millis(5000))
-            .await
-            .expect("timeout waiting for invoice update")
-            .expect("subscription channel is closed");
-
-        // Check that it is as expected.
-        assert_eq!(update.index(), SubIndex::new(1, 97));
-    })
-}
-
-#[allow(clippy::too_many_arguments)]
-fn assert_invoice(
-    update: &Invoice,
-    minor_index: u32,
-    paid: u64,
-    is_expired: bool,
-    is_confirmed: bool,
-    expires_in: u64,
-    height: u64,
-    confirmations: Option<u64>,
-) {
-    assert_eq!(update.amount_requested(), 70000000);
-    assert_eq!(update.confirmations_required(), 2);
-    assert_eq!(update.index(), SubIndex::new(1, minor_index));
-    assert_eq!(update.amount_paid(), paid);
-    assert_eq!(update.is_expired(), is_expired);
-    assert_eq!(update.is_confirmed(), is_confirmed);
-    assert_eq!(update.expiration_height() - update.creation_height(), 7);
-    assert_eq!(
-        update.expiration_height() - update.current_height(),
-        expires_in
-    );
-    assert_eq!(update.current_height(), height);
-    assert_eq!(update.confirmations(), confirmations);
 }
