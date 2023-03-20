@@ -1,5 +1,19 @@
+//! # `AcceptXMR-Server`: A monero payment gateway.
+//! `AcceptXMR-Server` is a batteries-included monero payment gateway built
+//! around the `AcceptXMR` library.
+//!
+//! If your application requires more flexibility than `AcceptXMR-Server`
+//! offers, please see the [`AcceptXMR`](../library/) library instead.
+
+#![warn(clippy::pedantic)]
+#![warn(missing_docs)]
+#![warn(clippy::cargo)]
+#![allow(clippy::module_name_repetitions)]
+
 use std::{
+    env,
     future::Future,
+    path::PathBuf,
     pin::Pin,
     task::Poll,
     time::{Duration, Instant},
@@ -31,16 +45,32 @@ use serde_json::json;
 const CLIENT_TIMEOUT: Duration = Duration::from_secs(10);
 /// Time between sending heartbeat pings.
 const HEARTBEAT_INTERVAL: Duration = Duration::from_secs(1);
-/// Length of secure session key for cookies.
+/// Length in bytes of secure session key for cookies.
 const SESSION_KEY_LEN: usize = 64;
+/// Default invoice storage database directory.
+const DEFAULT_DB_DIR: &str = "AcceptXMR_DB/";
 
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
     env_logger::builder()
         .filter_level(LevelFilter::Warn)
         .filter_module("acceptxmr", log::LevelFilter::Debug)
-        .filter_module("websockets", log::LevelFilter::Trace)
+        .filter_module("acceptxmr-server", log::LevelFilter::Trace)
         .init();
+
+    let mut db_dir = PathBuf::from(DEFAULT_DB_DIR.to_string());
+
+    // If not running in docker, try reading DB directory from environment.
+    if env::var("DOCKER") != Ok("true".to_string()) {
+        db_dir = PathBuf::from(env::var("DB_DIR").unwrap_or(DEFAULT_DB_DIR.to_string()));
+    };
+
+    std::fs::create_dir_all(&db_dir).expect("failed to create DB dir");
+    let db_path = db_dir
+        .canonicalize()
+        .expect("could not determine absolute database path")
+        .join("database");
+    let db_path_str = db_path.to_str().expect("failed to cast DB path to string");
 
     // The private view key should be stored securely outside of the git repository.
     // It is hardcoded here for demonstration purposes only.
@@ -48,8 +78,7 @@ async fn main() -> std::io::Result<()> {
     // No need to keep the primary address secret.
     let primary_address = "4613YiHLM6JMH4zejMB2zJY5TwQCxL8p65ufw8kBP5yxX9itmuGLqp1dS4tkVoTxjyH3aYhYNrtGHbQzJQP5bFus3KHVdmf";
 
-    let invoice_store =
-        Sqlite::new("AcceptXMR_DB", "invoices").expect("failed to open invoice store");
+    let invoice_store = Sqlite::new(db_path_str, "invoices").expect("failed to open invoice store");
     let payment_gateway = PaymentGatewayBuilder::new(
         private_view_key.to_string(),
         primary_address.to_string(),
@@ -72,11 +101,7 @@ async fn main() -> std::io::Result<()> {
         // Watch all invoice updates.
         let mut subscriber = gateway_copy.subscribe_all();
         loop {
-            let invoice = match subscriber.blocking_recv() {
-                Some(p) => p,
-                // Global subscriptions should not close.
-                None => panic!("Blockchain scanner crashed!"),
-            };
+            let Some(invoice) = subscriber.blocking_recv() else { panic!("Blockchain scanner crashed!") };
             // If it's confirmed or expired, we probably shouldn't bother tracking it
             // anymore.
             if (invoice.is_confirmed() && invoice.creation_height() < invoice.current_height())
@@ -126,6 +151,7 @@ struct CheckoutInfo {
 }
 
 /// Create new invoice and place cookie.
+#[allow(clippy::unused_async)]
 #[post("/checkout")]
 async fn checkout(
     session: Session,
@@ -142,6 +168,7 @@ async fn checkout(
 }
 
 // Get invoice update without waiting for websocket.
+#[allow(clippy::unused_async)]
 #[get("/update")]
 async fn update(
     session: Session,
@@ -170,6 +197,7 @@ async fn update(
 }
 
 /// WebSocket rout.
+#[allow(clippy::unused_async)]
 #[get("/ws/")]
 async fn websocket(
     session: Session,
@@ -177,21 +205,15 @@ async fn websocket(
     stream: web::Payload,
     payment_gateway: web::Data<PaymentGateway<Sqlite>>,
 ) -> Result<HttpResponse, actix_web::Error> {
-    let invoice_id = match session.get::<InvoiceId>("id") {
-        Ok(Some(i)) => i,
-        _ => {
-            return Ok(HttpResponse::NotFound()
-                .append_header(CacheControl(vec![CacheDirective::NoStore]))
-                .finish())
-        }
+    let Ok(Some(invoice_id)) = session.get::<InvoiceId>("id") else {
+        return Ok(HttpResponse::NotFound()
+            .append_header(CacheControl(vec![CacheDirective::NoStore]))
+            .finish())
     };
-    let subscriber = match payment_gateway.subscribe(invoice_id) {
-        Some(s) => s,
-        _ => {
-            return Ok(HttpResponse::NotFound()
-                .append_header(CacheControl(vec![CacheDirective::NoStore]))
-                .finish())
-        }
+    let Some(subscriber) = payment_gateway.subscribe(invoice_id) else {
+        return Ok(HttpResponse::NotFound()
+            .append_header(CacheControl(vec![CacheDirective::NoStore]))
+            .finish())
     };
     let websocket = WebSocket::new(subscriber);
     ws::start(websocket, &req, stream)
@@ -213,7 +235,7 @@ impl WebSocket {
 
     /// Sends ping to client every `HEARTBEAT_INTERVAL` and checks for responses
     /// from client
-    fn heartbeat(&self, ctx: &mut <Self as Actor>::Context) {
+    fn heartbeat(ctx: &mut <Self as Actor>::Context) {
         ctx.run_interval(HEARTBEAT_INTERVAL, |act, ctx| {
             // check client heartbeats
             if Instant::now().duration_since(act.last_heartbeat) > CLIENT_TIMEOUT {
@@ -236,7 +258,7 @@ impl Actor for WebSocket {
         if let Some(subscriber) = self.invoice_subscriber.take() {
             <WebSocket as StreamHandler<Invoice>>::add_stream(InvoiceStream(subscriber), ctx);
         }
-        self.heartbeat(ctx);
+        Self::heartbeat(ctx);
     }
 }
 

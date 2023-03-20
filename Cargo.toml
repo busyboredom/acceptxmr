@@ -4,3 +4,6 @@ members = [
     "server",
     "library"
 ]
+
+[profile.release]
+lto = true
