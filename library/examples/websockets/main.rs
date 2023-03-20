@@ -57,7 +57,7 @@ async fn main() -> std::io::Result<()> {
         primary_address.to_string(),
         invoice_store,
     )
-    .daemon_url("http://node.sethforprivacy.com:18089".to_string())
+    .daemon_url("http://xmr-node.cakewallet.com:18081".to_string())
     .build()
     .expect("failed to build payment gateway");
     info!("Payment gateway created.");
@@ -111,7 +111,9 @@ async fn main() -> std::io::Result<()> {
             .service(update)
             .service(checkout)
             .service(websocket)
-            .service(Files::new("", "./examples/websockets/static").index_file("index.html"))
+            .service(
+                Files::new("", "./library/examples/websockets/static").index_file("index.html"),
+            )
     })
     .bind("0.0.0.0:8080")?
     .run()

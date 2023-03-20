@@ -1,0 +1,70 @@
+[package]
+name = "acceptxmr"
+version = "0.12.0"
+edition = "2021"
+rust-version = "1.65"
+license = "MIT OR Apache-2.0"
+description = "Accept monero in your application."
+repository = "https://github.com/busyboredom/acceptxmr"
+readme = "README.md"
+keywords = ["crypto", "gateway", "monero", "payment", "xmr"]
+categories = ["cryptography::cryptocurrencies"]
+
+[lib]
+name = "acceptxmr"
+path = "src/lib.rs"
+
+[dependencies]
+bincode = { version = "^2.0.0-rc.3", optional = true }
+hex = "0.4"
+http = "0.2"
+hyper = { version = "0.14", features = ["client", "http1", "http2", "tcp"] }
+hyper-rustls = { version = "0.24", features = ["logging", "http1", "http2", "tls12", "webpki-tokio"], default-features = false }
+indexmap = "1"
+log = "0.4"
+md-5 = "0.10"
+monero = "0.18"
+rand = "0.8"
+rand_chacha = "0.3"
+serde = {version = "1", features = ["derive"], optional = true }
+serde_json = "1"
+sled = { version = "0.34", optional = true }
+sqlite = { version = "0.30", optional = true }
+strum = { version = "0.24", features = ["derive"] }
+thiserror = "1"
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "time"] }
+
+[features]
+bincode = ["dep:bincode"]
+in-memory = []
+serde = ["dep:serde"]
+sled = ["bincode", "dep:sled"]
+sqlite = ["bincode", "dep:sqlite"]
+
+[dev-dependencies]
+actix = "0.13"
+actix-files = "0.6"
+actix-session = { version = "0.7", features = ["cookie-session"] }
+actix-web = "4"
+actix-web-actors = "4"
+bytestring = "1"
+env_logger = "0.10"
+handlebars = { version = "4", features = ["dir_source"] }
+httpmock = "0.6"
+qrcode = "0.12"
+serde = "1"
+tempfile = "3"
+test-case = "3"
+# This is a workaround to enable features in tests.
+acceptxmr = { path = ".", features = ["sled", "in-memory", "sqlite"] }
+
+[[example]]
+name = "custom_storage"
+
+[[example]]
+name = "nojs"
+required-features = ["serde", "in-memory"]
+
+[[example]]
+name = "websockets"
+required-features = ["serde", "in-memory"]

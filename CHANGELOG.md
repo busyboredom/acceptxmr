@@ -9,6 +9,9 @@ Book](https://doc.rust-lang.org/cargo/reference/manifest.html#the-version-field)
 
 ## [Unreleased]
 
+### Added
+- A batteries-included payment gateway built around the core library.
+
 ## [0.12.0] - 2023-03-18
 
 ### Added
@@ -35,7 +38,7 @@ Book](https://doc.rust-lang.org/cargo/reference/manifest.html#the-version-field)
 - Make the `recv()` method of `Subscriber` an `async` method. Please use
   `blocking_recv()` if you need to block while waiting.
 - Make the `recv_timeout` method of `Subscriber` an `async` method.
-- Change the `Output` of `Subsciber`'s `Future` impl to `Option<Invoice>`
+- Change the `Output` of `Subscriber`'s `Future` impl to `Option<Invoice>`
   instead of `Result<Invoice>`.
 
 ### Removed
