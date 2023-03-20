@@ -44,7 +44,7 @@ async fn main() -> std::io::Result<()> {
         primary_address.to_string(),
         InMemory::new(),
     )
-    .daemon_url("http://node.sethforprivacy.com:18089".to_string())
+    .daemon_url("http://xmr-node.cakewallet.com:18081".to_string())
     .build()
     .expect("failed to build payment gateway");
     info!("Payment gateway created.");
@@ -89,7 +89,7 @@ async fn main() -> std::io::Result<()> {
     // Templating setup.
     let mut handlebars = Handlebars::new();
     handlebars
-        .register_templates_directory(".html", "./examples/nojs/static/templates")
+        .register_templates_directory(".html", "./library/examples/nojs/static/templates")
         .expect("failed to register template directory");
     handlebars.register_escape_fn(no_escape);
 
@@ -109,7 +109,7 @@ async fn main() -> std::io::Result<()> {
             .app_data(handlebars_ref.clone())
             .service(start_checkout)
             .service(checkout)
-            .service(Files::new("", "./examples/nojs/static").index_file("index.html"))
+            .service(Files::new("", "./library/examples/nojs/static").index_file("index.html"))
     })
     .bind("0.0.0.0:8080")?
     .run()

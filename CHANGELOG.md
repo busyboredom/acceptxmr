@@ -9,6 +9,9 @@ Book](https://doc.rust-lang.org/cargo/reference/manifest.html#the-version-field)
 
 ## [Unreleased]
 
+### Added
+- A batteries-included payment gateway built around the core library.
+
 ### Changed
 - Update MSRV to 1.68
 

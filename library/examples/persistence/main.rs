@@ -19,7 +19,7 @@ async fn main() {
 
     // Use an Sqlite database for persistent storage.
     let store = Sqlite::new(
-        "examples/persistence/AcceptXMR_DB",
+        "library/examples/persistence/AcceptXMR_DB",
         "invoices",
         "output keys",
         "height",
@@ -57,7 +57,7 @@ async fn main() {
 
     // Reconstruct the gateway...
     let store = Sqlite::new(
-        "examples/persistence/AcceptXMR_DB",
+        "library/examples/persistence/AcceptXMR_DB",
         "invoices",
         "output keys",
         "height",
