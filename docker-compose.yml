@@ -1,9 +1,23 @@
+# To use this docker-compose file:
+#   1. Install Docker: https://docs.docker.com/get-docker/
+#   2. Clone this repository:
+#     $ git clone https://github.com/busyboredom/acceptxmr.git && cd acceptxmr
+#   3. Run it:
+#     $ docker compose up
+#
+# This file builds AcceptXMR-Server locally instead of pulling it from docker
+# hub.
+
 services:
   server:
     build: .
     ports:
       - "8080:8080"
+      - "8081:8081"
     volumes:
       - db:/AcceptXMR_DB
+      - ./server/tests/testdata/cert:/server/tests/testdata/cert/
+      - ./acceptxmr.yaml:/acceptxmr.yaml
+    env_file: .env
 volumes:
   db:

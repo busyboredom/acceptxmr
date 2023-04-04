@@ -43,7 +43,7 @@ impl TxpoolCache {
         //
         // TODO: Find a way to do this without cloning.
         let rpc_client = self.rpc_client.clone();
-        let (new_transactions, _) = join!(rpc_client.transactions_by_hashes(&new_hashes), async {
+        let (new_transactions, ()) = join!(rpc_client.transactions_by_hashes(&new_hashes), async {
             self.transactions.retain(|k, _| txpool_hashes.contains(k));
             self.discovered_transfers
                 .retain(|k, _| txpool_hashes.contains(k));

@@ -76,7 +76,7 @@ impl InvoiceStorage for Sled {
             .compare_and_swap(key, None::<IVec>, Some(value))
             .map_err(DatabaseError::from)?
         {
-            Ok(_) => Ok(()),
+            Ok(()) => Ok(()),
             Err(_) => Err(SledStorageError::DuplicateInvoiceId),
         }
     }

@@ -157,7 +157,7 @@ pub enum AcceptXmrError {
     /// An error storing/retrieving data from the storage layer.
     #[error("storage error: {0}")]
     Storage(Box<dyn std::error::Error + Send>),
-    /// [`Subscriber`](crate::Subscriber) failed to retrieve update.
+    /// [`Subscriber`] failed to retrieve update.
     #[error("subscriber failed to receive update: {0}")]
     Subscriber(#[from] SubscriberError),
     /// Failure to unblind the amount of an owned output.
