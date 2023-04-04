@@ -121,7 +121,6 @@
 #![warn(clippy::expect_used)]
 #![allow(clippy::multiple_crate_versions)]
 #![allow(clippy::module_name_repetitions)]
-#![allow(clippy::format_push_string)]
 
 mod caching;
 mod invoice;

@@ -1,3 +1,5 @@
+#![warn(clippy::pedantic)]
+
 use acceptxmr::{storage::stores::InMemory, InvoiceId, PaymentGateway, PaymentGatewayBuilder};
 use actix_files::Files;
 use actix_session::{
@@ -59,11 +61,7 @@ async fn main() -> std::io::Result<()> {
         // Watch all invoice updates.
         let mut subscriber = gateway_copy.subscribe_all();
         loop {
-            let invoice = match subscriber.blocking_recv() {
-                Some(p) => p,
-                // Global subscriptions should not close.
-                None => panic!("Blockchain scanner crashed!"),
-            };
+            let Some(invoice) = subscriber.blocking_recv() else { panic!("Blockchain scanner crashed!") };
             // If it's been tracked for longer than an hour, remove it.
             if invoice
                 .current_height()
@@ -122,6 +120,7 @@ struct CheckoutInfo {
 }
 
 /// Create new invoice and place cookie.
+#[allow(clippy::unused_async)]
 #[post("/checkout")]
 async fn start_checkout(
     session: Session,
@@ -140,6 +139,7 @@ async fn start_checkout(
 }
 
 // Get invoice update.
+#[allow(clippy::unused_async)]
 #[get("/checkout")]
 async fn checkout(
     session: Session,

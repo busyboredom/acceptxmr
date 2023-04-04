@@ -1,3 +1,5 @@
+#![warn(clippy::pedantic)]
+
 use std::{
     future::Future,
     pin::Pin,
@@ -72,11 +74,7 @@ async fn main() -> std::io::Result<()> {
         // Watch all invoice updates.
         let mut subscriber = gateway_copy.subscribe_all();
         loop {
-            let invoice = match subscriber.blocking_recv() {
-                Some(p) => p,
-                // Global subscriptions should not close.
-                None => panic!("Blockchain scanner crashed!"),
-            };
+            let Some(invoice) = subscriber.blocking_recv() else { panic!("Blockchain scanner crashed!") };
             // If it's confirmed or expired, we probably shouldn't bother tracking it
             // anymore.
             if (invoice.is_confirmed() && invoice.creation_height() < invoice.current_height())
@@ -126,6 +124,7 @@ struct CheckoutInfo {
 }
 
 /// Create new invoice and place cookie.
+#[allow(clippy::unused_async)]
 #[post("/checkout")]
 async fn checkout(
     session: Session,
@@ -142,6 +141,7 @@ async fn checkout(
 }
 
 // Get invoice update without waiting for websocket.
+#[allow(clippy::unused_async)]
 #[get("/update")]
 async fn update(
     session: Session,
@@ -170,6 +170,7 @@ async fn update(
 }
 
 /// WebSocket rout.
+#[allow(clippy::unused_async)]
 #[get("/ws/")]
 async fn websocket(
     session: Session,
@@ -177,21 +178,15 @@ async fn websocket(
     stream: web::Payload,
     payment_gateway: web::Data<PaymentGateway<InMemory>>,
 ) -> Result<HttpResponse, actix_web::Error> {
-    let invoice_id = match session.get::<InvoiceId>("id") {
-        Ok(Some(i)) => i,
-        _ => {
-            return Ok(HttpResponse::NotFound()
-                .append_header(CacheControl(vec![CacheDirective::NoStore]))
-                .finish())
-        }
+    let Ok(Some(invoice_id)) = session.get::<InvoiceId>("id") else {
+        return Ok(HttpResponse::NotFound()
+            .append_header(CacheControl(vec![CacheDirective::NoStore]))
+            .finish())
     };
-    let subscriber = match payment_gateway.subscribe(invoice_id) {
-        Some(s) => s,
-        _ => {
-            return Ok(HttpResponse::NotFound()
-                .append_header(CacheControl(vec![CacheDirective::NoStore]))
-                .finish())
-        }
+    let Some(subscriber) = payment_gateway.subscribe(invoice_id) else {
+        return Ok(HttpResponse::NotFound()
+            .append_header(CacheControl(vec![CacheDirective::NoStore]))
+            .finish())
     };
     let websocket = WebSocket::new(subscriber);
     ws::start(websocket, &req, stream)
@@ -213,7 +208,7 @@ impl WebSocket {
 
     /// Sends ping to client every `HEARTBEAT_INTERVAL` and checks for responses
     /// from client
-    fn heartbeat(&self, ctx: &mut <Self as Actor>::Context) {
+    fn heartbeat(ctx: &mut <Self as Actor>::Context) {
         ctx.run_interval(HEARTBEAT_INTERVAL, |act, ctx| {
             // check client heartbeats
             if Instant::now().duration_since(act.last_heartbeat) > CLIENT_TIMEOUT {
@@ -236,7 +231,7 @@ impl Actor for WebSocket {
         if let Some(subscriber) = self.invoice_subscriber.take() {
             <WebSocket as StreamHandler<Invoice>>::add_stream(InvoiceStream(subscriber), ctx);
         }
-        self.heartbeat(ctx);
+        Self::heartbeat(ctx);
     }
 }
 

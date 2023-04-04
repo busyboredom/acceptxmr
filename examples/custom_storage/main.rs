@@ -1,3 +1,5 @@
+#![warn(clippy::pedantic)]
+
 use std::collections::{
     btree_map::{self, Entry},
     BTreeMap,
