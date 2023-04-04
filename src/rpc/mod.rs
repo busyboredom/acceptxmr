@@ -47,7 +47,7 @@ impl RpcClient {
         hyper_connector.set_connect_timeout(Some(connection_timeout));
         hyper_connector.enforce_http(false);
         let rustls_connector = HttpsConnectorBuilder::new()
-            .with_native_roots()
+            .with_webpki_roots()
             .https_or_http()
             .enable_http1()
             .enable_http2()
