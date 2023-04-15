@@ -299,7 +299,6 @@ pub enum SqliteStorageError {
 }
 
 #[cfg(test)]
-#[allow(clippy::unwrap_used)]
 mod test {
     use test_case::test_case;
 

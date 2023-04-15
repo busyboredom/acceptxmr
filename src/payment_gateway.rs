@@ -100,7 +100,7 @@ impl<S: InvoiceStorage + 'static> PaymentGateway<S> {
     ///
     /// * Returns an [`AcceptXmrError::Threading`] error if there was an error
     ///   creating the scanning thread.
-    #[allow(clippy::range_plus_one, clippy::missing_panics_doc)]
+    #[allow(clippy::range_plus_one)]
     pub async fn run(&self) -> Result<(), AcceptXmrError<S::Error>> {
         // Determine if the scanning thread is already running.
         {
@@ -269,7 +269,6 @@ impl<S: InvoiceStorage + 'static> PaymentGateway<S> {
     ///
     /// Returns an error if there are any underlying issues modifying data in
     /// the database.
-    #[allow(clippy::unused_async)]
     pub fn new_invoice(
         &self,
         piconeros: u64,
@@ -657,7 +656,7 @@ pub(crate) enum MessageToScanner {
 }
 
 #[cfg(test)]
-#[allow(clippy::expect_used)]
+#[allow(clippy::unwrap_used)]
 mod tests {
     use log::LevelFilter;
 
@@ -689,7 +688,7 @@ mod tests {
         )
         .daemon_url("http://example.com:18081".to_string())
         .build()
-        .expect("failed to build payment gateway");
+        .unwrap();
 
         assert_eq!(
             payment_gateway.rpc_client.url(),
