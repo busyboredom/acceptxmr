@@ -284,7 +284,6 @@ impl RpcClient {
     }
 }
 
-#[allow(clippy::module_name_repetitions)]
 #[derive(Error, Debug)]
 pub enum RpcError {
     #[error("HTTP request failed: {0}")]

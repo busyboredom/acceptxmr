@@ -197,7 +197,7 @@ mod test {
             .prefix("temp_db_")
             .rand_bytes(16)
             .tempdir()
-            .expect("failed to generate temporary directory")
+            .unwrap()
             .path()
             .to_str()
             .expect("failed to get temporary directory path")

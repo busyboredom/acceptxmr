@@ -285,7 +285,6 @@ impl Algorithm {
     }
 }
 
-#[allow(clippy::module_name_repetitions)]
 #[derive(Error, Debug)]
 pub enum AuthError {
     #[error("unauthorized")]
@@ -299,9 +298,8 @@ pub enum AuthError {
 }
 
 #[cfg(test)]
+#[allow(clippy::unwrap_used)]
 mod tests {
-    #![allow(clippy::expect_used)]
-
     use hyper::{
         header::{HeaderValue, WWW_AUTHENTICATE},
         Method, Response, Uri,
@@ -312,7 +310,7 @@ mod tests {
     #[test]
     fn test_parse_header() {
         let header = "Digest qop=\"auth\",algorithm=MD5-sess,realm=\"monero-rpc\", nonce=\"kVmRYw+lSQ80tTK3zj6/aA==\", stale=false";
-        let auth_params = parse_header(header).expect("failed to parse header");
+        let auth_params = parse_header(header).unwrap();
         let expected_auth_params = AuthParams {
             realm: "monero-rpc".to_string(),
             qop: vec![Qop::Auth],
@@ -332,14 +330,14 @@ mod tests {
         );
         let response = Response::builder()
             .header(WWW_AUTHENTICATE, "Digest qop=\"auth\",algorithm=MD5,realm=\"monero-rpc\",nonce=\"JmNFnqfRJdOr/vFZ2CpDQg==\",stale=false")
-            .body(()).expect("wailed to build WWW_AUTHENTICATE response");
+            .body(()).unwrap();
         let authorization_header = auth_info
             .authenticate_with_resp(
                 &response,
                 &Uri::from_static("https://busyboredom.com:18089/json_rpc"),
                 &Method::POST,
             )
-            .expect("failed to create AUTHORIZATION header");
+            .unwrap();
         assert_eq!(authorization_header, HeaderValue::from_static("Digest username=\"test user\", realm=\"monero-rpc\", nonce=\"JmNFnqfRJdOr/vFZ2CpDQg==\", uri=\"/json_rpc\", qop=auth, nc=00000001, cnonce=\"611830d3641a68f94a690dcc25d1f4b0\", response=\"af7810760defeed31054108ed35d400d\", algorithm=MD5"));
     }
 
@@ -353,14 +351,14 @@ mod tests {
         let response = Response::builder()
             .header(WWW_AUTHENTICATE, "Digest qop=\"auth\",algorithm=MD5,realm=\"monero-rpc\",nonce=\"JmNFnqfRJdOr/vFZ2CpDQg==\",stale=false")
             .header(WWW_AUTHENTICATE, "Digest qop=\"auth\",algorithm=MD5-sess,realm=\"monero-rpc\",nonce=\"JmNFnqfRJdOr/vFZ2CpDQg==\",stale=false")
-            .body(()).expect("wailed to build WWW_AUTHENTICATE response");
+            .body(()).unwrap();
         let authorization_header = auth_info
             .authenticate_with_resp(
                 &response,
                 &Uri::from_static("https://busyboredom.com:18089/json_rpc"),
                 &Method::POST,
             )
-            .expect("failed to create AUTHORIZATION header");
+            .unwrap();
         assert_eq!(authorization_header, HeaderValue::from_static("Digest username=\"test user\", realm=\"monero-rpc\", nonce=\"JmNFnqfRJdOr/vFZ2CpDQg==\", uri=\"/json_rpc\", qop=auth, nc=00000001, cnonce=\"611830d3641a68f94a690dcc25d1f4b0\", response=\"b0a351e720384a0160042ff2898ab24a\", algorithm=MD5-sess"));
     }
 
@@ -374,14 +372,14 @@ mod tests {
         let response = Response::builder()
             .header(WWW_AUTHENTICATE, "Digest qop=\"auth\",algorithm=MD5,realm=\"monero-rpc\",nonce=\"JmNFnqfRJdOr/vFZ2CpDQg==\",stale=false")
             .header(WWW_AUTHENTICATE, "Digest qop=\"auth\",algorithm=MD5-sess,realm=\"monero-rpc\",nonce=\"JmNFnqfRJdOr/vFZ2CpDQg==\",stale=false,opaque=5PCCDS2k5PCCDS2k")
-            .body(()).expect("wailed to build WWW_AUTHENTICATE response");
+            .body(()).unwrap();
         let authorization_header = auth_info
             .authenticate_with_resp(
                 &response,
                 &Uri::from_static("https://busyboredom.com:18089/json_rpc"),
                 &Method::POST,
             )
-            .expect("failed to create AUTHORIZATION header");
+            .unwrap();
         assert_eq!(authorization_header, HeaderValue::from_static("Digest username=\"test user\", realm=\"monero-rpc\", nonce=\"JmNFnqfRJdOr/vFZ2CpDQg==\", uri=\"/json_rpc\", qop=auth, nc=00000001, cnonce=\"611830d3641a68f94a690dcc25d1f4b0\", response=\"b0a351e720384a0160042ff2898ab24a\", algorithm=MD5-sess, opaque=5PCCDS2k5PCCDS2k"));
     }
 }
