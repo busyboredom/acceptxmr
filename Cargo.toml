@@ -66,5 +66,9 @@ name = "nojs"
 required-features = ["serde", "in-memory"]
 
 [[example]]
+name = "persistence"
+required-features = ["sqlite"]
+
+[[example]]
 name = "websockets"
 required-features = ["serde", "in-memory"]
