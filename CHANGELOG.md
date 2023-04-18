@@ -9,6 +9,13 @@ Book](https://doc.rust-lang.org/cargo/reference/manifest.html#the-version-field)
 
 ## [Unreleased]
 
+### Changed
+- Use webpki CA roots instead of native for better portability.
+
+### Fixed
+- `Invoice`'s `expiration_in()` function returning expiration height instead of
+  block difference when called before first scan.
+
 ## [0.12.0] - 2023-03-18
 
 ### Added
@@ -35,7 +42,7 @@ Book](https://doc.rust-lang.org/cargo/reference/manifest.html#the-version-field)
 - Make the `recv()` method of `Subscriber` an `async` method. Please use
   `blocking_recv()` if you need to block while waiting.
 - Make the `recv_timeout` method of `Subscriber` an `async` method.
-- Change the `Output` of `Subsciber`'s `Future` impl to `Option<Invoice>`
+- Change the `Output` of `Subscriber`'s `Future` impl to `Option<Invoice>`
   instead of `Result<Invoice>`.
 
 ### Removed
