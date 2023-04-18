@@ -1,5 +1,5 @@
 use std::{
-    cmp::{self, Ordering},
+    cmp::{self, max, Ordering},
     collections::HashMap,
     fmt,
     fmt::Display,
@@ -236,6 +236,8 @@ impl Invoice {
     }
 
     /// Returns the last daemon height at which this `Invoice` was updated.
+    ///
+    /// Returns `0` if the `Invoice` has not yet been updated.
     #[must_use]
     pub fn current_height(&self) -> u64 {
         self.current_height
@@ -278,7 +280,8 @@ impl Invoice {
     /// ```
     #[must_use]
     pub fn expiration_in(&self) -> u64 {
-        self.expiration_height.saturating_sub(self.current_height)
+        let height = max(self.creation_height, self.current_height);
+        self.expiration_height.saturating_sub(height)
     }
 
     /// Returns the description of this invoice.
@@ -497,8 +500,10 @@ impl Transfer {
 }
 
 #[cfg(test)]
+#[allow(clippy::expect_used)]
 mod tests {
     use log::LevelFilter;
+    use test_case::test_case;
 
     use crate::{Invoice, SubIndex};
 
@@ -510,39 +515,14 @@ mod tests {
             .try_init();
     }
 
-    #[test]
-    fn payment_request_small() {
+    #[test_case(1, 0 => "0.000000000001".to_string(); "small")]
+    #[test_case(u64::MAX, 0 => "18446744.073709551615".to_string(); "big")]
+    #[test_case(1, 1 => "0.0"; "zero")]
+    #[test_case(2_460_000_000_000, 1_230_000_000_000 => "1.23"; "partially paid")]
+    fn payment_request(requested: u64, paid: u64) -> String {
         // Setup.
         init_logger();
 
-        check_payment_request(1, 0, "0.000000000001");
-    }
-
-    #[test]
-    fn payment_request_big() {
-        // Setup.
-        init_logger();
-
-        check_payment_request(u64::MAX, 0, "18446744.073709551615");
-    }
-
-    #[test]
-    fn payment_request_zero() {
-        // Setup.
-        init_logger();
-
-        check_payment_request(1, 1, "0.0");
-    }
-
-    #[test]
-    fn payment_request_partially_paid() {
-        // Setup.
-        init_logger();
-
-        check_payment_request(2_460_000_000_000, 1_230_000_000_000, "1.23");
-    }
-
-    fn check_payment_request(requested: u64, paid: u64, expected_tx_amount: &str) {
         let mut invoice = Invoice::new(
             "testAddress".to_string(),
             SubIndex::new(0, 1),
@@ -554,9 +534,28 @@ mod tests {
         );
         invoice.amount_paid = paid;
 
-        assert_eq!(
-            invoice.uri(),
-            format!("monero:testAddress?tx_amount={expected_tx_amount}")
+        let uri = invoice.uri();
+        let amount = uri
+            .strip_prefix("monero:testAddress?tx_amount=")
+            .expect("unexpected URI format");
+
+        amount.to_string()
+    }
+
+    #[test]
+    fn expires_in() {
+        init_logger();
+
+        let invoice = Invoice::new(
+            "testAddress".to_string(),
+            SubIndex::new(0, 1),
+            12345,
+            1,
+            5,
+            10,
+            "test_description".to_string(),
         );
+
+        assert_eq!(invoice.expiration_in(), 10);
     }
 }
