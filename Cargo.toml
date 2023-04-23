@@ -14,6 +14,9 @@ categories = ["cryptography::cryptocurrencies"]
 name = "acceptxmr"
 path = "src/lib.rs"
 
+[package.metadata.docs.rs]
+all-features = true
+
 [dependencies]
 bincode = { version = "^2.0.0-rc.3", optional = true }
 hex = "0.4"
