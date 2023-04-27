@@ -121,6 +121,8 @@
 #![warn(clippy::expect_used)]
 #![allow(clippy::multiple_crate_versions)]
 #![allow(clippy::module_name_repetitions)]
+// Show feature flag tags on `docs.rs`
+#![cfg_attr(docsrs, feature(doc_auto_cfg))]
 
 mod caching;
 mod invoice;
