@@ -663,11 +663,12 @@ mod tests {
     use crate::{storage::stores::InMemory, PaymentGateway, PaymentGatewayBuilder};
 
     fn init_logger() {
-        let _ = env_logger::builder()
+        env_logger::builder()
             .filter_level(LevelFilter::Warn)
             .filter_module("acceptxmr", log::LevelFilter::Debug)
             .is_test(true)
-            .try_init();
+            .try_init()
+            .ok();
     }
 
     const PRIVATE_VIEW_KEY: &str =

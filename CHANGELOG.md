@@ -15,6 +15,8 @@ Book](https://doc.rust-lang.org/cargo/reference/manifest.html#the-version-field)
 ### Fixed
 - `Invoice`'s `expiration_in()` function returning expiration height instead of
   block difference when called before first scan.
+- Documentation not getting built with all features on docs.rs -- 
+  [@hinto-janai](https://www.github.com/hinto-janai)
 
 ## [0.12.0] - 2023-03-18
 
