@@ -508,11 +508,12 @@ mod tests {
     use crate::{Invoice, SubIndex};
 
     fn init_logger() {
-        let _ = env_logger::builder()
+        env_logger::builder()
             .filter_level(LevelFilter::Warn)
             .filter_module("acceptxmr", log::LevelFilter::Debug)
             .is_test(true)
-            .try_init();
+            .try_init()
+            .ok();
     }
 
     #[test_case(1, 0 => "0.000000000001".to_string(); "small")]
