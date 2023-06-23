@@ -369,7 +369,7 @@ impl<S: InvoiceStorage> Scanner<S> {
                 {
                     let amount = OwnedAmount {
                         sub_index,
-                        amount: transfers[0]
+                        amount: transfer
                             .amount()
                             .ok_or(AcceptXmrError::<S::Error>::Unblind(sub_index))?,
                     };
