@@ -9,6 +9,8 @@ Book](https://doc.rust-lang.org/cargo/reference/manifest.html#the-version-field)
 
 ## [Unreleased]
 
+## [0.12.1] - 2023-06-23
+
 ### Changed
 - Use webpki CA roots instead of native for better portability.
 
@@ -17,8 +19,8 @@ Book](https://doc.rust-lang.org/cargo/reference/manifest.html#the-version-field)
   block difference when called before first scan.
 - Documentation not getting built with all features on docs.rs --
   [@hinto-janai](https://www.github.com/hinto-janai)
-- Only considering amount of first owned output --
-  [@spirobel]((https://www.github.com/spirobel))
+- Only amount of first owned output was considered --
+  [@spirobel](https://www.github.com/spirobel)
 
 ## [0.12.0] - 2023-03-18
 
@@ -110,7 +112,8 @@ Book](https://doc.rust-lang.org/cargo/reference/manifest.html#the-version-field)
 
 - Initial release of the library
 
-[Unreleased]: https://github.com/busyboredom/acceptxmr/compare/v0.12.0...HEAD
+[Unreleased]: https://github.com/busyboredom/acceptxmr/compare/v0.12.1...HEAD
+[0.12.1]: https://github.com/busyboredom/acceptxmr/compare/v0.12.0...v0.12.1
 [0.12.0]: https://github.com/busyboredom/acceptxmr/compare/v0.11.1...v0.12.0
 [0.11.1]: https://github.com/busyboredom/acceptxmr/compare/v0.11.0...v0.11.1
 [0.11.0]: https://github.com/busyboredom/acceptxmr/compare/v0.10.1...v0.11.0
