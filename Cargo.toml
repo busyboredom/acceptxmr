@@ -33,8 +33,8 @@ rand_chacha = "0.3"
 serde = {version = "1", features = ["derive"], optional = true }
 serde_json = "1"
 sled = { version = "0.34", optional = true }
-sqlite = { version = "0.30", optional = true }
-strum = { version = "0.24", features = ["derive"] }
+sqlite = { version = "0.31", optional = true }
+strum = { version = "0.25", features = ["derive"] }
 thiserror = "1"
 tokio = { version = "1", features = ["macros", "rt-multi-thread", "time"] }
 
