@@ -116,10 +116,8 @@ impl<S: InvoiceStorage> Scanner<S> {
         };
 
         // Combine transfers into one big vec.
-        let transfers: Vec<(SubIndex, Transfer)> = blocks_amounts
-            .into_iter()
-            .chain(txpool_amounts.into_iter())
-            .collect();
+        let transfers: Vec<(SubIndex, Transfer)> =
+            blocks_amounts.into_iter().chain(txpool_amounts).collect();
 
         if self.first_scan {
             self.first_scan = false;
