@@ -9,6 +9,9 @@ Book](https://doc.rust-lang.org/cargo/reference/manifest.html#the-version-field)
 
 ## [Unreleased]
 
+### Changed
+- Update `indexmap` to version `2.0.0`
+
 ## [0.12.1] - 2023-06-23
 
 ### Changed
