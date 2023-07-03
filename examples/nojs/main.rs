@@ -61,7 +61,9 @@ async fn main() -> std::io::Result<()> {
         // Watch all invoice updates.
         let mut subscriber = gateway_copy.subscribe_all();
         loop {
-            let Some(invoice) = subscriber.blocking_recv() else { panic!("Blockchain scanner crashed!") };
+            let Some(invoice) = subscriber.blocking_recv() else {
+                panic!("Blockchain scanner crashed!")
+            };
             // If it's been tracked for longer than an hour, remove it.
             if invoice
                 .current_height()

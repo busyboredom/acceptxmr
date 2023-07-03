@@ -60,7 +60,7 @@ impl AuthInfo {
             .lock()
             .unwrap_or_else(PoisonError::into_inner);
         let Some(auth_params) = maybe_auth_params else {
-            return Ok(None)
+            return Ok(None);
         };
         let mut cnonce_bytes: [u8; 16] = [0; 16]; // 128 bits
         self.rng.fill(&mut cnonce_bytes[..]);

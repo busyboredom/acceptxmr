@@ -74,7 +74,9 @@ async fn main() -> std::io::Result<()> {
         // Watch all invoice updates.
         let mut subscriber = gateway_copy.subscribe_all();
         loop {
-            let Some(invoice) = subscriber.blocking_recv() else { panic!("Blockchain scanner crashed!") };
+            let Some(invoice) = subscriber.blocking_recv() else {
+                panic!("Blockchain scanner crashed!")
+            };
             // If it's confirmed or expired, we probably shouldn't bother tracking it
             // anymore.
             if (invoice.is_confirmed() && invoice.creation_height() < invoice.current_height())
@@ -181,12 +183,12 @@ async fn websocket(
     let Ok(Some(invoice_id)) = session.get::<InvoiceId>("id") else {
         return Ok(HttpResponse::NotFound()
             .append_header(CacheControl(vec![CacheDirective::NoStore]))
-            .finish())
+            .finish());
     };
     let Some(subscriber) = payment_gateway.subscribe(invoice_id) else {
         return Ok(HttpResponse::NotFound()
             .append_header(CacheControl(vec![CacheDirective::NoStore]))
-            .finish())
+            .finish());
     };
     let websocket = WebSocket::new(subscriber);
     ws::start(websocket, &req, stream)

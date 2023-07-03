@@ -129,7 +129,9 @@ impl InvoiceStorage for Sqlite {
         self.db.execute("BEGIN")?;
 
         let transaction = {
-            let Some(invoice) = self.get(invoice_id)? else { return Ok(None) };
+            let Some(invoice) = self.get(invoice_id)? else {
+                return Ok(None);
+            };
 
             let mut update_stmt = self.db.prepare(
                 format!(
