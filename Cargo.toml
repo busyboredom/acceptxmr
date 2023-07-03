@@ -24,7 +24,7 @@ hex = "0.4"
 http = "0.2"
 hyper = { version = "0.14", features = ["client", "http1", "http2", "tcp"] }
 hyper-rustls = { version = "0.24", features = ["logging", "http1", "http2", "tls12", "webpki-tokio"], default-features = false }
-indexmap = "1"
+indexmap = "2"
 log = "0.4"
 md-5 = "0.10"
 monero = "0.18"
