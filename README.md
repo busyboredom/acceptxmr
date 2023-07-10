@@ -19,13 +19,24 @@ Use this library at your own risk, it is young and unproven.
 * Pending invoices can be stored persistently, enabling recovery from power loss. 
 * Number of confirmations is configurable per-invoice.
 * Ignores transactions with timelocks.
+* Tracks used stealth addresses to mitigate the [burning
+  bug](https://www.getmonero.org/2018/09/25/a-post-mortum-of-the-burning-bug.html).
 * Payment can occur over multiple transactions.
 
 ## Security
 
 `AcceptXMR` is non-custodial, and does not require a hot wallet. However, it does require your
 private view key and primary address for scanning outputs. If keeping these private is important
-to you, please take appropriate precautions to secure the platform you run your application on.
+to you, please take appropriate precautions to secure the platform you run your
+application on.
+
+Care is taken to protect users from malicious transactions containing timelocks
+or duplicate output keys (i.e. the burning bug). For the best protection against
+the burning bug, it is recommended that users use a dedicated wallet or account
+index for AcceptXMR that is not used for any other purpose. The payment
+gateway's initial height should also be set to the wallet's restore height.
+These measures allow AcceptXMR to keep a full inventory of used output keys so
+that duplicates can be reliably identified.
 
 Also note that anonymity networks like TOR are not currently supported for RPC calls. This
 means that your network traffic will reveal that you are interacting with the monero network.
@@ -40,7 +51,7 @@ That said, this payment gateway should survive unexpected power loss thanks to t
 pending invoices to disk each time new blocks/transactions are scanned. A best effort is made to
 keep the scanning thread free any of potential panics, and RPC calls in the scanning thread are
 logged on failure and repeated next scan. In the event that an error does occur, the liberal use of
-logging within this library will hopefully facilitate a speedy diagnosis an correction.
+logging within this library will hopefully facilitate a speedy diagnosis and correction.
 
 Use this library at your own risk.
 

@@ -17,8 +17,14 @@ async fn main() {
     // No need to keep the primary address secret.
     let primary_address = "4613YiHLM6JMH4zejMB2zJY5TwQCxL8p65ufw8kBP5yxX9itmuGLqp1dS4tkVoTxjyH3aYhYNrtGHbQzJQP5bFus3KHVdmf";
 
-    // Use an Sqlite database for persistent storage of pending invoices.
-    let store = Sqlite::new("examples/persistence/AcceptXMR_DB", "invoices").unwrap();
+    // Use an Sqlite database for persistent storage.
+    let store = Sqlite::new(
+        "examples/persistence/AcceptXMR_DB",
+        "invoices",
+        "output keys",
+        "height",
+    )
+    .unwrap();
 
     let payment_gateway = PaymentGatewayBuilder::new(
         private_view_key.to_string(),
@@ -50,7 +56,13 @@ async fn main() {
     power_failure(payment_gateway);
 
     // Reconstruct the gateway...
-    let store = Sqlite::new("examples/persistence/AcceptXMR_DB", "invoices").unwrap();
+    let store = Sqlite::new(
+        "examples/persistence/AcceptXMR_DB",
+        "invoices",
+        "output keys",
+        "height",
+    )
+    .unwrap();
     let payment_gateway = PaymentGatewayBuilder::new(
         private_view_key.to_string(),
         primary_address.to_string(),

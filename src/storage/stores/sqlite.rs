@@ -4,41 +4,71 @@ use log::{debug, trace, warn};
 use sqlite::{version, Connection, ConnectionWithFullMutex, CursorWithOwnership, State, Value};
 use thiserror::Error;
 
-use crate::{storage::InvoiceStorage, Invoice, InvoiceId, SubIndex};
+use crate::{
+    storage::{HeightStorage, InvoiceStorage, OutputId, OutputKeyStorage, OutputPubKey, Storage},
+    Invoice, InvoiceId, SubIndex,
+};
 
-/// `SQLite` database containing pending invoices.
+/// `SQLite` database.
 pub struct Sqlite {
     db: ConnectionWithFullMutex,
-    table: TableName,
+    invoices: TableName,
+    output_keys: TableName,
+    height: TableName,
 }
 
 impl Sqlite {
     /// Open a [`SQLite`](sqlite) database at the specified location, and use
-    /// the specified table. Creates a new database if one does not exist.
+    /// the specified tables. Creates a new database if one does not exist.
     ///
     /// # Errors
     ///
     /// Returns an error if the database could not be opened at the specified
     /// path.
-    pub fn new(path: &str, table: &str) -> Result<Sqlite, SqliteStorageError> {
+    pub fn new(
+        path: &str,
+        invoice_table: &str,
+        output_key_table: &str,
+        height_table: &str,
+    ) -> Result<Sqlite, SqliteStorageError> {
         let db = Connection::open_with_full_mutex(path)?;
         debug!("Connection to SQLite v{} database established", version());
 
-        let escaped_table = TableName::new(table);
+        let invoices = TableName::new(invoice_table);
+        let output_keys = TableName::new(output_key_table);
+        let height = TableName::new(height_table);
 
         db.execute(format!(
-            "CREATE TABLE IF NOT EXISTS {escaped_table} (
+            "CREATE TABLE IF NOT EXISTS {invoices} (
                 major_subindex  INTEGER NOT NULL,
                 minor_subindex  INTEGER NOT NULL,
                 creation_height BLOB NOT NULL,
-                invoice  BLOB NOT NULL,
+                invoice         BLOB NOT NULL,
                 PRIMARY KEY (major_subindex, minor_subindex, creation_height)
+            );"
+        ))?;
+
+        db.execute(format!(
+            "CREATE TABLE IF NOT EXISTS {output_keys} (
+                output_key BLOB NOT NULL,
+                output_id  BLOB NOT NULL,
+                PRIMARY KEY (output_key)
+            );"
+        ))?;
+
+        db.execute(format!(
+            "CREATE TABLE IF NOT EXISTS {height} (
+                id INTEGER NOT NULL PRIMARY KEY,
+                height BLOB NOT NULL,
+                CHECK (id = 0)
             );"
         ))?;
 
         Ok(Sqlite {
             db,
-            table: escaped_table,
+            invoices,
+            output_keys,
+            height,
         })
     }
 }
@@ -56,7 +86,7 @@ impl InvoiceStorage for Sqlite {
         let mut statement = self.db.prepare(format!(
             "INSERT INTO {} (major_subindex, minor_subindex, creation_height, invoice) 
             VALUES (:major, :minor, :height, :invoice);",
-            self.table
+            self.invoices
         ))?;
         statement.bind::<&[(_, Value)]>(
             &[
@@ -79,7 +109,7 @@ impl InvoiceStorage for Sqlite {
         }
 
         if self.db.change_count() == 0 {
-            return Err(SqliteStorageError::DuplicateEntry);
+            return Err(SqliteStorageError::DuplicateInvoice);
         }
         Ok(())
     }
@@ -89,7 +119,7 @@ impl InvoiceStorage for Sqlite {
             format!(
                 "DELETE FROM {}
                 WHERE major_subindex = :major AND minor_subindex = :minor AND creation_height = :height RETURNING invoice",
-                self.table
+                self.invoices
             )
         )?;
         statement.bind::<&[(_, Value)]>(
@@ -129,7 +159,7 @@ impl InvoiceStorage for Sqlite {
         self.db.execute("BEGIN")?;
 
         let transaction = {
-            let Some(invoice) = self.get(invoice_id)? else {
+            let Some(invoice) = InvoiceStorage::get(self, invoice_id)? else {
                 return Ok(None);
             };
 
@@ -137,7 +167,7 @@ impl InvoiceStorage for Sqlite {
                 format!(
                     "UPDATE {} SET invoice = :invoice 
                     WHERE major_subindex = :major AND minor_subindex = :minor AND creation_height = :height",
-                    self.table
+                    self.invoices
                 )
             )?;
             update_stmt.bind::<&[(_, Value)]>(
@@ -179,7 +209,7 @@ impl InvoiceStorage for Sqlite {
         let mut select_stmt = self.db.prepare(format!(
             "SELECT invoice FROM {}
             WHERE major_subindex = :major AND minor_subindex = :minor AND creation_height = :height",
-            self.table
+            self.invoices
         ))?;
         select_stmt.bind::<&[(_, Value)]>(
             &[
@@ -211,11 +241,11 @@ impl InvoiceStorage for Sqlite {
     }
 
     fn contains_sub_index(&self, sub_index: SubIndex) -> Result<bool, SqliteStorageError> {
-        // Check get the existing value.
+        // Get the existing value.
         let mut select_stmt = self.db.prepare(format!(
             "SELECT COUNT(*) FROM {}
             WHERE major_subindex = :major AND minor_subindex = :minor",
-            self.table
+            self.invoices
         ))?;
         select_stmt.bind::<&[(_, Value)]>(
             &[
@@ -241,7 +271,7 @@ impl InvoiceStorage for Sqlite {
     fn try_iter(&self) -> Result<Self::Iter<'_>, SqliteStorageError> {
         let statement = self
             .db
-            .prepare(format!("SELECT invoice FROM {}", self.table))?;
+            .prepare(format!("SELECT invoice FROM {}", self.invoices))?;
         Ok(SqliteIter(statement.into_iter()))
     }
 }
@@ -268,6 +298,135 @@ impl<'stmt> Iterator for SqliteIter<'stmt> {
     }
 }
 
+impl OutputKeyStorage for Sqlite {
+    type Error = SqliteStorageError;
+
+    fn insert(&mut self, key: OutputPubKey, output_id: OutputId) -> Result<(), Self::Error> {
+        let value = bincode::encode_to_vec(output_id, bincode::config::standard())?;
+
+        let mut statement = self.db.prepare(format!(
+            "INSERT INTO {} (output_key, output_id) 
+            VALUES (:output_key, :output_id);",
+            self.output_keys
+        ))?;
+        statement.bind::<&[(_, Value)]>(
+            &[(":output_key", key.into()), (":output_id", value.into())][..],
+        )?;
+
+        while let Ok(State::Row) = statement.next() {
+            warn!(
+                "Output key insertion returned an unexpected row: {:?}",
+                statement.read::<Value, _>(0)?
+            );
+        }
+
+        if self.db.change_count() == 0 {
+            return Err(SqliteStorageError::DuplicateOutputKey);
+        }
+        Ok(())
+    }
+
+    fn get(&self, key: OutputPubKey) -> Result<Option<OutputId>, Self::Error> {
+        // Get the existing value.
+        let mut select_stmt = self.db.prepare(format!(
+            "SELECT output_id FROM {}
+            WHERE output_key = :output_key",
+            self.output_keys
+        ))?;
+        select_stmt.bind::<&[(_, Value)]>(&[(":output_key", key.into())][..])?;
+
+        if select_stmt.next()? == State::Done {
+            return Ok(None);
+        }
+        let output_id_bytes = select_stmt.read::<Vec<u8>, _>("output_id")?;
+        if select_stmt.next()? != State::Done {
+            warn!(
+                "Output key query returned more than one row: {:?}",
+                select_stmt.read::<Value, _>(0)?
+            );
+        }
+
+        Ok(Some(
+            bincode::decode_from_slice(&output_id_bytes, bincode::config::standard())?.0,
+        ))
+    }
+}
+
+impl From<OutputPubKey> for Value {
+    fn from(value: OutputPubKey) -> Self {
+        Value::Binary(value.0.to_vec())
+    }
+}
+
+impl HeightStorage for Sqlite {
+    type Error = SqliteStorageError;
+
+    fn upsert(&mut self, height: u64) -> Result<Option<u64>, Self::Error> {
+        let encoded_height = bincode::encode_to_vec(height, bincode::config::standard())?;
+
+        self.db.execute("BEGIN")?;
+
+        let transaction = {
+            let old_height = HeightStorage::get(self)?;
+
+            let mut update_stmt = self.db.prepare(format!(
+                "INSERT INTO {} (id, height) 
+                VALUES (0, :height)
+                ON CONFLICT (id) DO UPDATE SET height=:height;",
+                self.height
+            ))?;
+            update_stmt.bind::<&[(_, Value)]>(&[(":height", encoded_height.into())][..])?;
+            while State::Row == update_stmt.next()? {
+                trace!(
+                    "Height updated. Rows affected: {}",
+                    update_stmt.read::<i64, _>(0)?
+                );
+            }
+
+            Ok(old_height)
+        };
+
+        match transaction {
+            Ok(inv) => {
+                self.db.execute("COMMIT")?;
+                Ok(inv)
+            }
+            Err(e) => {
+                self.db.execute("ROLLBACK")?;
+                Err(e)
+            }
+        }
+    }
+
+    fn get(&self) -> Result<Option<u64>, Self::Error> {
+        // Get the existing value.
+        let mut select_stmt = self.db.prepare(format!(
+            "SELECT height FROM {}
+            WHERE id = 0",
+            self.height
+        ))?;
+
+        if select_stmt.next()? == State::Done {
+            return Ok(None);
+        }
+        let height_bytes = select_stmt.read::<Vec<u8>, _>("height")?;
+        if select_stmt.next()? != State::Done {
+            warn!(
+                "Height query returned more than one row: {:?}",
+                select_stmt.read::<Value, _>(0)?
+            );
+        }
+
+        Ok(Some(
+            bincode::decode_from_slice(&height_bytes, bincode::config::standard())?.0,
+        ))
+    }
+}
+
+impl Storage for Sqlite {
+    type Error = SqliteStorageError;
+}
+
 #[derive(Debug, Clone, Hash, PartialEq, Eq, Ord, PartialOrd)]
 struct TableName(String);
 
@@ -283,7 +442,7 @@ impl Display for TableName {
     }
 }
 
-/// An error occurring while storing or retrieving pending invoices from a
+/// An error occurring while storing or retrieving values from a
 /// `sqlite` database.
 #[derive(Error, Debug)]
 pub enum SqliteStorageError {
@@ -292,11 +451,14 @@ pub enum SqliteStorageError {
     Database(#[from] sqlite::Error),
     /// Attempted to insert an invoice which already exists
     #[error("attempted to insert an invoice which already exists")]
-    DuplicateEntry,
-    /// Failed to serialize an [`Invoice`].
+    DuplicateInvoice,
+    /// Attempted to insert an output key which already exists
+    #[error("attempted to insert an output public key which already exists")]
+    DuplicateOutputKey,
+    /// Failed to serialize an [`Invoice`] or [`OutputPubKey`].
     #[error("Serialization error: {0}")]
     Serialize(#[from] bincode::error::EncodeError),
-    /// Failed to deserialize an [`Invoice`].
+    /// Failed to deserialize an [`Invoice`] or [`OutputPubKey`].
     #[error("Deserialization error: {0}")]
     Deserialize(#[from] bincode::error::DecodeError),
 }

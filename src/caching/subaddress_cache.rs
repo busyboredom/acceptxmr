@@ -2,7 +2,7 @@ use std::{
     cmp,
     sync::{
         atomic::{AtomicU32, Ordering},
-        Arc,
+        Arc, PoisonError, RwLock,
     },
 };
 
@@ -12,10 +12,7 @@ use monero::{cryptonote::subaddress, ViewPair};
 use rand::{Rng, SeedableRng};
 use rand_chacha::ChaCha12Rng;
 
-use crate::{
-    storage::{InvoiceStorage, Store},
-    SubIndex,
-};
+use crate::{storage::InvoiceStorage, SubIndex};
 
 const MIN_AVAILABLE_SUBADDRESSES: u32 = 100;
 
@@ -29,7 +26,7 @@ pub(crate) struct SubaddressCache {
 
 impl SubaddressCache {
     pub(crate) fn init<S: InvoiceStorage>(
-        invoice_storage: &Store<S>,
+        storage: &Arc<RwLock<S>>,
         viewpair: monero::ViewPair,
         major_index: u32,
         highest_minor_index: Arc<AtomicU32>,
@@ -37,8 +34,9 @@ impl SubaddressCache {
     ) -> Result<SubaddressCache, S::Error> {
         // Get currently used subindexes from database, so they won't be put in the list
         // of available subindexes.
-        let used_sub_indexes = invoice_storage
-            .lock()
+        let used_sub_indexes = storage
+            .read()
+            .unwrap_or_else(PoisonError::into_inner)
             .try_iter()?
             .map(|invoice_or_err| match invoice_or_err {
                 Ok(invoice) => Ok(invoice.index()),

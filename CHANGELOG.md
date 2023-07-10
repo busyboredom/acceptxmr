@@ -9,8 +9,25 @@ Book](https://doc.rust-lang.org/cargo/reference/manifest.html#the-version-field)
 
 ## [Unreleased]
 
+## [0.13.0] - 2023-07-23
+
+### Added
+- `OutputKeyStorage` trait, allowing AcceptXMR to store used output keys for
+  burning bug mitigation.
+- `HeightStorage` trait, allowing AcceptXMR to store the most recently scanned
+  height so that blocks are never skipped after extended downtime.
+- `Storage` supertrait over all necessary storage traits.
+- `initial_height()` method to `PaymentGatewayBuilder`, allowing users to scan
+  from wallet restore height to aid in burning bug mitigation.
+
 ### Changed
 - Update `indexmap` to version `2.0.0`
+- Moved `flush()` method from `InvoiceStorage` trait to the `Storage` trait.
+
+### Fixed
+- Duplicate output keys not rejected (i.e. burning bug) -- reported by
+  [@spirobel](https://www.github.com/spirobel) and
+  [@boog900](https://github.com/Boog900)
 
 ## [0.12.1] - 2023-06-23
 
@@ -22,7 +39,7 @@ Book](https://doc.rust-lang.org/cargo/reference/manifest.html#the-version-field)
   block difference when called before first scan.
 - Documentation not getting built with all features on docs.rs --
   [@hinto-janai](https://www.github.com/hinto-janai)
-- Only amount of first owned output was considered --
+- Only amount of first owned output was considered -- reported by
   [@spirobel](https://www.github.com/spirobel)
 
 ## [0.12.0] - 2023-03-18
@@ -115,7 +132,8 @@ Book](https://doc.rust-lang.org/cargo/reference/manifest.html#the-version-field)
 
 - Initial release of the library
 
-[Unreleased]: https://github.com/busyboredom/acceptxmr/compare/v0.12.1...HEAD
+[Unreleased]: https://github.com/busyboredom/acceptxmr/compare/v0.13.0...HEAD
+[0.13.0]: https://github.com/busyboredom/acceptxmr/compare/v0.12.1...v0.13.0
 [0.12.1]: https://github.com/busyboredom/acceptxmr/compare/v0.12.0...v0.12.1
 [0.12.0]: https://github.com/busyboredom/acceptxmr/compare/v0.11.1...v0.12.0
 [0.11.1]: https://github.com/busyboredom/acceptxmr/compare/v0.11.0...v0.11.1

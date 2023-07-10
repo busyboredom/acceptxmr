@@ -1,12 +1,9 @@
-use std::{
-    fmt::{Debug, Display},
-    time::Duration,
-};
+use std::time::Duration;
 
 use acceptxmr::{
     storage::{
         stores::{InMemory, Sled, Sqlite},
-        InvoiceStorage,
+        Storage,
     },
     PaymentGatewayBuilder, SubIndex,
 };
@@ -17,62 +14,12 @@ use crate::common::{
     init_logger, new_temp_dir, MockDaemon, MockInvoice, PRIMARY_ADDRESS, PRIVATE_VIEW_KEY,
 };
 
-#[test_case(Sled::new(&new_temp_dir(), "tree").unwrap())]
-#[test_case(InMemory::new())]
-#[test_case(Sqlite::new(":memory:", "invoices").unwrap())]
-fn block_cache_skip_ahead<'a, S, E, I>(store: S)
+#[test_case(Sled::new(&new_temp_dir(), "invoices", "output keys", "height").unwrap(); "sled")]
+#[test_case(InMemory::new(); "in-memory")]
+#[test_case(Sqlite::new(":memory:", "invoices", "output keys", "height").unwrap(); "sqlite")]
+fn fix_reorg<S>(store: S)
 where
-    S: InvoiceStorage<Error = E, Iter<'a> = I> + 'static,
-    E: Debug + Display + Send,
-    I: Iterator,
-{
-    // Setup.
-    init_logger();
-    let mock_daemon = MockDaemon::new_mock_daemon();
-    let rt = Runtime::new().expect("failed to create tokio runtime");
-
-    // Create payment gateway pointing at temp directory and mock daemon.
-    let payment_gateway = PaymentGatewayBuilder::new(
-        PRIVATE_VIEW_KEY.to_string(),
-        PRIMARY_ADDRESS.to_string(),
-        store,
-    )
-    // Faster scan rate so the update is received sooner.
-    .scan_interval(Duration::from_millis(200))
-    .daemon_url(mock_daemon.url(""))
-    .seed(1)
-    .build()
-    .expect("failed to build payment gateway");
-
-    // Run it.
-    rt.block_on(async {
-        payment_gateway
-            .run()
-            .await
-            .expect("failed to run payment gateway");
-
-        assert_eq!(payment_gateway.cache_height(), 2477656);
-
-        mock_daemon.mock_daemon_height(2477666);
-
-        tokio::time::timeout(Duration::from_millis(1000), async {
-            while payment_gateway.cache_height() != 2477665 {
-                tokio::time::sleep(Duration::from_millis(100)).await;
-            }
-        })
-        .await
-        .expect("timed out waiting for gateway to fast forward");
-    })
-}
-
-#[test_case(Sled::new(&new_temp_dir(), "tree").unwrap())]
-#[test_case(InMemory::new())]
-#[test_case(Sqlite::new(":memory:", "invoices").unwrap())]
-fn fix_reorg<'a, S, E, I>(store: S)
-where
-    S: InvoiceStorage<Error = E, Iter<'a> = I> + 'static,
-    E: Debug + Display + Send,
-    I: Iterator,
+    S: Storage + 'static,
 {
     // Setup.
     init_logger();

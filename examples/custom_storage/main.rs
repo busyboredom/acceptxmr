@@ -5,7 +5,10 @@ use std::collections::{
     BTreeMap,
 };
 
-use acceptxmr::{storage::InvoiceStorage, Invoice, InvoiceId, PaymentGatewayBuilder, SubIndex};
+use acceptxmr::{
+    storage::{HeightStorage, InvoiceStorage, OutputId, OutputKeyStorage, OutputPubKey, Storage},
+    Invoice, InvoiceId, PaymentGatewayBuilder, SubIndex,
+};
 use log::{error, info, LevelFilter};
 use thiserror::Error;
 
@@ -53,13 +56,21 @@ async fn main() {
 // This example uses a BTreeMap for simplicity, but you can implement this trait
 // on virtually any storage layer you choose. Postgres or MySQL, CSV files,
 // whatever works best for your application.
-struct MyCustomStorage(BTreeMap<InvoiceId, Invoice>);
+pub struct MyCustomStorage {
+    invoices: BTreeMap<InvoiceId, Invoice>,
+    output_keys: BTreeMap<OutputPubKey, OutputId>,
+    height: Option<u64>,
+}
 
 impl MyCustomStorage {
-    /// Create a new custom invoice store.
+    /// Create a new custom store.
     #[must_use]
     pub fn new() -> MyCustomStorage {
-        MyCustomStorage(BTreeMap::new())
+        MyCustomStorage {
+            invoices: BTreeMap::new(),
+            output_keys: BTreeMap::new(),
+            height: None,
+        }
     }
 }
 
@@ -74,38 +85,38 @@ impl InvoiceStorage for MyCustomStorage {
     type Iter<'a> = MyCustomStorageIter<'a>;
 
     fn insert(&mut self, invoice: Invoice) -> Result<(), Self::Error> {
-        if self.0.contains_key(&invoice.id()) {
-            return Err(MyCustomStorageError::DuplicateEntry);
+        if self.invoices.contains_key(&invoice.id()) {
+            return Err(MyCustomStorageError::DuplicateInvoice);
         }
-        self.0.insert(invoice.id(), invoice);
+        self.invoices.insert(invoice.id(), invoice);
         Ok(())
     }
 
     fn remove(&mut self, invoice_id: InvoiceId) -> Result<Option<Invoice>, Self::Error> {
-        Ok(self.0.remove(&invoice_id))
+        Ok(self.invoices.remove(&invoice_id))
     }
 
     fn update(&mut self, invoice: Invoice) -> Result<Option<Invoice>, Self::Error> {
-        if let Entry::Occupied(mut entry) = self.0.entry(invoice.id()) {
+        if let Entry::Occupied(mut entry) = self.invoices.entry(invoice.id()) {
             return Ok(Some(entry.insert(invoice)));
         }
         Ok(None)
     }
 
     fn get(&self, invoice_id: InvoiceId) -> Result<Option<Invoice>, Self::Error> {
-        Ok(self.0.get(&invoice_id).cloned())
+        Ok(self.invoices.get(&invoice_id).cloned())
     }
 
     fn contains_sub_index(&self, sub_index: SubIndex) -> Result<bool, Self::Error> {
         Ok(self
-            .0
+            .invoices
             .range(InvoiceId::new(sub_index, 0)..)
             .next()
             .is_some())
     }
 
     fn try_iter(&self) -> Result<Self::Iter<'_>, Self::Error> {
-        let iter = self.0.values();
+        let iter = self.invoices.values();
         Ok(MyCustomStorageIter(iter))
     }
 }
@@ -120,11 +131,48 @@ impl<'a> Iterator for MyCustomStorageIter<'a> {
     }
 }
 
-/// An error occurring while storing or retrieving pending invoices.
+impl OutputKeyStorage for MyCustomStorage {
+    type Error = MyCustomStorageError;
+
+    fn insert(&mut self, key: OutputPubKey, output_id: OutputId) -> Result<(), Self::Error> {
+        if self.output_keys.contains_key(&key) {
+            return Err(MyCustomStorageError::DuplicateOutputKey);
+        }
+        self.output_keys.insert(key, output_id);
+        Ok(())
+    }
+
+    fn get(&self, key: OutputPubKey) -> Result<Option<OutputId>, Self::Error> {
+        Ok(self.output_keys.get(&key).copied())
+    }
+}
+
+impl HeightStorage for MyCustomStorage {
+    type Error = MyCustomStorageError;
+
+    fn upsert(&mut self, height: u64) -> Result<Option<u64>, Self::Error> {
+        let old_height = self.height;
+        self.height = Some(height);
+        Ok(old_height)
+    }
+
+    fn get(&self) -> Result<Option<u64>, Self::Error> {
+        Ok(self.height)
+    }
+}
+
+impl Storage for MyCustomStorage {
+    type Error = MyCustomStorageError;
+}
+
+/// An error occurring while storing or retrieving data.
 #[derive(Error, Debug)]
-#[error("BTreeMap invoice storage error")]
+#[error("BTreeMap storage error")]
 pub enum MyCustomStorageError {
     /// Attempted to insert an invoice which already exists
     #[error("attempted to insert an invoice which already exists")]
-    DuplicateEntry,
+    DuplicateInvoice,
+    /// Attempted to insert an output public key which already exists
+    #[error("attempted to insert an output public key which already exists")]
+    DuplicateOutputKey,
 }
