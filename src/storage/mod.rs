@@ -118,31 +118,31 @@ pub trait InvoiceStorage: Send + Sync {
 pub(crate) struct Store<S: InvoiceStorage>(Arc<RwLock<S>>);
 
 impl<S: InvoiceStorage> Store<S> {
-    pub fn new(store: S) -> Store<S> {
+    pub(crate) fn new(store: S) -> Store<S> {
         Store(Arc::new(RwLock::new(store)))
     }
 
-    pub fn insert(&self, invoice: Invoice) -> Result<(), S::Error> {
+    pub(crate) fn insert(&self, invoice: Invoice) -> Result<(), S::Error> {
         let mut store = self.0.write().unwrap_or_else(PoisonError::into_inner);
         store.insert(invoice)
     }
 
-    pub fn remove(&self, invoice_id: InvoiceId) -> Result<Option<Invoice>, S::Error> {
+    pub(crate) fn remove(&self, invoice_id: InvoiceId) -> Result<Option<Invoice>, S::Error> {
         let mut store = self.0.write().unwrap_or_else(PoisonError::into_inner);
         store.remove(invoice_id)
     }
 
-    pub fn update(&self, invoice: Invoice) -> Result<Option<Invoice>, S::Error> {
+    pub(crate) fn update(&self, invoice: Invoice) -> Result<Option<Invoice>, S::Error> {
         let mut store = self.0.write().unwrap_or_else(PoisonError::into_inner);
         store.update(invoice)
     }
 
-    pub fn get(&self, invoice_id: InvoiceId) -> Result<Option<Invoice>, S::Error> {
+    pub(crate) fn get(&self, invoice_id: InvoiceId) -> Result<Option<Invoice>, S::Error> {
         let store = self.0.read().unwrap_or_else(PoisonError::into_inner);
         store.get(invoice_id)
     }
 
-    pub fn contains_sub_index(&self, sub_index: SubIndex) -> Result<bool, S::Error> {
+    pub(crate) fn contains_sub_index(&self, sub_index: SubIndex) -> Result<bool, S::Error> {
         let store = self.0.read().unwrap_or_else(PoisonError::into_inner);
         store.contains_sub_index(sub_index)
     }
@@ -150,21 +150,21 @@ impl<S: InvoiceStorage> Store<S> {
     /// Return an the inner [`InvoiceStorage`] object wrapped in a
     /// [`RwLockReadGuard`]. This allows the caller to call
     /// [`InvoiceStorage::iter`] without encountering lifetime issues.
-    pub fn lock(&self) -> RwLockReadGuard<'_, S> {
+    pub(crate) fn lock(&self) -> RwLockReadGuard<'_, S> {
         self.0.read().unwrap_or_else(PoisonError::into_inner)
     }
 
-    pub fn lowest_height(&self) -> Result<Option<u64>, S::Error> {
+    pub(crate) fn lowest_height(&self) -> Result<Option<u64>, S::Error> {
         let store = self.0.read().unwrap_or_else(PoisonError::into_inner);
         store.lowest_height()
     }
 
-    pub fn is_empty(&self) -> Result<bool, S::Error> {
+    pub(crate) fn is_empty(&self) -> Result<bool, S::Error> {
         let store = self.0.read().unwrap_or_else(PoisonError::into_inner);
         store.is_empty()
     }
 
-    pub fn flush(&self) -> Result<(), S::Error> {
+    pub(crate) fn flush(&self) -> Result<(), S::Error> {
         let store = self.0.read().unwrap_or_else(PoisonError::into_inner);
         store.flush()
     }
@@ -192,7 +192,7 @@ mod test {
         Invoice, SubIndex,
     };
 
-    pub fn new_temp_dir() -> String {
+    fn new_temp_dir() -> String {
         Builder::new()
             .prefix("temp_db_")
             .rand_bytes(16)

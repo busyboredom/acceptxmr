@@ -13,7 +13,7 @@ pub(crate) struct TxpoolCache {
 }
 
 impl TxpoolCache {
-    pub async fn init<S: InvoiceStorage>(
+    pub(crate) async fn init<S: InvoiceStorage>(
         rpc_client: RpcClient,
     ) -> Result<TxpoolCache, AcceptXmrError<S::Error>> {
         let txs = rpc_client.txpool().await?;
@@ -28,7 +28,7 @@ impl TxpoolCache {
 
     /// Update the txpool cache with newest [tansactions](monero::Transaction)
     /// from daemon txpool. Returns transactions received.
-    pub async fn update<S: InvoiceStorage>(
+    pub(crate) async fn update<S: InvoiceStorage>(
         &mut self,
     ) -> Result<Vec<monero::Transaction>, AcceptXmrError<S::Error>> {
         trace!("Checking for new transactions in txpool");
@@ -60,11 +60,11 @@ impl TxpoolCache {
         Ok(new_transactions)
     }
 
-    pub fn discovered_transfers(&self) -> &HashMap<monero::Hash, Vec<(SubIndex, Transfer)>> {
+    pub(crate) fn discovered_transfers(&self) -> &HashMap<monero::Hash, Vec<(SubIndex, Transfer)>> {
         &self.discovered_transfers
     }
 
-    pub fn insert_transfers(
+    pub(crate) fn insert_transfers(
         &mut self,
         transfers: &HashMap<monero::Hash, Vec<(SubIndex, Transfer)>>,
     ) {

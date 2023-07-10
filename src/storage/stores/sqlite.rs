@@ -268,7 +268,7 @@ impl<'stmt> Iterator for SqliteIter<'stmt> {
     }
 }
 
-struct TableName(pub String);
+struct TableName(String);
 
 impl TableName {
     fn new(table: &str) -> TableName {
