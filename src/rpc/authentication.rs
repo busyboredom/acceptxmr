@@ -21,16 +21,16 @@ use thiserror::Error;
 
 /// Digest authentication info.
 #[derive(Debug, Clone)]
-pub(crate) struct AuthInfo {
+pub(super) struct AuthInfo {
     username: String,
     password: String,
-    pub counter: Arc<AtomicU32>,
-    pub last_auth_params: Arc<Mutex<Option<AuthParams>>>,
+    counter: Arc<AtomicU32>,
+    last_auth_params: Arc<Mutex<Option<AuthParams>>>,
     rng: ChaCha12Rng,
 }
 
 impl AuthInfo {
-    pub fn new(username: String, password: String, seed: Option<u64>) -> AuthInfo {
+    pub(super) fn new(username: String, password: String, seed: Option<u64>) -> AuthInfo {
         // If a seed is supplied, seed the random number generator with it.
         let mut rng = ChaCha12Rng::from_entropy();
         if let Some(s) = seed {
@@ -50,7 +50,7 @@ impl AuthInfo {
     ///
     /// Returns `None` if no recent parameters are available.
     #[allow(clippy::similar_names)]
-    pub fn authenticate(
+    pub(super) fn authenticate(
         &mut self,
         uri: &Uri,
         method: &Method,
@@ -116,7 +116,7 @@ impl AuthInfo {
 
     /// Build `AUTHORIZATION` header value given a `Response` containing
     /// `WWW-AUTHENTICATE` header(s).
-    pub fn authenticate_with_resp<T>(
+    pub(super) fn authenticate_with_resp<T>(
         &mut self,
         response: &Response<T>,
         uri: &Uri,
@@ -239,7 +239,7 @@ fn md5_str(input: String) -> String {
 
 /// Parameters that may appear in WWW-AUTHENTICATE header.
 #[derive(Clone, PartialEq, Eq, Debug)]
-pub(crate) struct AuthParams {
+struct AuthParams {
     realm: String,
     qop: Vec<Qop>,
     algorithm: Algorithm,

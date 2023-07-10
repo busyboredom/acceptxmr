@@ -89,14 +89,14 @@ pub(crate) struct Publisher {
 }
 
 impl Publisher {
-    pub fn new() -> Publisher {
+    pub(crate) fn new() -> Publisher {
         Publisher {
             invoice_subs: Mutex::new(HashMap::new()),
             global_subs: Mutex::new(IndexMap::new()),
         }
     }
 
-    pub fn subscribe(&self, invoice_id: InvoiceId) -> Option<Subscriber> {
+    pub(crate) fn subscribe(&self, invoice_id: InvoiceId) -> Option<Subscriber> {
         let (tx, rx) = channel(SUBSCRIPTION_BUFFER_LEN);
         let mut invoice_subs = self
             .invoice_subs
@@ -108,7 +108,7 @@ impl Publisher {
         Some(Subscriber::new(rx))
     }
 
-    pub fn subscribe_all(&self) -> Subscriber {
+    pub(crate) fn subscribe_all(&self) -> Subscriber {
         let (tx, rx) = channel(SUBSCRIPTION_BUFFER_LEN);
         let mut global_subs = self
             .global_subs
@@ -118,7 +118,7 @@ impl Publisher {
         Subscriber::new(rx)
     }
 
-    pub fn insert_invoice(&self, invoice_id: InvoiceId) {
+    pub(crate) fn insert_invoice(&self, invoice_id: InvoiceId) {
         let mut invoice_subs = self
             .invoice_subs
             .lock()
@@ -129,7 +129,7 @@ impl Publisher {
         }
     }
 
-    pub fn remove_invoice(&self, invoice_id: InvoiceId) {
+    pub(crate) fn remove_invoice(&self, invoice_id: InvoiceId) {
         let mut invoice_subs = self
             .invoice_subs
             .lock()
@@ -139,7 +139,7 @@ impl Publisher {
         invoice_subs.remove(&invoice_id);
     }
 
-    pub async fn send_updates(&self, invoice: &Invoice) {
+    pub(crate) async fn send_updates(&self, invoice: &Invoice) {
         let mut index = 0;
         let mut sender_id;
         let mut closed = false;

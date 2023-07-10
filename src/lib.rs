@@ -113,8 +113,10 @@
 //! storage implementation. The `bincode` feature will also be enabled by this
 //! feature.
 
-#![warn(clippy::pedantic)]
+#![deny(unsafe_code)]
 #![warn(missing_docs)]
+#![warn(unreachable_pub)]
+#![warn(clippy::pedantic)]
 #![warn(clippy::cargo)]
 #![warn(clippy::panic)]
 #![warn(clippy::unwrap_used)]

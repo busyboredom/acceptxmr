@@ -28,7 +28,7 @@ pub(crate) struct SubaddressCache {
 }
 
 impl SubaddressCache {
-    pub fn init<S: InvoiceStorage>(
+    pub(crate) fn init<S: InvoiceStorage>(
         invoice_storage: &Store<S>,
         viewpair: monero::ViewPair,
         major_index: u32,
@@ -89,7 +89,7 @@ impl SubaddressCache {
         })
     }
 
-    pub fn remove_random(&mut self) -> (SubIndex, String) {
+    pub(crate) fn remove_random(&mut self) -> (SubIndex, String) {
         let map_index = self.rng.gen_range(0..self.available_subaddresses.len());
 
         if let Some((sub_index, subaddress)) =
@@ -106,11 +106,11 @@ impl SubaddressCache {
         }
     }
 
-    pub fn insert(&mut self, sub_index: SubIndex, address: String) -> Option<String> {
+    pub(crate) fn insert(&mut self, sub_index: SubIndex, address: String) -> Option<String> {
         self.available_subaddresses.insert(sub_index, address)
     }
 
-    pub fn len(&self) -> usize {
+    pub(crate) fn len(&self) -> usize {
         self.available_subaddresses.len()
     }
 
@@ -121,7 +121,7 @@ impl SubaddressCache {
     /// maximum index of `(1, u32::MAX)`, generation stops prematurely.
     ///
     /// Returns the number of subaddresses appended to the subaddress cache.
-    pub fn extend_by(&mut self, n: u32) -> u32 {
+    fn extend_by(&mut self, n: u32) -> u32 {
         // TODO: Change this to use generate_range().
         let mut count = 0;
         for _ in 0..n {

@@ -36,7 +36,7 @@ pub(crate) struct Scanner<S: InvoiceStorage> {
 }
 
 impl<S: InvoiceStorage> Scanner<S> {
-    pub async fn new(
+    pub(crate) async fn new(
         rpc_client: RpcClient,
         invoice_store: Store<S>,
         block_cache_size: usize,
@@ -86,7 +86,7 @@ impl<S: InvoiceStorage> Scanner<S> {
     }
 
     /// Scan for invoice updates.
-    pub async fn scan(
+    pub(crate) async fn scan(
         &mut self,
         sub_key_checker: &SubKeyChecker<'_>,
     ) -> Result<(), AcceptXmrError<S::Error>> {
@@ -98,7 +98,7 @@ impl<S: InvoiceStorage> Scanner<S> {
             self.scan_blocks(sub_key_checker, blocks_updated),
             self.scan_txpool(sub_key_checker, &new_transactions)
         );
-        let block_cache_height = self.block_cache.lock().await.height.load(Ordering::Relaxed);
+        let block_cache_height = self.block_cache.lock().await.height();
 
         let blocks_amounts = match blocks_amounts_or_err {
             Ok(amts) => amts,
@@ -253,23 +253,23 @@ impl<S: InvoiceStorage> Scanner<S> {
 
         // If this is the first scan, we want to scan all the blocks in the cache.
         if self.first_scan {
-            blocks_updated = block_cache.blocks.len();
+            blocks_updated = block_cache.blocks().len();
         }
 
         let mut transfers = Vec::new();
 
         // Scan updated blocks.
         for i in (0..blocks_updated).rev() {
-            let transactions = &block_cache.blocks[i].3;
+            let transactions = &block_cache.blocks()[i].transactions;
             let amounts_received = self.scan_transactions(transactions, sub_key_checker)?;
             trace!(
                 "Scanned {} transactions from block {}, and found {} transactions to tracked invoices",
                 transactions.len(),
-                block_cache.blocks[i].1,
+                block_cache.blocks()[i].height,
                 amounts_received.len()
             );
 
-            let block_cache_height: u64 = block_cache.height.load(Ordering::Relaxed) - i as u64;
+            let block_cache_height: u64 = block_cache.height() - i as u64;
 
             // Add what was found into the list.
             transfers.extend::<Vec<(SubIndex, Transfer)>>(
@@ -388,11 +388,11 @@ pub(crate) struct ScannerHandle<S: InvoiceStorage>(
 );
 
 impl<S: InvoiceStorage> ScannerHandle<S> {
-    pub fn join(self) -> thread::Result<Result<(), AcceptXmrError<S::Error>>> {
+    pub(crate) fn join(self) -> thread::Result<Result<(), AcceptXmrError<S::Error>>> {
         self.0.join()
     }
 
-    pub fn is_finished(&self) -> bool {
+    pub(crate) fn is_finished(&self) -> bool {
         self.0.is_finished()
     }
 }

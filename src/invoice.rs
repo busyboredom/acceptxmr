@@ -474,9 +474,9 @@ impl From<SubIndex> for subaddress::Index {
 #[cfg_attr(feature = "bincode", derive(Encode, Decode))]
 pub(crate) struct Transfer {
     /// Amount transferred in piconeros.
-    pub amount: u64,
+    pub(crate) amount: u64,
     /// Block height of the transfer, or None if the outputs are in the txpool.
-    pub height: Option<u64>,
+    pub(crate) height: Option<u64>,
 }
 
 impl Transfer {

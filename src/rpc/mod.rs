@@ -35,7 +35,7 @@ pub(crate) struct RpcClient {
 
 impl RpcClient {
     /// Returns an Rpc client pointing at the specified monero daemon.
-    pub fn new(
+    pub(crate) fn new(
         url: Uri,
         total_timeout: Duration,
         connection_timeout: Duration,
@@ -71,7 +71,10 @@ impl RpcClient {
         }
     }
 
-    pub async fn block(&self, height: u64) -> Result<(monero::Hash, monero::Block), RpcError> {
+    pub(crate) async fn block(
+        &self,
+        height: u64,
+    ) -> Result<(monero::Hash, monero::Block), RpcError> {
         trace!("Requesting block {}", height);
         let request_body = r#"{"jsonrpc":"2.0","id":"0","method":"get_block","params":{"height":"#
             .to_owned()
@@ -100,7 +103,7 @@ impl RpcClient {
         Ok((block_hash, block))
     }
 
-    pub async fn block_transactions(
+    pub(crate) async fn block_transactions(
         &self,
         block: &monero::Block,
     ) -> Result<Vec<monero::Transaction>, RpcError> {
@@ -109,7 +112,7 @@ impl RpcClient {
         self.transactions_by_hashes(transaction_hashes).await
     }
 
-    pub async fn txpool(&self) -> Result<Vec<monero::Transaction>, RpcError> {
+    pub(crate) async fn txpool(&self) -> Result<Vec<monero::Transaction>, RpcError> {
         trace!("Requesting txpool");
         let mut transactions = Vec::new();
         let request_body = "";
@@ -132,7 +135,7 @@ impl RpcClient {
         Ok(transactions)
     }
 
-    pub async fn txpool_hashes(&self) -> Result<HashSet<monero::Hash>, RpcError> {
+    pub(crate) async fn txpool_hashes(&self) -> Result<HashSet<monero::Hash>, RpcError> {
         trace!("Requesting txpool hashes");
         let mut transactions = HashSet::new();
         let request_body = "";
@@ -156,7 +159,7 @@ impl RpcClient {
         Ok(transactions)
     }
 
-    pub async fn transactions_by_hashes(
+    pub(crate) async fn transactions_by_hashes(
         &self,
         hashes: &[monero::Hash],
     ) -> Result<Vec<monero::Transaction>, RpcError> {
@@ -216,7 +219,7 @@ impl RpcClient {
         Ok(transactions)
     }
 
-    pub async fn daemon_height(&self) -> Result<u64, RpcError> {
+    pub(crate) async fn daemon_height(&self) -> Result<u64, RpcError> {
         let request_body = r#"{"jsonrpc":"2.0","id":"0","method":"get_block_count"}"#;
         let request_endpoint = "json_rpc";
 
@@ -279,7 +282,7 @@ impl RpcClient {
         Ok(serde_json::from_slice(&full_body)?)
     }
 
-    pub fn url(&self) -> String {
+    pub(crate) fn url(&self) -> String {
         self.url.clone().to_string()
     }
 }
