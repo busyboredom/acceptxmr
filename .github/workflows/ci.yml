@@ -6,6 +6,8 @@ on:
     branches: [ main ]
 env:
   CARGO_TERM_COLOR: always
+  RUSTFLAGS: '-D warnings'
+  RUSTDOCFLAGS: '-D warnings'
 jobs:
   static_analysis:
     runs-on: ubuntu-latest
@@ -18,10 +20,12 @@ jobs:
         override: true
         profile: minimal
         components: rustfmt, clippy
-    - name: Run Rustfmt
+    - name: Rustfmt
       run: cargo fmt --all -- --check
-    - name: Run Clippy
-      run: cargo clippy --all-targets --all-features -- -D warnings
+    - name: Clippy
+      run: cargo clippy --all-targets --all-features
+    - name: Doc
+      run: cargo doc --all-features --all
   build:
     strategy:
       matrix:
