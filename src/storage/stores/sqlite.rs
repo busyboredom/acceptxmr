@@ -268,6 +268,7 @@ impl<'stmt> Iterator for SqliteIter<'stmt> {
     }
 }
 
+#[derive(Debug, Clone, Hash, PartialEq, Eq, Ord, PartialOrd)]
 struct TableName(String);
 
 impl TableName {
