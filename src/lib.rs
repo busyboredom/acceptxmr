@@ -27,6 +27,14 @@
 //! precautions to secure the platform you run your application on
 //! _and keep your private view key out of your git repository!_.
 //!
+//! Care is taken to protect users from malicious transactions containing
+//! timelocks or duplicate output keys (i.e. the burning bug). For the best
+//! protection against the burning bug, it is recommended that users use a
+//! dedicated wallet or account index for `AcceptXMR` that is not used for any
+//! other purpose. The payment gateway's initial height should also be set to
+//! the wallet's restore height. These measures allow `AcceptXMR` to keep a full
+//! inventory of used output keys so that duplicates can be reliably identified.
+//!
 //! Also note that anonymity networks like TOR are not currently supported for
 //! RPC calls. This means that your network traffic will reveal that you are
 //! interacting with the monero network.
@@ -45,7 +53,7 @@
 //! thread free any of potential panics, and RPC calls in the scanning
 //! thread are logged on failure and repeated next scan. In the event that an
 //! error does occur, the liberal use of logging within this library will
-//! hopefully facilitate a speedy diagnosis an correction.
+//! hopefully facilitate a speedy diagnosis and correction.
 //!
 //! Use this library at your own risk.
 //!
@@ -99,19 +107,17 @@
 //! ### `in-memory`
 //!
 //! The `in-memory` feature enables the [`InMemory`](storage::stores::InMemory)
-//! invoice storage implementation.
+//! storage implementation.
 //!
 //! ### `sled`
 //!
-//! The `sled` feature enables the [`Sled`](storage::stores::Sled) invoice
-//! storage implementation. The `bincode` feature will also be enabled by this
-//! feature.
+//! The `sled` feature enables the [`Sled`](storage::stores::Sled) storage
+//! implementation. The `bincode` feature will also be enabled by this feature.
 //!
 //! ### `sqlite`
 //!
-//! The `sqlite` feature enables the [`Sqlite`](storage::stores::Sqlite) invoice
-//! storage implementation. The `bincode` feature will also be enabled by this
-//! feature.
+//! The `sqlite` feature enables the [`Sqlite`](storage::stores::Sqlite) storage
+//! implementation. The `bincode` feature will also be enabled by this feature.
 
 #![deny(unsafe_code)]
 #![warn(missing_docs)]
@@ -144,20 +150,20 @@ use thiserror::Error;
 
 /// Library's custom error type.
 #[derive(Error, Debug)]
-pub enum AcceptXmrError<E> {
+pub enum AcceptXmrError {
     /// An error originating from a daemon RPC call.
     #[error("RPC error: {0}")]
     Rpc(#[from] RpcError),
-    /// An error storing/retrieving [`Invoice`](crate::Invoice)s.
-    #[error("invoice storage error: {0}")]
-    InvoiceStorage(E),
+    /// An error storing/retrieving data from the storage layer.
+    #[error("storage error: {0}")]
+    Storage(Box<dyn std::error::Error + Send>),
     /// [`Subscriber`](crate::Subscriber) failed to retrieve update.
     #[error("subscriber failed to receive update: {0}")]
     Subscriber(#[from] SubscriberError),
     /// Failure to unblind the amount of an owned output.
     #[error("unable to unblind amount of owned output sent to subaddress index {0}")]
     Unblind(SubIndex),
-    /// Failure to parse private view key.
+    /// Failure to parse.
     #[error("failed to parse {datatype} from \"{input}\": {error}")]
     Parse {
         /// Type to parse.
@@ -170,6 +176,13 @@ pub enum AcceptXmrError<E> {
     /// Failure to check if output is owned.
     #[error("failed to check if output is owned: {0}")]
     OwnedOutputCheck(#[from] monero::blockdata::transaction::Error),
+    /// Output has unsupported target. This could mean that AcceptXMR is
+    /// connected to an outdated daemon.
+    #[error("unsupported output target")]
+    OutputTarget,
+    /// Output index was too large.
+    #[error("output index too large")]
+    OutputIndex,
     /// Scanning thread exited with panic.
     #[error("scanning thread exited with panic")]
     ScanningThreadPanic,

@@ -5,7 +5,7 @@ use std::{
     sync::{
         atomic::{self, AtomicU32, AtomicU64},
         mpsc::{channel, Receiver, Sender, TryRecvError},
-        Arc, Mutex, PoisonError,
+        Arc, Mutex, PoisonError, RwLock,
     },
     thread,
     time::Duration,
@@ -21,7 +21,7 @@ use crate::{
     pubsub::{Publisher, Subscriber},
     rpc::RpcClient,
     scanner::{Scanner, ScannerHandle},
-    storage::{InvoiceStorage, Store},
+    storage::{InvoiceStorage, Storage},
     AcceptXmrError, Invoice, InvoiceId,
 };
 
@@ -36,20 +36,21 @@ const DEFAULT_BLOCK_CACHE_SIZE: usize = 10;
 /// The `PaymentGateway` allows you to track new [`Invoice`](Invoice)s, remove
 /// old `Invoice`s from tracking, and subscribe to `Invoice`s that are already
 /// pending.
-pub struct PaymentGateway<S: InvoiceStorage>(pub(crate) Arc<PaymentGatewayInner<S>>);
+pub struct PaymentGateway<S: Storage>(pub(crate) Arc<PaymentGatewayInner<S>>);
 
 #[doc(hidden)]
-pub struct PaymentGatewayInner<S: InvoiceStorage> {
+pub struct PaymentGatewayInner<S: Storage> {
     rpc_client: RpcClient,
     viewpair: monero::ViewPair,
     scan_interval: Duration,
-    invoice_store: Store<S>,
+    store: Arc<RwLock<S>>,
     subaddresses: Mutex<SubaddressCache>,
     major_index: u32,
     highest_minor_index: Arc<AtomicU32>,
+    initial_height: Option<u64>,
     block_cache_height: Arc<AtomicU64>,
     cached_daemon_height: Arc<AtomicU64>,
-    scanner_handle: Mutex<Option<ScannerHandle<S>>>,
+    scanner_handle: Mutex<Option<ScannerHandle>>,
     /// Send commands to the scanning thread.
     scanner_command_sender: (
         Mutex<Sender<MessageToScanner>>,
@@ -58,13 +59,13 @@ pub struct PaymentGatewayInner<S: InvoiceStorage> {
     publisher: Arc<Publisher>,
 }
 
-impl<S: InvoiceStorage> Clone for PaymentGateway<S> {
+impl<S: Storage> Clone for PaymentGateway<S> {
     fn clone(&self) -> Self {
         PaymentGateway(self.0.clone())
     }
 }
 
-impl<S: InvoiceStorage> Deref for PaymentGateway<S> {
+impl<S: Storage> Deref for PaymentGateway<S> {
     type Target = PaymentGatewayInner<S>;
 
     fn deref(&self) -> &PaymentGatewayInner<S> {
@@ -72,7 +73,7 @@ impl<S: InvoiceStorage> Deref for PaymentGateway<S> {
     }
 }
 
-impl<S: InvoiceStorage + 'static> PaymentGateway<S> {
+impl<S: Storage + 'static> PaymentGateway<S> {
     /// Returns a builder used to create a new payment gateway.
     #[must_use]
     pub fn builder(
@@ -89,7 +90,7 @@ impl<S: InvoiceStorage + 'static> PaymentGateway<S> {
     ///
     /// # Errors
     ///
-    /// * Returns an [`AcceptXmrError::InvoiceStorage`] error if there was an
+    /// * Returns an [`AcceptXmrError::Storage`] error if there was an
     ///   underlying issue with the database.
     ///
     /// * Returns an [`AcceptXmrError::Rpc`] error if there was an issue getting
@@ -101,7 +102,7 @@ impl<S: InvoiceStorage + 'static> PaymentGateway<S> {
     /// * Returns an [`AcceptXmrError::Threading`] error if there was an error
     ///   creating the scanning thread.
     #[allow(clippy::range_plus_one)]
-    pub async fn run(&self) -> Result<(), AcceptXmrError<S::Error>> {
+    pub async fn run(&self) -> Result<(), AcceptXmrError> {
         // Determine if the scanning thread is already running.
         {
             let scanner_handle = self
@@ -123,18 +124,20 @@ impl<S: InvoiceStorage + 'static> PaymentGateway<S> {
         let highest_minor_index = self.highest_minor_index.clone();
         let block_cache_height = self.block_cache_height.clone();
         let cached_daemon_height = self.cached_daemon_height.clone();
+        let initial_height = self.initial_height;
         let publisher = self.publisher.clone();
-        let invoice_store = self.invoice_store.clone();
+        let store = self.store.clone();
         let command_receiver = self.scanner_command_sender.1.clone();
 
         // Create scanner.
         debug!("Creating blockchain scanner");
         let mut scanner: Scanner<S> = Scanner::new(
             rpc_client,
-            invoice_store,
+            store,
             DEFAULT_BLOCK_CACHE_SIZE,
             block_cache_height,
             cached_daemon_height,
+            initial_height,
             publisher,
         )
         .await?;
@@ -143,7 +146,7 @@ impl<S: InvoiceStorage + 'static> PaymentGateway<S> {
         info!("Starting blockchain scanner");
         *self.scanner_handle.lock().unwrap_or_else(PoisonError::into_inner) = Some(thread::Builder::new()
             .name("Scanning Thread".to_string())
-            .spawn(move || -> Result<(), AcceptXmrError<S::Error>> {
+            .spawn(move || -> Result<(), AcceptXmrError> {
                 // The thread needs a tokio runtime to process async functions.
                 let tokio_runtime = Runtime::new()?;
                 tokio_runtime.block_on(async move {
@@ -194,7 +197,7 @@ impl<S: InvoiceStorage + 'static> PaymentGateway<S> {
     /// Returns the enum [`PaymentGatewayStatus`] describing whether the payment
     /// gateway is running, not running, or has experienced an error.
     #[must_use]
-    pub fn status(&self) -> PaymentGatewayStatus<S> {
+    pub fn status(&self) -> PaymentGatewayStatus {
         let scanner_handle = self
             .scanner_handle
             .lock()
@@ -232,7 +235,7 @@ impl<S: InvoiceStorage + 'static> PaymentGateway<S> {
     ///
     /// * If the scanning thread exited with an error, returns the error
     ///   encountered.
-    pub fn stop(&self) -> Result<(), AcceptXmrError<S::Error>> {
+    pub fn stop(&self) -> Result<(), AcceptXmrError> {
         match self
             .scanner_handle
             .lock()
@@ -251,7 +254,7 @@ impl<S: InvoiceStorage + 'static> PaymentGateway<S> {
                     .lock()
                     .unwrap_or_else(PoisonError::into_inner)
                     .send(MessageToScanner::Stop)
-                    .map_err(|e| AcceptXmrError::<S::Error>::StopSignal(e.to_string()))?;
+                    .map_err(|e| AcceptXmrError::StopSignal(e.to_string()))?;
                 match thread.join() {
                     Ok(Ok(_)) => Ok(()),
                     Ok(Err(e)) => Err(e),
@@ -275,7 +278,7 @@ impl<S: InvoiceStorage + 'static> PaymentGateway<S> {
         confirmations_required: u64,
         expiration_in: u64,
         description: String,
-    ) -> Result<InvoiceId, AcceptXmrError<S::Error>> {
+    ) -> Result<InvoiceId, AcceptXmrError> {
         let amount = piconeros;
 
         // Get subaddress in base58, and subaddress index.
@@ -299,9 +302,11 @@ impl<S: InvoiceStorage + 'static> PaymentGateway<S> {
         );
 
         // Insert invoice into database for tracking.
-        self.invoice_store
-            .insert(invoice.clone())
-            .map_err(AcceptXmrError::InvoiceStorage)?;
+        InvoiceStorage::insert(
+            &mut *self.store.write().unwrap_or_else(PoisonError::into_inner),
+            invoice.clone(),
+        )
+        .map_err(|e| AcceptXmrError::Storage(Box::new(e)))?;
         debug!(
             "Now tracking invoice to subaddress index {}",
             invoice.index()
@@ -321,14 +326,13 @@ impl<S: InvoiceStorage + 'static> PaymentGateway<S> {
     ///
     /// Returns an error if there are any underlying issues modifying/retrieving
     /// data in the database.
-    pub fn remove_invoice(
-        &self,
-        invoice_id: InvoiceId,
-    ) -> Result<Option<Invoice>, AcceptXmrError<S::Error>> {
+    pub fn remove_invoice(&self, invoice_id: InvoiceId) -> Result<Option<Invoice>, AcceptXmrError> {
         match self
-            .invoice_store
+            .store
+            .write()
+            .unwrap_or_else(PoisonError::into_inner)
             .remove(invoice_id)
-            .map_err(AcceptXmrError::InvoiceStorage)?
+            .map_err(|e| AcceptXmrError::Storage(Box::new(e)))?
         {
             Some(old) => {
                 if !(old.is_expired()
@@ -372,7 +376,7 @@ impl<S: InvoiceStorage + 'static> PaymentGateway<S> {
     ///
     /// Returns an error if a connection can not be made to the daemon, or if
     /// the daemon's response cannot be parsed.
-    pub async fn daemon_height(&self) -> Result<u64, AcceptXmrError<S::Error>> {
+    pub async fn daemon_height(&self) -> Result<u64, AcceptXmrError> {
         Ok(self.rpc_client.daemon_height().await?)
     }
 
@@ -391,13 +395,12 @@ impl<S: InvoiceStorage + 'static> PaymentGateway<S> {
     ///
     /// Returns an error if there are any underlying issues retrieving data from
     /// the database.
-    pub fn get_invoice(
-        &self,
-        invoice_id: InvoiceId,
-    ) -> Result<Option<Invoice>, AcceptXmrError<S::Error>> {
-        self.invoice_store
-            .get(invoice_id)
-            .map_err(AcceptXmrError::InvoiceStorage)
+    pub fn get_invoice(&self, invoice_id: InvoiceId) -> Result<Option<Invoice>, AcceptXmrError> {
+        InvoiceStorage::get(
+            &*self.store.read().unwrap_or_else(PoisonError::into_inner),
+            invoice_id,
+        )
+        .map_err(|e| AcceptXmrError::Storage(Box::new(e)))
     }
 
     /// Returns URL of configured daemon.
@@ -442,12 +445,13 @@ pub struct PaymentGatewayBuilder<S> {
     private_view_key: String,
     primary_address: String,
     scan_interval: Duration,
-    invoice_store: S,
+    store: S,
     major_index: u32,
+    initial_height: Option<u64>,
     seed: Option<u64>,
 }
 
-impl<S: InvoiceStorage> PaymentGatewayBuilder<S> {
+impl<S: Storage + 'static> PaymentGatewayBuilder<S> {
     /// Create a new payment gateway builder.
     #[must_use]
     pub fn new(
@@ -464,8 +468,9 @@ impl<S: InvoiceStorage> PaymentGatewayBuilder<S> {
             private_view_key,
             primary_address,
             scan_interval: DEFAULT_SCAN_INTERVAL,
-            invoice_store: store,
+            store,
             major_index: 0,
+            initial_height: None,
             seed: None,
         }
     }
@@ -486,7 +491,7 @@ impl<S: InvoiceStorage> PaymentGatewayBuilder<S> {
     /// let primary_address =
     ///     "4613YiHLM6JMH4zejMB2zJY5TwQCxL8p65ufw8kBP5yxX9itmuGLqp1dS4tkVoTxjyH3aYhYNrtGHbQzJQP5bFus3KHVdmf";
     ///
-    /// // Pick a storage layer for pending invoices. We'll store them in-memory here for simplicity.
+    /// // Pick a storage layer. We'll store data in-memory here for simplicity.
     /// let store = InMemory::new();
     ///
     /// // Create a payment gateway with a custom monero daemon URL.
@@ -562,6 +567,22 @@ impl<S: InvoiceStorage> PaymentGatewayBuilder<S> {
         self
     }
 
+    /// Set the initial height that the payment gateway should start scanning
+    /// from. For best protection against the burning bug, this should be set to
+    /// your wallet's restore height.
+    ///
+    /// This method only affects new payment gateways. If a payment gateway has
+    /// already scanned blocks higher than the specified initial height, then it
+    /// will continue scanning from the height where it left off.
+    ///
+    /// Defaults to the current blockchain tip. Setting an initial height
+    /// greater than the blockchain tip will do nothing.
+    #[must_use]
+    pub fn initial_height(mut self, height: u64) -> PaymentGatewayBuilder<S> {
+        self.initial_height = Some(height);
+        self
+    }
+
     /// Build the payment gateway.
     ///
     /// # Errors
@@ -569,7 +590,7 @@ impl<S: InvoiceStorage> PaymentGatewayBuilder<S> {
     /// Returns an error if the database cannot be opened at the path specified,
     /// if the internal RPC client cannot parse the provided URL, or if the
     /// primary address or private view key cannot be parsed.
-    pub fn build(self) -> Result<PaymentGateway<S>, AcceptXmrError<S::Error>> {
+    pub fn build(self) -> Result<PaymentGateway<S>, AcceptXmrError> {
         let rpc_client = RpcClient::new(
             self.daemon_url
                 .parse::<Uri>()
@@ -585,7 +606,7 @@ impl<S: InvoiceStorage> PaymentGatewayBuilder<S> {
             self.seed,
         );
 
-        let invoice_store = Store::new(self.invoice_store);
+        let store = Arc::new(RwLock::new(self.store));
 
         let viewpair = monero::ViewPair {
             view: monero::PrivateKey::from_str(&self.private_view_key).map_err(|e| {
@@ -606,13 +627,13 @@ impl<S: InvoiceStorage> PaymentGatewayBuilder<S> {
 
         let highest_minor_index = Arc::new(AtomicU32::new(0));
         let subaddresses = SubaddressCache::init(
-            &invoice_store,
+            &store,
             viewpair,
             self.major_index,
             highest_minor_index.clone(),
             self.seed,
         )
-        .map_err(AcceptXmrError::InvoiceStorage)?;
+        .map_err(|e| AcceptXmrError::Storage(Box::new(e)))?;
         debug!("Generated {} initial subaddresses", subaddresses.len());
 
         let (scanner_cmd_tx, scanner_cmd_rx) = channel();
@@ -625,10 +646,11 @@ impl<S: InvoiceStorage> PaymentGatewayBuilder<S> {
             rpc_client,
             viewpair,
             scan_interval: self.scan_interval,
-            invoice_store,
+            store,
             subaddresses: Mutex::new(subaddresses),
             major_index: self.major_index,
             highest_minor_index,
+            initial_height: self.initial_height,
             block_cache_height: Arc::new(atomic::AtomicU64::new(0)),
             cached_daemon_height: Arc::new(atomic::AtomicU64::new(0)),
             scanner_handle: Mutex::new(None),
@@ -640,14 +662,14 @@ impl<S: InvoiceStorage> PaymentGatewayBuilder<S> {
 
 /// Enumeration of possible payment gateway states.
 #[derive(Debug)]
-pub enum PaymentGatewayStatus<S: InvoiceStorage> {
+pub enum PaymentGatewayStatus {
     /// The payment gateway is scanning for incoming payments.
     Running,
     /// The payment gateway is not scanning for incoming payments.
     NotRunning,
     /// The payment gateway encountered an error while scanning for incoming
     /// payments, and had to stop.
-    Error(AcceptXmrError<S::Error>),
+    Error(AcceptXmrError),
 }
 
 #[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug)]

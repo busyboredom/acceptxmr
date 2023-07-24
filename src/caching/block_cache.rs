@@ -1,5 +1,5 @@
 use std::{
-    cmp::{max, min},
+    cmp::max,
     sync::{
         atomic::{AtomicU64, Ordering},
         Arc,
@@ -8,23 +8,22 @@ use std::{
 
 use log::{debug, trace, warn};
 
-use crate::{rpc::RpcClient, storage::InvoiceStorage, AcceptXmrError};
+use crate::{rpc::RpcClient, AcceptXmrError};
 
 pub(crate) struct BlockCache {
     height: Arc<AtomicU64>,
     daemon_height: Arc<AtomicU64>,
     blocks: Vec<Block>,
-    cache_size: usize,
     rpc_client: RpcClient,
 }
 
 impl BlockCache {
-    pub(crate) async fn init<S: InvoiceStorage>(
+    pub(crate) async fn init(
         rpc_client: RpcClient,
         cache_size: usize,
         initial_height: Arc<AtomicU64>,
         daemon_height: Arc<AtomicU64>,
-    ) -> Result<BlockCache, AcceptXmrError<S::Error>> {
+    ) -> Result<BlockCache, AcceptXmrError> {
         let mut blocks = Vec::with_capacity(cache_size);
         // TODO: Get blocks concurrently.
         for i in 0..cache_size {
@@ -55,62 +54,13 @@ impl BlockCache {
             height: initial_height,
             daemon_height,
             blocks,
-            cache_size,
             rpc_client,
         })
     }
 
-    /// Update the block cache with newest blocks from daemon and apply reorg if
-    /// one has occurred. Returns number of blocks updated.
-    pub(crate) async fn skip_ahead<S: InvoiceStorage>(
-        &mut self,
-    ) -> Result<usize, AcceptXmrError<S::Error>> {
-        trace!("Checking for block cache updates");
-        let mut updated = 0;
-        let cache_height = self.height.load(Ordering::Relaxed);
-        let blockchain_height = self.rpc_client.daemon_height().await?;
-        self.daemon_height
-            .store(blockchain_height, Ordering::Relaxed);
-        if cache_height < blockchain_height - 1 {
-            for i in (0..min(
-                blockchain_height.saturating_sub(cache_height + 1),
-                self.cache_size as u64,
-            ))
-                .rev()
-            {
-                let height = blockchain_height - 1 - i;
-                let (block_id, block) = self.rpc_client.block(height).await?;
-                let transactions = self.rpc_client.block_transactions(&block).await?;
-                self.blocks.insert(
-                    0,
-                    Block {
-                        hash: block_id,
-                        height,
-                        inner: block,
-                        transactions,
-                    },
-                );
-                self.blocks.remove(self.blocks.len() - 1);
-                self.height.store(height, Ordering::Relaxed);
-                updated += 1;
-            }
-            debug!(
-            "Cache top block height updated to {}, blockchain top block height is {}, blockchain height is {}",
-            self.height.load(Ordering::Relaxed),
-            blockchain_height - 1,
-            blockchain_height,
-        );
-            updated = max(updated, self.check_and_fix_reorg::<S>().await?);
-            self.log_cache_summary();
-        }
-        Ok(updated)
-    }
-
     /// Advance block cache by 1 block if new block is available and apply reorg
     /// if one has occurred. Returns number of blocks updated.
-    pub(crate) async fn update<S: InvoiceStorage>(
-        &mut self,
-    ) -> Result<usize, AcceptXmrError<S::Error>> {
+    pub(crate) async fn update(&mut self) -> Result<usize, AcceptXmrError> {
         trace!("Checking for block cache updates");
         let mut updated = 0;
         let blockchain_height = self.rpc_client.daemon_height().await?;
@@ -142,7 +92,7 @@ impl BlockCache {
             self.log_cache_summary();
             updated += 1;
         }
-        updated = max(updated, self.check_and_fix_reorg::<S>().await?);
+        updated = max(updated, self.check_and_fix_reorg().await?);
 
         Ok(updated)
     }
@@ -156,9 +106,7 @@ impl BlockCache {
     }
 
     /// Check for reorgs, and update blocks if one has occurred.
-    async fn check_and_fix_reorg<S: InvoiceStorage>(
-        &mut self,
-    ) -> Result<usize, AcceptXmrError<S::Error>> {
+    async fn check_and_fix_reorg(&mut self) -> Result<usize, AcceptXmrError> {
         let mut updated = 0;
         let cache_height = self.height.load(Ordering::Relaxed);
         for i in 0..self.blocks.len() - 1 {

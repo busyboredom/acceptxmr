@@ -1,5 +1,4 @@
-//! Built-in implementors of [`InvoiceStorage`](super::InvoiceStorage) for
-//! storing pending invoices.
+//! Built-in implementors of [`Storage`](super::Storage).
 
 #[cfg(feature = "in-memory")]
 mod in_memory;

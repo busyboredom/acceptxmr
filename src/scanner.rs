@@ -2,15 +2,16 @@ use std::{
     collections::HashMap,
     sync::{
         atomic::{AtomicU64, Ordering},
-        Arc,
+        Arc, PoisonError, RwLock,
     },
     thread::{self, JoinHandle},
 };
 
 use log::{debug, error, info, trace};
 use monero::{
+    blockdata::transaction::TxOutTarget,
     cryptonote::{hash::Hashable, onetime_key::SubKeyChecker},
-    Amount, Transaction, VarInt,
+    Amount, OwnedTxOut, Transaction, VarInt,
 };
 use tokio::{join, sync::Mutex};
 
@@ -19,12 +20,12 @@ use crate::{
     invoice::Transfer,
     pubsub::Publisher,
     rpc::RpcClient,
-    storage::{InvoiceStorage, Store},
-    AcceptXmrError, SubIndex,
+    storage::{HeightStorage, OutputId, OutputKeyStorage, OutputPubKey, Storage},
+    AcceptXmrError, Invoice, SubIndex,
 };
 
-pub(crate) struct Scanner<S: InvoiceStorage> {
-    invoice_store: Store<S>,
+pub(crate) struct Scanner<S: Storage> {
+    store: Arc<RwLock<S>>,
     // Block cache and txpool cache are mutexed to allow concurrent block &
     // txpool scanning. This is necessary even though txpool scanning doesn't
     // use the block cache, and vice versa, because rust doesn't allow mutably
@@ -35,30 +36,26 @@ pub(crate) struct Scanner<S: InvoiceStorage> {
     first_scan: bool,
 }
 
-impl<S: InvoiceStorage> Scanner<S> {
+impl<S: Storage> Scanner<S> {
     pub(crate) async fn new(
         rpc_client: RpcClient,
-        invoice_store: Store<S>,
+        store: Arc<RwLock<S>>,
         block_cache_size: usize,
         atomic_cache_height: Arc<AtomicU64>,
         atomic_daemon_height: Arc<AtomicU64>,
+        // Optionally specify the height to start scanning from.
+        initial_height: Option<u64>,
         publisher: Arc<Publisher>,
-    ) -> Result<Scanner<S>, AcceptXmrError<S::Error>> {
-        // Determine sensible initial height for block cache.
+    ) -> Result<Scanner<S>, AcceptXmrError> {
+        trace!("Retrieving daemon hight for scanner setup.");
         let daemon_height = rpc_client.daemon_height().await?;
-        let cache_height = match invoice_store.lowest_height() {
-            Ok(Some(h)) => {
-                info!("Pending invoices found in AcceptXMR database. Resuming from last block scanned: {}", h);
-                h - 1
-            }
-            Ok(None) => {
-                trace!("Retrieving daemon hight for scanner setup.");
-                let h = daemon_height;
-                info!("No pending invoices found in AcceptXMR database. Skipping to blockchain tip: {}", h);
-                h - 1
-            }
-            Err(e) => return Err(AcceptXmrError::InvoiceStorage(e)),
-        };
+
+        let cache_height = last_height(&store)?
+            .or(initial_height)
+            .unwrap_or(daemon_height)
+            .min(daemon_height)
+            .max(block_cache_size as u64)
+            - 1;
 
         // Set atomic height to the above determined initial height. This sets the
         // height of the main PaymentGateway as well.
@@ -67,17 +64,17 @@ impl<S: InvoiceStorage> Scanner<S> {
 
         // Initialize block cache and txpool cache.
         let (block_cache, txpool_cache) = join!(
-            BlockCache::init::<S>(
+            BlockCache::init(
                 rpc_client.clone(),
                 block_cache_size,
                 atomic_cache_height,
                 atomic_daemon_height
             ),
-            TxpoolCache::init::<S>(rpc_client.clone())
+            TxpoolCache::init(rpc_client.clone())
         );
 
         Ok(Scanner {
-            invoice_store,
+            store,
             block_cache: Mutex::new(block_cache?),
             txpool_cache: Mutex::new(txpool_cache?),
             publisher,
@@ -89,7 +86,7 @@ impl<S: InvoiceStorage> Scanner<S> {
     pub(crate) async fn scan(
         &mut self,
         sub_key_checker: &SubKeyChecker<'_>,
-    ) -> Result<(), AcceptXmrError<S::Error>> {
+    ) -> Result<(), AcceptXmrError> {
         // Update block and txpool caches.
         let (blocks_updated, new_transactions) = self.update_caches().await?;
 
@@ -98,7 +95,6 @@ impl<S: InvoiceStorage> Scanner<S> {
             self.scan_blocks(sub_key_checker, blocks_updated),
             self.scan_txpool(sub_key_checker, &new_transactions)
         );
-        let block_cache_height = self.block_cache.lock().await.height();
 
         let blocks_amounts = match blocks_amounts_or_err {
             Ok(amts) => amts,
@@ -123,15 +119,64 @@ impl<S: InvoiceStorage> Scanner<S> {
             self.first_scan = false;
         }
 
-        // Prepare updated invoices.
-        // TODO: Break this out into its own function.
+        let updated_invoices = self.update_invoices(transfers, blocks_updated).await?;
+
+        // Save and log updates.
+        for invoice in updated_invoices {
+            debug!(
+                "Invoice update for subaddress index {}: \
+                    \n{}",
+                invoice.index(),
+                invoice
+            );
+            let result = self
+                .store
+                .write()
+                .unwrap_or_else(PoisonError::into_inner)
+                .update(invoice.clone());
+            if let Err(e) = result {
+                error!(
+                    "Failed to save update to invoice for index {} to database: {}",
+                    invoice.index(),
+                    e
+                );
+            } else {
+                // If the update was successful, send an update that down the subscriber
+                // channel.
+                self.publisher.send_updates(&invoice).await;
+            }
+        }
+
+        // Update last scanned height in the database.
+        let cache_height = self.block_cache.lock().await.height();
+        self.store
+            .write()
+            .unwrap_or_else(PoisonError::into_inner)
+            .upsert(cache_height)
+            .map_err(|e| AcceptXmrError::Storage(Box::new(e)))?;
+
+        // Flush changes to the database.
+        Storage::flush(&*self.store.read().unwrap_or_else(PoisonError::into_inner))
+            .map_err(|e| AcceptXmrError::Storage(Box::new(e)))?;
+
+        Ok(())
+    }
+
+    async fn update_invoices(
+        &self,
+        transfers: Vec<(SubIndex, Transfer)>,
+        blocks_updated: usize,
+    ) -> Result<Vec<Invoice>, AcceptXmrError> {
+        let block_cache_height = self.block_cache.lock().await.height();
         let deepest_update = block_cache_height - blocks_updated as u64 + 1;
+
         let mut updated_invoices = Vec::new();
         for invoice_or_err in self
-            .invoice_store
-            .lock()
+            .store
+            .read()
+            .unwrap_or_else(PoisonError::into_inner)
             .try_iter()
-            .map_err(AcceptXmrError::InvoiceStorage)?
+            .map_err(|e| AcceptXmrError::Storage(Box::new(e)))?
         {
             // Retrieve old invoice object.
             let old_invoice = match invoice_or_err {
@@ -190,52 +235,17 @@ impl<S: InvoiceStorage> Scanner<S> {
                 updated_invoices.push(invoice);
             }
         }
-
-        // Save and log updates.
-        for invoice in updated_invoices {
-            debug!(
-                "Invoice update for subaddress index {}: \
-                    \n{}",
-                invoice.index(),
-                invoice
-            );
-            if let Err(e) = self.invoice_store.update(invoice.clone()) {
-                error!(
-                    "Failed to save update to invoice for index {} to database: {}",
-                    invoice.index(),
-                    e
-                );
-            } else {
-                // If the update was successful, send an update that down the subscriber
-                // channel.
-                self.publisher.send_updates(&invoice).await;
-            }
-        }
-
-        // Flush changes to the database.
-        self.invoice_store
-            .flush()
-            .map_err(AcceptXmrError::InvoiceStorage)?;
-        Ok(())
+        Ok(updated_invoices)
     }
 
-    async fn update_caches(&self) -> Result<(usize, Vec<Transaction>), AcceptXmrError<S::Error>> {
+    async fn update_caches(&self) -> Result<(usize, Vec<Transaction>), AcceptXmrError> {
         // Update block cache.
         let mut block_cache = self.block_cache.lock().await;
-        let blocks_updated = if self
-            .invoice_store
-            .is_empty()
-            .map_err(AcceptXmrError::InvoiceStorage)?
-        {
-            // Skip ahead to blockchain tip if there are no pending invoices.
-            block_cache.skip_ahead::<S>().await?
-        } else {
-            block_cache.update::<S>().await?
-        };
+        let blocks_updated = block_cache.update().await?;
 
         // Update txpool.
         let mut txpool_cache = self.txpool_cache.lock().await;
-        let new_transactions = txpool_cache.update::<S>().await?;
+        let new_transactions = txpool_cache.update().await?;
 
         Ok((blocks_updated, new_transactions))
     }
@@ -248,7 +258,7 @@ impl<S: InvoiceStorage> Scanner<S> {
         &self,
         sub_key_checker: &SubKeyChecker<'_>,
         mut blocks_updated: usize,
-    ) -> Result<Vec<(SubIndex, Transfer)>, AcceptXmrError<S::Error>> {
+    ) -> Result<Vec<(SubIndex, Transfer)>, AcceptXmrError> {
         let block_cache = self.block_cache.lock().await;
 
         // If this is the first scan, we want to scan all the blocks in the cache.
@@ -296,7 +306,7 @@ impl<S: InvoiceStorage> Scanner<S> {
         &self,
         sub_key_checker: &SubKeyChecker<'_>,
         new_transactions: &[Transaction],
-    ) -> Result<Vec<(SubIndex, Transfer)>, AcceptXmrError<S::Error>> {
+    ) -> Result<Vec<(SubIndex, Transfer)>, AcceptXmrError> {
         let mut txpool_cache = self.txpool_cache.lock().await;
 
         // Transfers previously discovered in the txpool (no reason to scan the same
@@ -343,7 +353,7 @@ impl<S: InvoiceStorage> Scanner<S> {
         &self,
         transactions: &[monero::Transaction],
         sub_key_checker: &SubKeyChecker<'_>,
-    ) -> Result<HashMap<monero::Hash, Vec<OwnedAmount>>, AcceptXmrError<S::Error>> {
+    ) -> Result<HashMap<monero::Hash, Vec<OwnedAmount>>, AcceptXmrError> {
         let mut amounts_received = HashMap::new();
         for tx in transactions {
             // Ensure the time lock is zero.
@@ -353,23 +363,32 @@ impl<S: InvoiceStorage> Scanner<S> {
             }
 
             // Scan transaction for owned outputs.
-            let transfers = tx.check_outputs_with(sub_key_checker)?;
+            let owned_outputs = tx.check_outputs_with(sub_key_checker)?;
 
-            for transfer in &transfers {
-                let sub_index = SubIndex::from(transfer.sub_index());
+            for output in &owned_outputs {
+                if !self.output_key_is_unique(output, tx.hash())? {
+                    debug!(
+                        "Owned output #{} in transaction {} has duplicate public key.",
+                        output.index(),
+                        tx.hash()
+                    );
+                    continue;
+                }
+
+                let sub_index = SubIndex::from(output.sub_index());
 
                 // If this invoice is being tracked, add the amount and subindex to the result
                 // set.
                 if self
-                    .invoice_store
+                    .store
+                    .read()
+                    .unwrap_or_else(PoisonError::into_inner)
                     .contains_sub_index(sub_index)
-                    .map_err(AcceptXmrError::InvoiceStorage)?
+                    .map_err(|e| AcceptXmrError::Storage(Box::new(e)))?
                 {
                     let amount = OwnedAmount {
                         sub_index,
-                        amount: transfer
-                            .amount()
-                            .ok_or(AcceptXmrError::<S::Error>::Unblind(sub_index))?,
+                        amount: output.amount().ok_or(AcceptXmrError::Unblind(sub_index))?,
                     };
                     amounts_received
                         .entry(tx.hash())
@@ -381,14 +400,50 @@ impl<S: InvoiceStorage> Scanner<S> {
 
         Ok(amounts_received.into_iter().collect())
     }
+
+    /// Returns `true` if the output key is unique to this output, or false if
+    /// the key has been used by a previous output (indicating an instance of
+    /// the burning bug).
+    fn output_key_is_unique(
+        &self,
+        output: &OwnedTxOut,
+        tx_hash: monero::Hash,
+    ) -> Result<bool, AcceptXmrError> {
+        let key = match output.out().target {
+            TxOutTarget::ToKey { key } | TxOutTarget::ToTaggedKey { key, view_tag: _ } => key,
+            TxOutTarget::ToScript { .. } | TxOutTarget::ToScriptHash { .. } => {
+                return Err(AcceptXmrError::OutputTarget)
+            }
+        };
+        let output_id = OutputId {
+            tx_hash: tx_hash.to_bytes(),
+            index: u8::try_from(output.index()).map_err(|_| AcceptXmrError::OutputIndex)?,
+        };
+        let maybe_stored_output_id = OutputKeyStorage::get(
+            &*self.store.read().unwrap_or_else(PoisonError::into_inner),
+            OutputPubKey(key),
+        )
+        .map_err(|e| AcceptXmrError::Storage(Box::new(e)))?;
+        if let Some(stored_output_id) = maybe_stored_output_id {
+            if stored_output_id != output_id {
+                return Ok(false);
+            }
+        } else {
+            OutputKeyStorage::insert(
+                &mut *self.store.write().unwrap_or_else(PoisonError::into_inner),
+                OutputPubKey(key),
+                output_id,
+            )
+            .map_err(|e| AcceptXmrError::Storage(Box::new(e)))?;
+        }
+        Ok(true)
+    }
 }
 
-pub(crate) struct ScannerHandle<S: InvoiceStorage>(
-    JoinHandle<Result<(), AcceptXmrError<S::Error>>>,
-);
+pub(crate) struct ScannerHandle(JoinHandle<Result<(), AcceptXmrError>>);
 
-impl<S: InvoiceStorage> ScannerHandle<S> {
-    pub(crate) fn join(self) -> thread::Result<Result<(), AcceptXmrError<S::Error>>> {
+impl ScannerHandle {
+    pub(crate) fn join(self) -> thread::Result<Result<(), AcceptXmrError>> {
         self.0.join()
     }
 
@@ -397,10 +452,8 @@ impl<S: InvoiceStorage> ScannerHandle<S> {
     }
 }
 
-impl<S: InvoiceStorage> From<JoinHandle<Result<(), AcceptXmrError<S::Error>>>>
-    for ScannerHandle<S>
-{
-    fn from(inner: JoinHandle<Result<(), AcceptXmrError<S::Error>>>) -> Self {
+impl From<JoinHandle<Result<(), AcceptXmrError>>> for ScannerHandle {
+    fn from(inner: JoinHandle<Result<(), AcceptXmrError>>) -> Self {
         ScannerHandle(inner)
     }
 }
@@ -408,4 +461,33 @@ impl<S: InvoiceStorage> From<JoinHandle<Result<(), AcceptXmrError<S::Error>>>>
 struct OwnedAmount {
     sub_index: SubIndex,
     amount: Amount,
+}
+
+fn last_height<S: Storage>(store: &Arc<RwLock<S>>) -> Result<Option<u64>, AcceptXmrError> {
+    match HeightStorage::get(&*store.read().unwrap_or_else(PoisonError::into_inner)) {
+        Ok(Some(h)) => {
+            info!("Last block scanned: {}", h);
+            return Ok(Some(h));
+        }
+        Ok(None) => {}
+        Err(e) => return Err(AcceptXmrError::Storage(Box::new(e))),
+    }
+
+    match store
+        .read()
+        .unwrap_or_else(PoisonError::into_inner)
+        .lowest_height()
+    {
+        Ok(Some(h)) => {
+            info!(
+                "Pending invoices found in AcceptXMR database. Height of lowest invoice: {}",
+                h
+            );
+            return Ok(Some(h));
+        }
+        Ok(None) => {}
+        Err(e) => return Err(AcceptXmrError::Storage(Box::new(e))),
+    };
+
+    Ok(None)
 }

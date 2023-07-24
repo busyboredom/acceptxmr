@@ -1,16 +1,9 @@
-use std::{
-    collections::HashMap,
-    fmt::{Debug, Display},
-    fs,
-    ops::Deref,
-    sync::Mutex,
-    time::Duration,
-};
+use std::{cmp::max, collections::HashMap, fs, ops::Deref, sync::Mutex, time::Duration};
 
 use acceptxmr::{
     storage::{
         stores::{InMemory, Sled, Sqlite},
-        InvoiceStorage,
+        Storage,
     },
     Invoice, PaymentGatewayBuilder, SubIndex,
 };
@@ -41,7 +34,7 @@ pub fn new_temp_dir() -> String {
 pub fn init_logger() {
     let _ = env_logger::builder()
         .filter_level(LevelFilter::Warn)
-        .filter_module("acceptxmr", log::LevelFilter::Debug)
+        .filter_module("acceptxmr", log::LevelFilter::Trace)
         .is_test(true)
         .try_init();
 }
@@ -108,7 +101,7 @@ impl MockInvoice {
         assert_eq!(update.expiration_height(), self.expiration_height);
         assert_eq!(update.expiration_height(), self.expiration_height);
         assert_eq!(
-            update.expiration_height() - update.current_height(),
+            update.expiration_height() - max(update.creation_height(), update.current_height()),
             self.expires_in
         );
         assert_eq!(update.description(), self.description);
@@ -345,14 +338,12 @@ impl MockDaemon {
     }
 }
 
-#[test_case(Sled::new(&new_temp_dir(), "tree").unwrap())]
-#[test_case(InMemory::new())]
-#[test_case(Sqlite::new(":memory:", "invoices").unwrap())]
-fn reproducible_rand<'a, S, E, I>(store: S)
+#[test_case(Sled::new(&new_temp_dir(), "invoices", "output keys", "height").unwrap(); "sled")]
+#[test_case(InMemory::new(); "in-memory")]
+#[test_case(Sqlite::new(":memory:", "invoices", "output keys", "height").unwrap(); "sqlite")]
+fn reproducible_rand<S>(store: S)
 where
-    S: InvoiceStorage<Error = E, Iter<'a> = I> + 'static,
-    E: Debug + Display + Send,
-    I: Iterator,
+    S: Storage + 'static,
 {
     // Setup.
     init_logger();
