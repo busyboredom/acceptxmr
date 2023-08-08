@@ -9,6 +9,9 @@ Book](https://doc.rust-lang.org/cargo/reference/manifest.html#the-version-field)
 
 ## [Unreleased]
 
+### Changed
+- Update MSRV to 1.68
+
 ## [0.13.0] - 2023-07-23
 
 ### Added
