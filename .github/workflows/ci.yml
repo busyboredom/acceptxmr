@@ -30,7 +30,7 @@ jobs:
     strategy:
       matrix:
         rust: [
-          1.65.0,
+          1.68.0,
           stable,
           nightly
         ]
@@ -53,7 +53,7 @@ jobs:
     strategy:
       matrix:
         rust: [
-          1.65.0,
+          1.68.0,
           stable,
           nightly
         ]
