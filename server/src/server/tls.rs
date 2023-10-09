@@ -1,21 +1,23 @@
 use std::{
     fs::{create_dir_all, File},
     io::{BufReader, Write},
+    sync::Arc,
 };
 
 use log::warn;
 use rcgen::generate_simple_self_signed;
-use rustls::{Certificate, PrivateKey as RustlsPrivateKey, ServerConfig as RustlsServerConfig};
+use rustls::{
+    pki_types::{CertificateDer, PrivatePkcs8KeyDer as RustlsPrivateKey},
+    ServerConfig as RustlsServerConfig,
+};
 use rustls_pemfile::{certs, pkcs8_private_keys};
 
 use crate::config::TlsConfig;
 
 // Attempt to load TLS, falling back on self-signed certificate if necessary.
-pub fn prepare_tls(config: &TlsConfig) -> RustlsServerConfig {
+pub(crate) fn prepare_tls(config: &TlsConfig) -> Arc<RustlsServerConfig> {
     // Init server config builder with safe defaults.
-    let rustls_config = RustlsServerConfig::builder()
-        .with_safe_defaults()
-        .with_no_client_auth();
+    let rustls_config = RustlsServerConfig::builder().with_no_client_auth();
 
     let (cert_chain, mut keys) = match (config.cert.try_exists(), config.key.try_exists()) {
         (Ok(true), Ok(true)) => load_tls(config),
@@ -36,28 +38,25 @@ pub fn prepare_tls(config: &TlsConfig) -> RustlsServerConfig {
         std::process::exit(1);
     }
 
-    rustls_config
-        .with_single_cert(cert_chain, keys.remove(0))
-        .unwrap()
+    Arc::new(
+        rustls_config
+            .with_single_cert(
+                cert_chain,
+                rustls::pki_types::PrivateKeyDer::Pkcs8(keys.remove(0)),
+            )
+            .unwrap(),
+    )
 }
 
-fn load_tls(config: &TlsConfig) -> (Vec<Certificate>, Vec<RustlsPrivateKey>) {
+fn load_tls<'b>(config: &TlsConfig) -> (Vec<CertificateDer<'b>>, Vec<RustlsPrivateKey<'b>>) {
     let cert_file =
         &mut BufReader::new(File::open(&config.cert).expect("failed to load TLS certificate file"));
     let key_file =
         &mut BufReader::new(File::open(&config.key).expect("failed to load TLS key file"));
 
     // Convert files to key/cert objects
-    let cert_chain = certs(cert_file)
-        .unwrap()
-        .into_iter()
-        .map(Certificate)
-        .collect();
-    let keys: Vec<RustlsPrivateKey> = pkcs8_private_keys(key_file)
-        .unwrap()
-        .into_iter()
-        .map(RustlsPrivateKey)
-        .collect();
+    let cert_chain = certs(cert_file).map(Result::unwrap).collect();
+    let keys: Vec<RustlsPrivateKey> = pkcs8_private_keys(key_file).map(Result::unwrap).collect();
 
     (cert_chain, keys)
 }

@@ -7,8 +7,9 @@ use std::{
 };
 
 use log::{debug, trace, warn};
+use thiserror::Error;
 
-use crate::{rpc::RpcClient, AcceptXmrError};
+use crate::rpc::{RpcClient, RpcError};
 
 pub(crate) struct BlockCache {
     height: Arc<AtomicU64>,
@@ -23,7 +24,7 @@ impl BlockCache {
         cache_size: usize,
         initial_height: Arc<AtomicU64>,
         daemon_height: Arc<AtomicU64>,
-    ) -> Result<BlockCache, AcceptXmrError> {
+    ) -> Result<BlockCache, BlockCacheError> {
         let mut blocks = Vec::with_capacity(cache_size);
         // TODO: Get blocks concurrently.
         for i in 0..cache_size {
@@ -60,13 +61,13 @@ impl BlockCache {
 
     /// Advance block cache by 1 block if new block is available and apply reorg
     /// if one has occurred. Returns number of blocks updated.
-    pub(crate) async fn update(&mut self) -> Result<usize, AcceptXmrError> {
+    pub(crate) async fn update(&mut self) -> Result<usize, BlockCacheError> {
         trace!("Checking for block cache updates");
         let mut updated = 0;
         let blockchain_height = self.rpc_client.daemon_height().await?;
         self.daemon_height
             .store(blockchain_height, Ordering::Relaxed);
-        if self.height.load(Ordering::Relaxed) < blockchain_height - 1 {
+        if self.height.load(Ordering::Relaxed) < blockchain_height.saturating_sub(1) {
             let (block_id, block) = self
                 .rpc_client
                 .block(self.height.load(Ordering::Relaxed) + 1)
@@ -81,12 +82,12 @@ impl BlockCache {
                     transactions,
                 },
             );
-            self.blocks.remove(self.blocks.len() - 1);
+            self.blocks.remove(self.blocks.len().saturating_sub(1));
             self.height.fetch_add(1, Ordering::Relaxed);
             debug!(
                 "Cache top block height updated to {}, blockchain top block height is {}, blockchain height is {}",
                 self.height.load(Ordering::Relaxed),
-                blockchain_height - 1,
+                blockchain_height.saturating_sub(1),
                 blockchain_height,
             );
             self.log_cache_summary();
@@ -101,12 +102,16 @@ impl BlockCache {
         self.height.load(Ordering::Relaxed)
     }
 
+    pub(crate) fn daemon_height(&self) -> u64 {
+        self.daemon_height.load(Ordering::Relaxed)
+    }
+
     pub(crate) fn blocks(&self) -> &Vec<Block> {
         &self.blocks
     }
 
     /// Check for reorgs, and update blocks if one has occurred.
-    async fn check_and_fix_reorg(&mut self) -> Result<usize, AcceptXmrError> {
+    async fn check_and_fix_reorg(&mut self) -> Result<usize, BlockCacheError> {
         let mut updated = 0;
         let cache_height = self.height.load(Ordering::Relaxed);
         for i in 0..self.blocks.len() - 1 {
@@ -141,6 +146,10 @@ impl BlockCache {
         }
         trace!("Block cache summary:\n{}", block_cache_summary);
     }
+
+    pub(crate) fn is_synchronized(&self) -> bool {
+        self.height() >= self.daemon_height().saturating_sub(1)
+    }
 }
 
 pub(crate) struct Block {
@@ -148,4 +157,12 @@ pub(crate) struct Block {
     pub(crate) height: u64,
     inner: monero::Block,
     pub(crate) transactions: Vec<monero::Transaction>,
+}
+
+/// Errors specific to the block cache.
+#[derive(Error, Debug)]
+pub enum BlockCacheError {
+    /// An error originating from a daemon RPC call.
+    #[error("RPC error: {0}")]
+    Rpc(#[from] RpcError),
 }

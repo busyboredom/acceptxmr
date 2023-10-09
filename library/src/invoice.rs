@@ -11,6 +11,8 @@ use monero::cryptonote::subaddress;
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
 
+use crate::AcceptXmrError;
+
 const PICONEROS_PER_XMR: u64 = 1_000_000_000_000;
 
 /// Representation of an invoice. `Invoice`s are created by the
@@ -158,9 +160,11 @@ impl Invoice {
     ///
     /// # Examples
     ///
-    /// ```
+    /// ```no_run
     /// # #[tokio::main]
     /// # async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    /// #
+    /// # use std::time::Duration;
     /// #
     /// # use acceptxmr::{PaymentGatewayBuilder, storage::stores::InMemory};
     /// #
@@ -170,20 +174,22 @@ impl Invoice {
     /// # let primary_address = "4613YiHLM6JMH4zejMB2zJY5TwQCxL8p65ufw8kBP5yxX9itmuGLqp1dS4tkVoTxjyH3aYhYNrtGHbQzJQP5bFus3KHVdmf";
     /// #
     /// # let payment_gateway = PaymentGatewayBuilder::new(private_view_key.to_string(), primary_address.to_string(), store)
-    /// #   .build()?;
+    /// #   .build()
+    /// #   .await?;
+    /// #
     /// // Create a new `Invoice` for 1 millinero.
-    /// let invoice_id = payment_gateway.new_invoice(1_000_000_000, 3, 5, "for pizza".to_string())?;
-    /// let small_invoice = payment_gateway.get_invoice(invoice_id)?.expect("invoice ID not found");
+    /// let invoice_id = payment_gateway.new_invoice(1_000_000_000, 3, 5, "for pizza".to_string()).await?;
+    /// let small_invoice = payment_gateway.get_invoice(invoice_id).await?.expect("invoice ID not found");
     ///
     /// // One millinero, as expected.
     /// assert_eq!(small_invoice.xmr_requested(), 0.001);
     ///
     /// // Create a new `Invoice` for 18446744.073709551615 XMR.
-    /// let invoice_id = payment_gateway.new_invoice(18_446_744_073_709_551_615, 3, 5, "for lambo".to_string())?;
-    /// let large_invoice = payment_gateway.get_invoice(invoice_id)?.expect("invoice ID not found");
+    /// let invoice_id = payment_gateway.new_invoice(18_446_744_073_709_551_615, 3, 5, "for lambo".to_string()).await?;
+    /// let large_invoice = payment_gateway.get_invoice(invoice_id).await?.expect("invoice ID not found");
     ///
     /// // The large value has been rounded slightly due to f64 precision limitations.
-    /// assert_eq!(large_invoice.xmr_requested(), 18446744.073709551245);
+    /// assert_eq!(large_invoice.xmr_requested(), 18446744.07370955);
     /// #   Ok(())
     /// # }
     /// ```
@@ -265,12 +271,13 @@ impl Invoice {
     /// # let store = InMemory::new();
     /// #
     /// # let payment_gateway = PaymentGatewayBuilder::new(private_view_key.to_string(), primary_address.to_string(), store)
-    /// #    .build()?;
+    /// #    .build()
+    /// #    .await?;
     /// #
     /// # payment_gateway.run().await?;
     /// #
     /// // Create a new `Invoice` requiring 3 confirmations, and expiring in 5 blocks.
-    /// let invoice_id = payment_gateway.new_invoice(10000, 3, 5, "for pizza".to_string())?;
+    /// let invoice_id = payment_gateway.new_invoice(10000, 3, 5, "for pizza".to_string()).await?;
     /// let mut subscriber = payment_gateway.subscribe(invoice_id).expect("invoice ID not found");
     /// let invoice = subscriber.recv().await.expect("invoice update not received");
     ///
@@ -382,6 +389,100 @@ impl InvoiceId {
             sub_index,
             creation_height,
         }
+    }
+
+    /// Returns a 32 byte blake3 hash of the invoice ID.
+    #[must_use]
+    pub fn hash(&self) -> InvoiceIdHash {
+        InvoiceIdHash(blake3::hash(self.to_string().as_bytes()))
+    }
+}
+
+/// A 32 byte (256 bit) blake3 hash of the invoice ID.
+#[derive(Copy, Clone)]
+pub struct InvoiceIdHash(blake3::Hash);
+
+impl InvoiceIdHash {
+    /// Returns the `InvoiceIdHash` as bytes.
+    #[must_use]
+    pub fn as_bytes(&self) -> &[u8; 32] {
+        self.0.as_bytes()
+    }
+
+    /// Returns the `InvoiceIdHash` as bytes.
+    #[must_use]
+    pub fn from_bytes(bytes: [u8; 32]) -> Self {
+        InvoiceIdHash(blake3::Hash::from_bytes(bytes))
+    }
+
+    #[must_use]
+    /// Returns the `InvoiceIdHash` as a hex string.
+    pub fn to_hex(self) -> String {
+        self.0.to_hex().to_string()
+    }
+
+    /// Attempts to parse a `InvoiceIdHash` from hex.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the input is not valid hex.
+    pub fn from_hex(hex: impl AsRef<[u8]>) -> Result<Self, AcceptXmrError> {
+        let hash_or_err = blake3::Hash::from_hex(&hex);
+        let hash = hash_or_err.map_err(|e| AcceptXmrError::Parse {
+            datatype: "InvoiceIdHash",
+            input: hex.as_ref().to_ascii_lowercase().escape_ascii().to_string(),
+            error: e.to_string(),
+        })?;
+        Ok(InvoiceIdHash(hash))
+    }
+}
+
+impl From<[u8; 32]> for InvoiceIdHash {
+    #[inline]
+    fn from(bytes: [u8; 32]) -> Self {
+        Self::from_bytes(bytes)
+    }
+}
+
+impl From<InvoiceIdHash> for [u8; 32] {
+    #[inline]
+    fn from(hash: InvoiceIdHash) -> Self {
+        *hash.0.as_bytes()
+    }
+}
+
+impl core::str::FromStr for InvoiceIdHash {
+    type Err = AcceptXmrError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        InvoiceIdHash::from_hex(s)
+    }
+}
+
+impl PartialEq for InvoiceIdHash {
+    #[inline]
+    fn eq(&self, other: &InvoiceIdHash) -> bool {
+        self.0.eq(&other.0)
+    }
+}
+
+impl Eq for InvoiceIdHash {}
+
+impl fmt::Display for InvoiceIdHash {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        let hex = self.to_hex();
+        let hex: &str = hex.as_str();
+
+        f.write_str(hex)
+    }
+}
+
+impl fmt::Debug for InvoiceIdHash {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        let hex = self.to_hex();
+        let hex: &str = hex.as_str();
+
+        f.debug_tuple("Hash").field(&hex).finish()
     }
 }
 
@@ -501,20 +602,12 @@ impl Transfer {
 
 #[cfg(test)]
 #[allow(clippy::expect_used)]
+#[allow(clippy::panic)]
 mod tests {
-    use log::LevelFilter;
     use test_case::test_case;
+    use testing_utils::init_logger;
 
-    use crate::{Invoice, SubIndex};
-
-    fn init_logger() {
-        env_logger::builder()
-            .filter_level(LevelFilter::Warn)
-            .filter_module("acceptxmr", log::LevelFilter::Debug)
-            .is_test(true)
-            .try_init()
-            .ok();
-    }
+    use crate::{AcceptXmrError, Invoice, InvoiceIdHash, SubIndex};
 
     #[test_case(1, 0 => "0.000000000001".to_string(); "small")]
     #[test_case(u64::MAX, 0 => "18446744.073709551615".to_string(); "big")]
@@ -543,6 +636,25 @@ mod tests {
         amount.to_string()
     }
 
+    #[test_case(1 => "0.000000000001".to_string(); "small")]
+    #[test_case(u64::MAX => "18446744.07370955".to_string(); "big")]
+    #[test_case(0 => "0".to_string(); "zero")]
+    fn xmr_requested(requested: u64) -> String {
+        // Setup.
+        init_logger();
+
+        let invoice = Invoice::new(
+            "testAddress".to_string(),
+            SubIndex::new(0, 1),
+            0,
+            requested,
+            5,
+            10,
+            "test_description".to_string(),
+        );
+        invoice.xmr_requested().to_string()
+    }
+
     #[test]
     fn expires_in() {
         init_logger();
@@ -558,5 +670,54 @@ mod tests {
         );
 
         assert_eq!(invoice.expiration_in(), 10);
+    }
+
+    #[test]
+    fn id_hash() {
+        init_logger();
+
+        let invoice = Invoice::new(
+            "testAddress".to_string(),
+            SubIndex::new(0, 1),
+            12345,
+            1,
+            5,
+            10,
+            "test_description".to_string(),
+        );
+        let invoice_id = invoice.id();
+        let invoice_id_hash = invoice_id.hash();
+
+        assert_eq!(
+            invoice_id_hash.to_string(),
+            "19657377c5d6a686c5e3be00706ff2ed6c9579d63b87ec1329b299990a4a13b4".to_string()
+        );
+    }
+
+    #[test_case("abcdeff12345678900" => Err("abcdeff12345678900".to_string()))]
+    #[test_case("38405f2dbb3a8b50b35be464cb4b71f2b2fefcdeeb7decbcec37be770df64f92" => Ok(()))]
+    fn id_hash_from_hex(hex: impl AsRef<[u8]>) -> Result<(), String> {
+        init_logger();
+
+        let invoice_id_hash = match InvoiceIdHash::from_hex(hex) {
+            Ok(hash) => hash,
+            Err(AcceptXmrError::Parse {
+                datatype,
+                input,
+                error: _,
+            }) => {
+                assert_eq!(datatype, "InvoiceIdHash");
+                return Err(input);
+            }
+            Err(e) => {
+                panic!("Unexpected error parsing `InvoiceIdHash` from hex: {e}")
+            }
+        };
+
+        assert_eq!(
+            invoice_id_hash.to_hex(),
+            "38405f2dbb3a8b50b35be464cb4b71f2b2fefcdeeb7decbcec37be770df64f92".to_string()
+        );
+        Ok(())
     }
 }

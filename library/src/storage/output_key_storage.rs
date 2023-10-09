@@ -55,25 +55,13 @@ pub struct OutputId {
 mod test {
     use std::fmt::{Debug, Display};
 
-    use tempfile::Builder;
     use test_case::test_case;
+    use testing_utils::new_temp_dir;
 
     use crate::storage::{
         stores::{InMemory, Sled, Sqlite},
         OutputId, OutputKeyStorage, OutputPubKey,
     };
-
-    fn new_temp_dir() -> String {
-        Builder::new()
-            .prefix("temp_db_")
-            .rand_bytes(16)
-            .tempdir()
-            .unwrap()
-            .path()
-            .to_str()
-            .expect("failed to get temporary directory path")
-            .to_string()
-    }
 
     fn dummy_key() -> OutputPubKey {
         OutputPubKey([0; 32])

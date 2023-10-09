@@ -1,10 +1,13 @@
+use std::{path::PathBuf, str::FromStr};
+
 use acceptxmr::{storage::stores::Sqlite, PaymentGatewayBuilder};
-use acceptxmr_server::{load_config, run_server};
-use hyper::StatusCode;
+use acceptxmr_server::{build_server, load_config, run_server, Config};
+use hyper::{http::Uri, StatusCode};
 use log::{debug, info};
 use test_case::test_case;
+use testing_utils::{init_logger, PRIMARY_ADDRESS, PRIVATE_VIEW_KEY};
 
-use crate::common::{init_logger, GatewayClient, PRIMARY_ADDRESS, PRIVATE_VIEW_KEY};
+use crate::common::{GatewayClient, MockNewInvoicePayload};
 
 #[test_case(Some("supersecrettoken") => StatusCode::OK; "Correct token")]
 #[test_case(Some("I am the wrong token!") => StatusCode::UNAUTHORIZED; "Wrong token")]
@@ -20,22 +23,27 @@ async fn bearer_auth(token: Option<&str>) -> StatusCode {
         store,
     )
     .build()
+    .await
     .unwrap();
     info!("Payment gateway created.");
 
     // Deliberately not starting the payment gateway itself, because we don't
     // need it for this test.
 
-    let config = load_config();
-    tokio::spawn(run_server(config, payment_gateway));
+    let config = load_config(&PathBuf::from(Config::DEFAULT_PATH));
+    let server = build_server(&config, payment_gateway).await;
+    let address = server.internal_ipv4_address().unwrap();
+    tokio::spawn(run_server(server));
 
     let mut client = GatewayClient::default();
-    client.token = token.map(|s| s.to_string());
 
-    let checkout_response = client
-        .checkout()
+    client.url = Uri::from_str(&format!("https://{}:{}", address.ip(), address.port())).unwrap();
+    client.token = token.map(ToString::to_string);
+
+    let new_invoice_response = client
+        .new_invoice(MockNewInvoicePayload::default())
         .await
-        .expect("failed to call `checkout` endpoint");
-    debug!("Checkout response: {:?}", checkout_response);
-    checkout_response.status()
+        .expect("failed to call new invoice endpoint");
+    debug!("Checkout response: {:?}", new_invoice_response);
+    new_invoice_response.status()
 }

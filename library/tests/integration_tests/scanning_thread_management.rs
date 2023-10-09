@@ -1,8 +1,7 @@
 use acceptxmr::{
     storage::stores::Sled, AcceptXmrError, PaymentGatewayBuilder, PaymentGatewayStatus,
 };
-
-use crate::common::{init_logger, new_temp_dir, MockDaemon, PRIMARY_ADDRESS, PRIVATE_VIEW_KEY};
+use testing_utils::{init_logger, new_temp_dir, MockDaemon, PRIMARY_ADDRESS, PRIVATE_VIEW_KEY};
 
 #[tokio::test]
 async fn run_payment_gateway() {
@@ -22,6 +21,7 @@ async fn run_payment_gateway() {
     )
     .daemon_url(mock_daemon.url(""))
     .build()
+    .await
     .expect("failed to build payment gateway");
 
     // Run it.
@@ -49,6 +49,7 @@ async fn cannot_run_payment_gateway_twice() {
     )
     .daemon_url(mock_daemon.url(""))
     .build()
+    .await
     .expect("failed to build payment gateway");
 
     // Run it.
@@ -84,6 +85,7 @@ async fn stop_payment_gateway() {
     )
     .daemon_url(mock_daemon.url(""))
     .build()
+    .await
     .expect("failed to build payment gateway");
 
     // Run it.
@@ -93,9 +95,9 @@ async fn stop_payment_gateway() {
         .expect("failed to run payment gateway");
 
     assert!(matches!(
-        payment_gateway.status(),
+        payment_gateway.status().await,
         PaymentGatewayStatus::Running,
     ));
 
-    assert!(payment_gateway.stop().is_ok());
+    assert!(payment_gateway.stop().await.is_ok());
 }

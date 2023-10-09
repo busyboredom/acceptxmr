@@ -103,4 +103,66 @@ Please click [here](../.env) for an example of how to configure secrets in a
 `.env` file.
 
 ### API
-TODO
+
+`AcceptXMR-Server` serves two APIs. The first is an "internal" API meant to be
+used server-side (i.e. not exposed to the internet). The second API is an
+"external" API, which is safe to expose to the end-user (i.e. it may be exposed
+to the internet).
+
+#### Internal API
+
+The internal API serves endpoints which the end user should not have access to
+(for example, creating new invoices).
+
+**Create a new invoice: `POST /invoice`**
+
+Example body:
+```json
+{
+  piconeros_due: 10000,
+  confirmations_required: 0,
+  expiration_in: 10,
+  description: "I am an example description",
+}
+```
+
+Example response:
+```json
+{
+  invoice_id: "748934525",
+}
+```
+
+#### External API
+
+The external API serves endpoints which are safe to expose to the end user.
+These endpoints do things like retreive the status of an invoice, cancel an
+invoice, or start a websocket connection.
+
+**Get an invoice's status: `GET /invoice?id=<invoice id>`**
+
+Example response:
+```json
+{
+  address: "84pKaXBd9biTwA7wihzUvrXN2YHoJBdFC4ZxEHQqaPuMFDa8Nyg1mywMXgzvjWBiTCfim7ZRfuJhvHavJrZ4Y7z3THW2Hmf",
+  amount_paid: 4000,
+  amount_requested: 5000,
+  uri: "monero:84pKaXBd9biTwA7wihzUvrXN2YHoJBdFC4ZxEHQqaPuMFDa8Nyg1mywMXgzvjWBiTCfim7ZRfuJhvHavJrZ4Y7z3THW2Hmf?tx_amount=0.000000001000"
+  confirmations: 1,
+  confirmations_required: 2,
+  expiration_in: 4,
+  description: "I am an example description",
+}
+```
+
+**Subscribe to an invoice's updates via websocket: `GET /invoice/ws?id=<invoice ID>`**
+
+Response: *Whatever the upgrade status code is.*
+
+**Cancel an invoice: `DELETE /invoice?id=<invoice ID>`**
+
+Response: `200`
+
+**Go to payment UI: `GET /pay?id=<invoice ID>`**
+
+Serves a minimal UI prompting the user for payment.
