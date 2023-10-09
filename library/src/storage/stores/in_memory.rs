@@ -1,7 +1,4 @@
-use std::collections::{
-    btree_map::{self, Entry},
-    BTreeMap,
-};
+use std::collections::{btree_map::Entry, BTreeMap};
 
 use thiserror::Error;
 
@@ -40,7 +37,6 @@ impl Default for InMemory {
 
 impl InvoiceStorage for InMemory {
     type Error = InMemoryStorageError;
-    type Iter<'a> = InMemoryIter<'a>;
 
     fn insert(&mut self, invoice: Invoice) -> Result<(), Self::Error> {
         if self.invoices.contains_key(&invoice.id()) {
@@ -65,6 +61,10 @@ impl InvoiceStorage for InMemory {
         Ok(self.invoices.get(&invoice_id).cloned())
     }
 
+    fn get_ids(&self) -> Result<Vec<InvoiceId>, Self::Error> {
+        Ok(self.invoices.keys().copied().collect::<Vec<InvoiceId>>())
+    }
+
     fn contains_sub_index(&self, sub_index: SubIndex) -> Result<bool, Self::Error> {
         Ok(self
             .invoices
@@ -73,19 +73,17 @@ impl InvoiceStorage for InMemory {
             .is_some())
     }
 
-    fn try_iter(&self) -> Result<Self::Iter<'_>, InMemoryStorageError> {
-        let iter = self.invoices.values();
-        Ok(InMemoryIter(iter))
+    fn try_for_each<F>(&self, mut f: F) -> Result<(), Self::Error>
+    where
+        F: FnMut(Result<Invoice, Self::Error>) -> Result<(), Self::Error>,
+    {
+        self.invoices
+            .iter()
+            .try_for_each(move |(_, invoice)| f(Ok(invoice.clone())))
     }
-}
 
-pub struct InMemoryIter<'a>(btree_map::Values<'a, InvoiceId, Invoice>);
-
-impl<'a> Iterator for InMemoryIter<'a> {
-    type Item = Result<Invoice, InMemoryStorageError>;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        self.0.next().map(|v| Ok(v.clone()))
+    fn is_empty(&self) -> Result<bool, Self::Error> {
+        Ok(self.invoices.is_empty())
     }
 }
 

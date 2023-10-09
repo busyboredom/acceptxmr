@@ -13,14 +13,24 @@
         fmtr = nixpkgs.legacyPackages.${system}.alejandra;
       in {
         formatter = fmtr;
-        devShells.default = pkgs.mkShell {
-          packages = with pkgs; [
-            gcc
-            rustup
-            pkg-config
-            openssl.dev
-          ];
-        };
+        devShells.default =
+          pkgs.mkShell.override {
+            stdenv = pkgs.stdenvAdapters.useMoldLinker pkgs.clangStdenv;
+          } {
+            packages = with pkgs; [
+              gcc
+              rustup
+              pkg-config
+              rust-analyzer
+              openssl.dev
+              typos-lsp
+            ];
+
+            shellHook = ''
+              alias clippy="cargo +nightly clippy --all-targets --all-features"
+              alias test="cargo +nightly test --all-targets --all-features"
+            '';
+          };
       }
     );
 }

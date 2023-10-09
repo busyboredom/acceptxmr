@@ -11,7 +11,7 @@ init()
 
 async function next(hasAddress) {
     // Hide prep stuff, show payment stuff.
-    document.getElementById("preperation-content").style.display = "None";
+    document.getElementById("preparation-content").style.display = "None";
     document.getElementById("payment-content").style.display = "inherit";
 
     // Create invoice.

@@ -67,8 +67,9 @@
 //! consider lowering the [`PaymentGateway`]'s `scan_interval` below the default
 //! of 1 second:
 //! ```
-//! # fn main() -> Result<(), Box<dyn std::error::Error>> {
-//! use acceptxmr::{PaymentGateway, storage::stores::InMemory};
+//! # #[tokio::main]
+//! # async fn main() -> Result<(), Box<dyn std::error::Error>> {
+//! use acceptxmr::{PaymentGatewayBuilder, storage::stores::InMemory};
 //! use std::time::Duration;
 //!
 //! let private_view_key =
@@ -78,13 +79,14 @@
 //!
 //! let store = InMemory::new();
 //!
-//! let payment_gateway = PaymentGateway::builder(
+//! let payment_gateway = PaymentGatewayBuilder::new(
 //!     private_view_key.to_string(),
 //!     primary_address.to_string(),
 //!     store
 //! )
 //! .scan_interval(Duration::from_millis(100)) // Scan for updates every 100 ms.
-//! .build()?;
+//! .build()
+//! .await?;
 //! #   Ok(())
 //! # }
 //! ```
@@ -119,50 +121,43 @@
 //! The `sqlite` feature enables the [`Sqlite`](storage::stores::Sqlite) storage
 //! implementation. The `bincode` feature will also be enabled by this feature.
 
-#![deny(unsafe_code)]
-#![warn(missing_docs)]
-#![warn(unreachable_pub)]
-#![warn(clippy::pedantic)]
-#![warn(clippy::cargo)]
 #![warn(clippy::panic)]
 #![warn(clippy::unwrap_used)]
 #![warn(clippy::expect_used)]
 #![allow(clippy::multiple_crate_versions)]
-#![allow(clippy::module_name_repetitions)]
 // Show feature flag tags on `docs.rs`
 #![cfg_attr(docsrs, feature(doc_auto_cfg))]
 
 mod caching;
 mod invoice;
+mod monerod_client;
 mod payment_gateway;
 mod pubsub;
-mod rpc;
 mod scanner;
 pub mod storage;
 
 use std::fmt::Debug;
 
 pub use invoice::{Invoice, InvoiceId, SubIndex};
+pub use monerod_client::{
+    Client as MonerodClient, MockClient as MonerodMockClient, RpcClient as MonerodRpcClient,
+    RpcError,
+};
 pub use payment_gateway::{PaymentGateway, PaymentGatewayBuilder, PaymentGatewayStatus};
 pub use pubsub::{Subscriber, SubscriberError};
-use rpc::RpcError;
+use scanner::ScannerError;
+use storage::StorageError;
 use thiserror::Error;
 
 /// Library's custom error type.
 #[derive(Error, Debug)]
 pub enum AcceptXmrError {
-    /// An error originating from a daemon RPC call.
-    #[error("RPC error: {0}")]
+    /// An error originating from a monero daemon RPC call.
+    #[error("Monerod RPC error: {0}")]
     Rpc(#[from] RpcError),
     /// An error storing/retrieving data from the storage layer.
     #[error("storage error: {0}")]
-    Storage(Box<dyn std::error::Error + Send>),
-    /// [`Subscriber`] failed to retrieve update.
-    #[error("subscriber failed to receive update: {0}")]
-    Subscriber(#[from] SubscriberError),
-    /// Failure to unblind the amount of an owned output.
-    #[error("unable to unblind amount of owned output sent to subaddress index {0}")]
-    Unblind(SubIndex),
+    Storage(#[from] StorageError),
     /// Failure to parse.
     #[error("failed to parse {datatype} from \"{input}\": {error}")]
     Parse {
@@ -173,25 +168,12 @@ pub enum AcceptXmrError {
         /// Error encountered.
         error: String,
     },
-    /// Failure to check if output is owned.
-    #[error("failed to check if output is owned: {0}")]
-    OwnedOutputCheck(#[from] monero::blockdata::transaction::Error),
-    /// Output has unsupported target. This could mean that AcceptXMR is
-    /// connected to an outdated daemon.
-    #[error("unsupported output target")]
-    OutputTarget,
-    /// Output index was too large.
-    #[error("output index too large")]
-    OutputIndex,
-    /// Scanning thread exited with panic.
-    #[error("scanning thread exited with panic")]
-    ScanningThreadPanic,
+    /// Blockchain scanner encountered an error.
+    #[error("blockchain scanner encountered an error: {0}")]
+    Scanner(#[from] ScannerError),
     /// Payment gateway is already running.
     #[error("payment gateway is already running")]
     AlreadyRunning,
-    /// Payment gateway encountered an error while creating scanning thread.
-    #[error("payment gateway encountered an error while creating scanning thread: {0}")]
-    Threading(#[from] std::io::Error),
     /// Payment gateway could not be stopped because the stop signal was not
     /// sent.
     #[error("payment gateway could not be stopped because the stop signal was not sent: {0}")]

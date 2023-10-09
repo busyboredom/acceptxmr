@@ -3,10 +3,11 @@ use std::{
     str::FromStr,
 };
 
-use anyhow::Result;
 use monero::{Address, PrivateKey};
 use secrecy::{ExposeSecret, Secret};
 use serde::{Deserialize, Serialize};
+
+use super::ConfigError;
 
 #[derive(Deserialize, Debug, Serialize, Default)]
 #[serde(rename_all = "kebab-case")]
@@ -27,7 +28,7 @@ pub struct WalletConfig {
 }
 
 impl WalletConfig {
-    pub(super) fn apply_env_overrides(mut self) -> Result<Self> {
+    pub(super) fn apply_env_overrides(mut self) -> Result<Self, ConfigError> {
         match env::var("PRIVATE_VIEWKEY") {
             Ok(key) => {
                 self.private_viewkey = Some(Secret::new(key));

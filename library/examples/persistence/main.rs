@@ -1,4 +1,4 @@
-#![warn(clippy::pedantic)]
+//! Use a persistent invoice store to enable recovery from power loss.
 
 use acceptxmr::{storage::stores::Sqlite, PaymentGateway, PaymentGatewayBuilder};
 use log::{error, info, LevelFilter};
@@ -33,6 +33,7 @@ async fn main() {
     )
     .daemon_url("http://node.sethforprivacy.com:18089".to_string())
     .build()
+    .await
     .unwrap();
 
     info!("Payment gateway created.");
@@ -41,9 +42,11 @@ async fn main() {
     // persistently in your Sqlite database.
     let invoice_id = payment_gateway
         .new_invoice(1000, 2, 5, "Demo invoice".to_string())
+        .await
         .unwrap();
     let invoice = payment_gateway
         .get_invoice(invoice_id)
+        .await
         .unwrap()
         .expect("invoice not found");
 
@@ -70,11 +73,13 @@ async fn main() {
     )
     .daemon_url("http://node.sethforprivacy.com:18089".to_string())
     .build()
+    .await
     .unwrap();
 
     // The invoice is still there!
     let invoice = payment_gateway
         .get_invoice(invoice_id)
+        .await
         .unwrap()
         .expect("invoice not found");
 

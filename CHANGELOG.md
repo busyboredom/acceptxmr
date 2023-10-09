@@ -11,9 +11,19 @@ Book](https://doc.rust-lang.org/cargo/reference/manifest.html#the-version-field)
 
 ### Added
 - A batteries-included payment gateway built around the core library.
+- `get_ids()` method to invoice stores.
+- `is_empty()` method to invoice stores.
+- `is_paid()` method to `PaymentGateway`.
+- `get_invoice_ids()` method to `PaymentGateway`.
+- `build_with_mock_daemon()` method to `PaymentGateway`.
 
 ### Changed
-- Update MSRV to 1.68
+- Update MSRV to 1.76
+- Replace invoice store `try_iter()` method with `try_for_each()`.
+
+### Fixed
+- `is_expired` returning false when invoice is awaiting configrmation despite it
+  being expired.
 
 ## [0.13.0] - 2023-07-23
 

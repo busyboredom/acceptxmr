@@ -8,8 +8,7 @@ use acceptxmr::{
     PaymentGatewayBuilder, SubIndex,
 };
 use test_case::test_case;
-
-use crate::common::{
+use testing_utils::{
     init_logger, new_temp_dir, MockDaemon, MockInvoice, PRIMARY_ADDRESS, PRIVATE_VIEW_KEY,
 };
 
@@ -37,6 +36,7 @@ where
     .account_index(1)
     .seed(1)
     .build()
+    .await
     .expect("failed to build payment gateway");
 
     // Run it.
@@ -47,7 +47,8 @@ where
 
     // Add the invoice.
     let invoice_id = payment_gateway
-        .new_invoice(70000000, 2, 7, "invoice".to_string())
+        .new_invoice(70_000_000, 2, 7, "invoice".to_string())
+        .await
         .expect("failed to add new invoice to payment gateway for tracking");
     let mut subscriber = payment_gateway
         .subscribe(invoice_id)
@@ -63,8 +64,8 @@ where
     let mut expected = MockInvoice::new(
         Some(update.address().to_string()),
         SubIndex::new(1, 97),
-        2477657,
-        70000000,
+        2_477_657,
+        70_000_000,
         2,
         7,
         "invoice".to_string(),
@@ -73,7 +74,7 @@ where
     // Check that it is as expected.
     expected.assert_eq(&update);
 
-    mock_daemon.mock_daemon_height(2477658);
+    mock_daemon.mock_daemon_height(2_477_658);
 
     let update = subscriber
         .recv_timeout(Duration::from_secs(120))
@@ -81,9 +82,9 @@ where
         .expect("timeout waiting for invoice update")
         .expect("subscription channel is closed");
 
-    expected.amount_paid = 37419570;
+    expected.amount_paid = 37_419_570;
     expected.expires_in = 6;
-    expected.current_height = 2477658;
+    expected.current_height = 2_477_658;
     expected.assert_eq(&update);
 
     // Reorg to invalidate payment.
@@ -95,7 +96,7 @@ where
         .await
         .expect_err("should not have received an update, but did");
 
-    mock_daemon.mock_daemon_height(24776659);
+    mock_daemon.mock_daemon_height(24_776_659);
 
     let update = subscriber
         .recv_timeout(Duration::from_secs(120))
@@ -105,6 +106,6 @@ where
 
     expected.amount_paid = 0;
     expected.expires_in = 5;
-    expected.current_height = 2477659;
+    expected.current_height = 2_477_659;
     expected.assert_eq(&update);
 }

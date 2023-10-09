@@ -11,6 +11,9 @@ internal-api:
     cert: "/path/to/cert.pem"
     key: "/path/to/key.pem"
   static_dir: server/static/
+callback:
+  queue-size: 500
+  max-retries: 25
 wallet:
   primary-address: "4613YiHLM6JMH4zejMB2zJY5TwQCxL8p65ufw8kBP5yxX9itmuGLqp1dS4tkVoTxjyH3aYhYNrtGHbQzJQP5bFus3KHVdmf"
   private-viewkey: "ad2093a5705b9f33e6f0f0c1bc1f5f639c756cdfc168c8f2ac6127ccbdab3a03"
@@ -20,7 +23,10 @@ daemon:
   login:
     username: "pinkpanther"
     password: "supersecretpassword"
+  rpc-timeout: 20
+  connection-timeout: 10
 database:
   path: "server/tests/AcceptXMR_DB/"
+  delete-expired: true
 logging:
   verbosity: "Debug"

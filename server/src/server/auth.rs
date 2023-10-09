@@ -1,34 +1,60 @@
-use actix_web::{dev::ServiceRequest, web, Error as ActixError};
-use actix_web_httpauth::extractors::{
-    bearer::{self, BearerAuth},
-    AuthenticationError,
-};
-use log::{debug, trace, warn};
-use secrecy::ExposeSecret;
+use std::marker::PhantomData;
 
-use crate::config::ServerConfig;
+use axum::body::HttpBody;
+use hyper::http::{header, Request, Response, StatusCode};
+use log::{debug, trace};
+use secrecy::{ExposeSecret, Secret};
+use tower_http::validate_request::ValidateRequest;
 
-#[allow(clippy::unused_async)]
-pub async fn bearer_auth_validator(
-    req: ServiceRequest,
-    credentials: BearerAuth,
-) -> Result<ServiceRequest, (ActixError, ServiceRequest)> {
-    if let Some(server_config) = req.app_data::<web::Data<ServerConfig>>() {
-        if let Some(expected_token) = &server_config.token {
-            if credentials.token() != expected_token.expose_secret() {
-                let bearer_config = req
-                    .app_data::<bearer::Config>()
-                    .cloned()
-                    .unwrap_or_default();
+pub(crate) struct MaybeBearer<ResBody> {
+    token: Option<Secret<String>>,
+    _ty: PhantomData<fn() -> ResBody>,
+}
 
-                debug!("Authentication denied. Bearer auth token mismatch.");
-                return Err((AuthenticationError::from(bearer_config).into(), req));
+impl<ResBody> MaybeBearer<ResBody> {
+    pub(crate) fn new(token: Option<Secret<String>>) -> Self {
+        Self {
+            token,
+            _ty: PhantomData,
+        }
+    }
+}
+
+impl<ResBody> Clone for MaybeBearer<ResBody> {
+    fn clone(&self) -> Self {
+        Self {
+            token: self.token.clone(),
+            _ty: PhantomData,
+        }
+    }
+}
+
+impl<B, ResBody> ValidateRequest<B> for MaybeBearer<ResBody>
+where
+    ResBody: HttpBody + Default,
+{
+    type ResponseBody = ResBody;
+
+    fn validate(&mut self, request: &mut Request<B>) -> Result<(), Response<Self::ResponseBody>> {
+        if let Some(token) = &self.token {
+            match request.headers().get(header::AUTHORIZATION) {
+                Some(actual) if actual == &format!("Bearer {}", token.expose_secret()) => Ok(()),
+                Some(_) => {
+                    debug!("Authentication denied. Bearer auth token mismatch.");
+                    let mut res = Response::new(ResBody::default());
+                    *res.status_mut() = StatusCode::UNAUTHORIZED;
+                    Err(res)
+                }
+                None => {
+                    debug!("Authentication denied. Bearer auth token missing.");
+                    let mut res = Response::new(ResBody::default());
+                    *res.status_mut() = StatusCode::UNAUTHORIZED;
+                    Err(res)
+                }
             }
         } else {
             trace!("Bearer auth token not set. Not enforcing bearer auth.");
+            Ok(())
         }
-    } else {
-        warn!("No server configuration found while attempting to evaluate bearer auth policy.");
     }
-    Ok(req)
 }

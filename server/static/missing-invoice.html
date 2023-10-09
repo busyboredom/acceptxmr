@@ -1,0 +1,21 @@
+<!DOCTYPE html>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AcceptXMR</title>
+
+<div class="acceptxmr">
+    <div class="state-message-container">
+        <p id="state-message">Expired!</p>
+    </div>
+    <hr/>
+    <div id="payment-content" class="content">
+        <div class="details">
+            <label>Invoice ID</label>
+            <div id="address-container">
+                <p id="address">{{invoice_id}}</p>
+                <button id="address-copy-btn" onclick="copyInvoiceAddress()">Copy</button>
+            </div>
+        </div>
+    </div>
+</div>
+<script type="text/javascript" src="acceptxmr.js"></script>
+<link rel="stylesheet" href="acceptxmr.css">

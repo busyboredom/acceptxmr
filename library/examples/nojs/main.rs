@@ -1,4 +1,4 @@
-#![warn(clippy::pedantic)]
+//! Serve a no-js frontend.
 
 use acceptxmr::{storage::stores::InMemory, InvoiceId, PaymentGateway, PaymentGatewayBuilder};
 use actix_files::Files;
@@ -15,7 +15,7 @@ use actix_web::{
     web::{Data, Form},
     App, HttpResponse, HttpServer, Result,
 };
-use handlebars::{no_escape, Handlebars};
+use handlebars::{no_escape, DirectorySourceOptions, Handlebars};
 use log::{debug, error, info, LevelFilter};
 use qrcode::{render::svg, EcLevel, QrCode};
 use rand::{thread_rng, Rng};
@@ -46,6 +46,7 @@ async fn main() -> std::io::Result<()> {
     )
     .daemon_url("http://xmr-node.cakewallet.com:18081".to_string())
     .build()
+    .await
     .expect("failed to build payment gateway");
     info!("Payment gateway created.");
 
@@ -57,7 +58,7 @@ async fn main() -> std::io::Result<()> {
 
     // Watch for invoice updates and deal with them accordingly.
     let gateway_copy = payment_gateway.clone();
-    std::thread::spawn(move || {
+    tokio::spawn(async move {
         // Watch all invoice updates.
         let mut subscriber = gateway_copy.subscribe_all();
         loop {
@@ -74,7 +75,7 @@ async fn main() -> std::io::Result<()> {
                     "Invoice to index {} has been tracked for > 30 blocks. Removing invoice now",
                     invoice.index()
                 );
-                if let Err(e) = gateway_copy.remove_invoice(invoice.id()) {
+                if let Err(e) = gateway_copy.remove_invoice(invoice.id()).await {
                     error!("Failed to remove invoice: {}", e);
                 };
             }
@@ -89,7 +90,14 @@ async fn main() -> std::io::Result<()> {
     // Templating setup.
     let mut handlebars = Handlebars::new();
     handlebars
-        .register_templates_directory(".html", "./library/examples/nojs/static/templates")
+        .register_templates_directory(
+            "./library/examples/nojs/static/templates",
+            DirectorySourceOptions {
+                tpl_extension: ".html".to_string(),
+                hidden: false,
+                temporary: false,
+            },
+        )
         .expect("failed to register template directory");
     handlebars.register_escape_fn(no_escape);
 
@@ -131,6 +139,7 @@ async fn start_checkout(
 ) -> Result<HttpResponse, actix_web::Error> {
     let invoice_id = payment_gateway
         .new_invoice(1_000_000_000, 2, 5, checkout_info.message.clone())
+        .await
         .unwrap();
     session.insert("id", invoice_id)?;
     Ok(HttpResponse::TemporaryRedirect()
@@ -149,7 +158,7 @@ async fn checkout(
     templater: Data<Handlebars<'_>>,
 ) -> Result<HttpResponse, actix_web::Error> {
     if let Ok(Some(invoice_id)) = session.get::<InvoiceId>("id") {
-        if let Ok(Some(invoice)) = payment_gateway.get_invoice(invoice_id) {
+        if let Ok(Some(invoice)) = payment_gateway.get_invoice(invoice_id).await {
             let mut instruction = "Send Monero to Address Below";
             let mut address = invoice.address();
             let mut qrcode = qrcode(&invoice.uri());
