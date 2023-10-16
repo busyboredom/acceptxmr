@@ -1,17 +1,15 @@
 use acceptxmr::{
     storage::stores::Sled, AcceptXmrError, PaymentGatewayBuilder, PaymentGatewayStatus,
 };
-use tokio::runtime::Runtime;
 
 use crate::common::{init_logger, new_temp_dir, MockDaemon, PRIMARY_ADDRESS, PRIVATE_VIEW_KEY};
 
-#[test]
-fn run_payment_gateway() {
+#[tokio::test]
+async fn run_payment_gateway() {
     // Setup.
     init_logger();
     let temp_dir = new_temp_dir();
-    let mock_daemon = MockDaemon::new_mock_daemon();
-    let rt = Runtime::new().expect("failed to create tokio runtime");
+    let mock_daemon = MockDaemon::new_mock_daemon().await;
 
     let store = Sled::new(&temp_dir, "invoices", "output keys", "height")
         .expect("failed to create sled storage layer.");
@@ -27,21 +25,18 @@ fn run_payment_gateway() {
     .expect("failed to build payment gateway");
 
     // Run it.
-    rt.block_on(async {
-        payment_gateway
-            .run()
-            .await
-            .expect("failed to run payment gateway");
-    })
+    payment_gateway
+        .run()
+        .await
+        .expect("failed to run payment gateway");
 }
 
-#[test]
-fn cannot_run_payment_gateway_twice() {
+#[tokio::test]
+async fn cannot_run_payment_gateway_twice() {
     // Setup.
     init_logger();
     let temp_dir = new_temp_dir();
-    let mock_daemon = MockDaemon::new_mock_daemon();
-    let rt = Runtime::new().expect("failed to create tokio runtime");
+    let mock_daemon = MockDaemon::new_mock_daemon().await;
 
     let store = Sled::new(&temp_dir, "invoices", "output keys", "height")
         .expect("failed to create sled storage layer.");
@@ -57,29 +52,26 @@ fn cannot_run_payment_gateway_twice() {
     .expect("failed to build payment gateway");
 
     // Run it.
-    rt.block_on(async {
-        payment_gateway
-            .run()
-            .await
-            .expect("failed to run payment gateway");
+    payment_gateway
+        .run()
+        .await
+        .expect("failed to run payment gateway");
 
-        assert!(
-            matches!(
-                payment_gateway.run().await,
-                Err(AcceptXmrError::AlreadyRunning)
-            ),
-            "payment gateway was run twice"
-        );
-    })
+    assert!(
+        matches!(
+            payment_gateway.run().await,
+            Err(AcceptXmrError::AlreadyRunning)
+        ),
+        "payment gateway was run twice"
+    );
 }
 
-#[test]
-fn stop_payment_gateway() {
+#[tokio::test]
+async fn stop_payment_gateway() {
     // Setup.
     init_logger();
     let temp_dir = new_temp_dir();
-    let mock_daemon = MockDaemon::new_mock_daemon();
-    let rt = Runtime::new().expect("failed to create tokio runtime");
+    let mock_daemon = MockDaemon::new_mock_daemon().await;
 
     let store = Sled::new(&temp_dir, "invoices", "output keys", "height")
         .expect("failed to create sled storage layer.");
@@ -95,17 +87,15 @@ fn stop_payment_gateway() {
     .expect("failed to build payment gateway");
 
     // Run it.
-    rt.block_on(async {
-        payment_gateway
-            .run()
-            .await
-            .expect("failed to run payment gateway");
+    payment_gateway
+        .run()
+        .await
+        .expect("failed to run payment gateway");
 
-        assert!(matches!(
-            payment_gateway.status(),
-            PaymentGatewayStatus::Running,
-        ));
+    assert!(matches!(
+        payment_gateway.status(),
+        PaymentGatewayStatus::Running,
+    ));
 
-        assert!(payment_gateway.stop().is_ok());
-    })
+    assert!(payment_gateway.stop().is_ok());
 }

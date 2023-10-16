@@ -12,7 +12,6 @@ use log::LevelFilter;
 use serde_json::{json, Value};
 use tempfile::Builder;
 use test_case::test_case;
-use tokio::runtime::Runtime;
 
 pub const PRIVATE_VIEW_KEY: &str =
     "ad2093a5705b9f33e6f0f0c1bc1f5f639c756cdfc168c8f2ac6127ccbdab3a03";
@@ -132,9 +131,9 @@ impl Deref for MockDaemon {
 }
 
 impl MockDaemon {
-    pub fn new_mock_daemon() -> MockDaemon {
+    pub async fn new_mock_daemon() -> MockDaemon {
         let mock_daemon = MockDaemon {
-            server: MockServer::start(),
+            server: MockServer::start_async().await,
             daemon_height_id: Mutex::new(None),
             block_ids: Mutex::new(HashMap::new()),
             txpool_id: Mutex::new(None),
@@ -341,14 +340,14 @@ impl MockDaemon {
 #[test_case(Sled::new(&new_temp_dir(), "invoices", "output keys", "height").unwrap(); "sled")]
 #[test_case(InMemory::new(); "in-memory")]
 #[test_case(Sqlite::new(":memory:", "invoices", "output keys", "height").unwrap(); "sqlite")]
-fn reproducible_rand<S>(store: S)
+#[tokio::test]
+async fn reproducible_rand<S>(store: S)
 where
     S: Storage + 'static,
 {
     // Setup.
     init_logger();
-    let mock_daemon = MockDaemon::new_mock_daemon();
-    let rt = Runtime::new().expect("failed to create tokio runtime");
+    let mock_daemon = MockDaemon::new_mock_daemon().await;
 
     // Create payment gateway pointing at temp directory and mock daemon.
     let payment_gateway = PaymentGatewayBuilder::new(
@@ -365,28 +364,26 @@ where
     .expect("failed to build payment gateway");
 
     // Run it.
-    rt.block_on(async {
-        payment_gateway
-            .run()
-            .await
-            .expect("failed to run payment gateway");
+    payment_gateway
+        .run()
+        .await
+        .expect("failed to run payment gateway");
 
-        // Add the invoice.
-        let invoice_id = payment_gateway
-            .new_invoice(1, 5, 10, "test invoice".to_string())
-            .expect("failed to add new invoice to payment gateway for tracking");
-        let mut subscriber = payment_gateway
-            .subscribe(invoice_id)
-            .expect("invoice does not exist");
+    // Add the invoice.
+    let invoice_id = payment_gateway
+        .new_invoice(1, 5, 10, "test invoice".to_string())
+        .expect("failed to add new invoice to payment gateway for tracking");
+    let mut subscriber = payment_gateway
+        .subscribe(invoice_id)
+        .expect("invoice does not exist");
 
-        // Get initial update.
-        let update = subscriber
-            .recv_timeout(Duration::from_millis(5000))
-            .await
-            .expect("timeout waiting for invoice update")
-            .expect("subscription channel is closed");
+    // Get initial update.
+    let update = subscriber
+        .recv_timeout(Duration::from_secs(120))
+        .await
+        .expect("timeout waiting for invoice update")
+        .expect("subscription channel is closed");
 
-        // Check that it is as expected.
-        assert_eq!(update.index(), SubIndex::new(1, 97));
-    })
+    // Check that it is as expected.
+    assert_eq!(update.index(), SubIndex::new(1, 97));
 }

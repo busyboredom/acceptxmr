@@ -1,7 +1,7 @@
 [![BuildStatus](https://github.com/busyboredom/acceptxmr/workflows/CI/badge.svg)](https://img.shields.io/github/actions/workflow/status/busyboredom/acceptxmr/ci.yml?branch=main)
 [![Crates.io](https://img.shields.io/crates/v/acceptxmr.svg)](https://crates.io/crates/acceptxmr)
 [![Documentation](https://docs.rs/acceptxmr/badge.svg)](https://docs.rs/acceptxmr)
-[![MSRV](https://img.shields.io/badge/MSRV-1.68.0-blue)](https://blog.rust-lang.org/2023/03/09/Rust-1.68.0.html)
+[![MSRV](https://img.shields.io/badge/MSRV-1.70.0-blue)](https://blog.rust-lang.org/2023/06/01/Rust-1.70.0.html)
 
 # `AcceptXMR`: Accept Monero in Your Application
 `AcceptXMR` is a library for building payment gateways. 

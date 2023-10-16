@@ -31,6 +31,9 @@ pub struct Invoice {
     creation_height: u64,
     amount_requested: u64,
     pub(crate) amount_paid: u64,
+    /// The height at which the `Invoice` was fully paid. Will be `None`
+    /// if not yet fully paid, or if the required XMR is still in the
+    /// txpool (which has no height).
     pub(crate) paid_height: Option<u64>,
     confirmations_required: u64,
     pub(crate) current_height: u64,
@@ -56,9 +59,6 @@ impl Invoice {
             creation_height,
             amount_requested,
             amount_paid: 0,
-            /// The height at which the `Invoice` was fully paid. Will be `None`
-            /// if not yet fully paid, or if the required XMR is still in the
-            /// txpool (which has no height).
             paid_height: None,
             confirmations_required,
             current_height: 0,

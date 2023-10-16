@@ -211,7 +211,7 @@ impl<S: Storage + 'static> PaymentGateway<S> {
                     .unwrap_or_else(PoisonError::into_inner)
                     .take();
                 match owned_handle.map(ScannerHandle::join) {
-                    None | Some(Ok(Ok(_))) => PaymentGatewayStatus::NotRunning,
+                    None | Some(Ok(Ok(()))) => PaymentGatewayStatus::NotRunning,
                     Some(Ok(Err(e))) => PaymentGatewayStatus::Error(e),
                     Some(Err(_)) => {
                         PaymentGatewayStatus::Error(AcceptXmrError::ScanningThreadPanic)
@@ -244,7 +244,7 @@ impl<S: Storage + 'static> PaymentGateway<S> {
         {
             None => Ok(()),
             Some(thread) if thread.is_finished() => match thread.join() {
-                Ok(Ok(_)) => Ok(()),
+                Ok(Ok(())) => Ok(()),
                 Ok(Err(e)) => Err(e),
                 Err(_) => Err(AcceptXmrError::ScanningThreadPanic),
             },
@@ -256,7 +256,7 @@ impl<S: Storage + 'static> PaymentGateway<S> {
                     .send(MessageToScanner::Stop)
                     .map_err(|e| AcceptXmrError::StopSignal(e.to_string()))?;
                 match thread.join() {
-                    Ok(Ok(_)) => Ok(()),
+                    Ok(Ok(())) => Ok(()),
                     Ok(Err(e)) => Err(e),
                     Err(_) => Err(AcceptXmrError::ScanningThreadPanic),
                 }
