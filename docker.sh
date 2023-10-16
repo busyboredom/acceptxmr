@@ -20,4 +20,4 @@ docker run \
     --mount type=bind,source=${PWD}/server/tests/testdata/cert,target=/server/tests/testdata/cert \
     --mount type=bind,source=${PWD}/acceptxmr.yaml,target=/acceptxmr.yaml \
     --env-file .env \
-    acceptxmr
+    busyboredom/acceptxmr:latest

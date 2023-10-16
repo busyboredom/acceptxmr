@@ -1,4 +1,9 @@
-FROM rust:1.73-slim-bookworm as build
+FROM --platform=$BUILDPLATFORM rust:1.73-slim-bookworm AS build
+
+RUN if [ "$TARGETPLATFORM" = "linux/arm64" ]; then \
+        rustup target add aarch64-unknown-linux-gnu  && \
+        rustup toolchain install stable-aarch64-unknown-linux-gnu; \
+    fi 
 
 # Create a new empty shell project.
 RUN USER=root cargo new --bin acceptxmr-server
@@ -19,7 +24,12 @@ COPY ./server/Cargo.toml ./server/Cargo.toml
 COPY ./library ./library
 
 # This build step will cache the dependencies (including the AcceptXMR lib).
-RUN cargo build --release
+RUN if [ "$TARGETPLATFORM" = "linux/arm64" ]; then \
+        exit && \
+        cargo build --target=aarch64-unknown-linux-gnu --release; \
+    else \
+        cargo build --release; \
+    fi
 
 # Copy the source tree.
 RUN rm ./server/src/*.rs
@@ -28,7 +38,12 @@ COPY ./server/src ./server/src
 # Build for release.
 RUN rm ./target/release/deps/acceptxmr_server*
 RUN rm ./target/release/deps/libacceptxmr_server*
-RUN cargo build --release
+RUN if [ "$TARGETPLATFORM" = "linux/arm64" ]; then \
+        exit && \
+        cargo build --target=aarch64-unknown-linux-gnu --release; \
+    else \
+        cargo build --release; \
+    fi
 
 # Final base.
 FROM frolvlad/alpine-glibc:alpine-3.17
