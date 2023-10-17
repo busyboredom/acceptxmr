@@ -1,0 +1,23 @@
+external-api:
+  port: 8080
+  ipv4: 127.0.0.1
+  ipv6: ::1
+  static_dir: static/
+internal-api:
+  port: 8081
+  ipv4: 127.0.0.1
+  ipv6: ::1
+  tls:
+    cert: tests/testdata/cert/certificate.pem
+    key: tests/testdata/cert/privatekey.pem
+  static_dir: static/
+wallet:
+  primary-address: 4613YiHLM6JMH4zejMB2zJY5TwQCxL8p65ufw8kBP5yxX9itmuGLqp1dS4tkVoTxjyH3aYhYNrtGHbQzJQP5bFus3KHVdmf
+  account-index: 0
+  restore-height: null
+daemon:
+  url: https://xmr-node.cakewallet.com:18081/
+database:
+  path: AcceptXMR_DB/
+logging:
+  verbosity: DEBUG

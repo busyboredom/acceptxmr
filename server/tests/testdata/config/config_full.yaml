@@ -1,0 +1,26 @@
+external-api: 
+  port: 8080
+  ipv4: 127.0.0.1
+  ipv6: ::1
+  static_dir: server/static/
+internal-api:
+  port: 8081
+  ipv4: 127.0.0.1
+  token: "supersecrettoken"
+  tls:
+    cert: "/path/to/cert.pem"
+    key: "/path/to/key.pem"
+  static_dir: server/static/
+wallet:
+  primary-address: "4613YiHLM6JMH4zejMB2zJY5TwQCxL8p65ufw8kBP5yxX9itmuGLqp1dS4tkVoTxjyH3aYhYNrtGHbQzJQP5bFus3KHVdmf"
+  private-viewkey: "ad2093a5705b9f33e6f0f0c1bc1f5f639c756cdfc168c8f2ac6127ccbdab3a03"
+  restore-height: 2947000
+daemon:
+  url: "https://node.example.com:18081"
+  login:
+    username: "pinkpanther"
+    password: "supersecretpassword"
+database:
+  path: "server/tests/AcceptXMR_DB/"
+logging:
+  verbosity: "Debug"

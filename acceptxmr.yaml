@@ -1,0 +1,70 @@
+# This is an example configuration. You should change the values below to suit
+# your needs.
+
+# The external API can safely be served to end users.
+external-api:
+  port: 8080
+
+  # Uncomment the line below to enable IPv6.
+  # ipv6: ::1
+
+  # If running inside docker, localhost will not work. Consider using `0.0.0.0`
+  # instead in that case.
+  ipv4: 127.0.0.1
+
+  # This example assumes AcceptXMR-Server is behind a reverse proxy, with TLS
+  # being provided by that reverse proxy.
+  tls: null
+
+  # Specify where static HTML/CSS/JS files can be found.
+  static_dir: server/static/
+
+# The internal API allows actions such as querying all invoices, or creating new
+# invoices. In most use-cases, it should not be exposed to the end user.
+internal-api:
+  port: 8081
+
+  # Uncomment the line below to enable IPv6.
+  # ipv6: ::1
+
+  # If running inside docker, localhost will not work. Consider using `0.0.0.0`
+  # instead in that case.
+  ipv4: 127.0.0.1
+
+  # If you are using a token to secure this API, TLS must be configured to
+  # protect the token "in flight". The token can be set using the
+  # INTERNAL_API_TOKEN environment variable.
+  #
+  # If the specified certificate and key cannot be found, a warning will be
+  # logged and a self-signed certificate and key will be generated and placed at
+  # the specified locations instead.
+  tls: 
+    cert: server/tests/testdata/cert/certificate.pem
+    key: server/tests/testdata/cert/privatekey.pem
+
+  # Specify where static HTML/CSS/JS files can be found.
+  static_dir: server/static/
+
+# Remember to change the address below to your own. You will also need to set
+# your private viewkey using the PRIVATE_VIEWKEY environment variable.
+#
+# For best protection against the burning bug, you should use a fresh wallet or
+# account index that is only used with AcceptXMR so that AcceptXMR can reliably
+# track used stealth addresses.
+wallet:
+  primary-address: 4613YiHLM6JMH4zejMB2zJY5TwQCxL8p65ufw8kBP5yxX9itmuGLqp1dS4tkVoTxjyH3aYhYNrtGHbQzJQP5bFus3KHVdmf
+  account-index: 0
+  # The restore height of your wallet. This is used for burning bug mitigation.
+  # AcceptXMR will sync from this height the first time it is run. If `null`,
+  # AcceptXMR will skip to the blockchain tip the first time it runs.
+  restore-height: null
+
+daemon:
+  url: http://xmr-node.cakewallet.com:18081/
+  login: null
+
+database:
+  path: AcceptXMR_DB/
+
+logging:
+  verbosity: DEBUG
