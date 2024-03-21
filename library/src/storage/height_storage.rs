@@ -26,25 +26,13 @@ pub trait HeightStorage: Send + Sync {
 mod test {
     use std::fmt::{Debug, Display};
 
-    use tempfile::Builder;
     use test_case::test_case;
+    use testing_utils::new_temp_dir;
 
     use crate::storage::{
         stores::{InMemory, Sled, Sqlite},
         HeightStorage,
     };
-
-    fn new_temp_dir() -> String {
-        Builder::new()
-            .prefix("temp_db_")
-            .rand_bytes(16)
-            .tempdir()
-            .unwrap()
-            .path()
-            .to_str()
-            .expect("failed to get temporary directory path")
-            .to_string()
-    }
 
     #[test_case(Sled::new(&new_temp_dir(), "invoices", "output keys", "height").unwrap(); "sled")]
     #[test_case(InMemory::new(); "in-memory")]

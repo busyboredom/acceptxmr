@@ -60,7 +60,6 @@ impl Sled {
 
 impl InvoiceStorage for Sled {
     type Error = SledStorageError;
-    type Iter<'a> = SledIter;
 
     fn insert(&mut self, invoice: Invoice) -> Result<(), SledStorageError> {
         // Prepare key (invoice id).
@@ -147,31 +146,24 @@ impl InvoiceStorage for Sled {
         Ok(self.invoices.scan_prefix(key).next().is_some())
     }
 
-    fn try_iter(&self) -> Result<Self::Iter<'_>, SledStorageError> {
-        Ok(SledIter(self.invoices.iter()))
+    fn try_for_each<F>(&self, mut f: F) -> Result<(), Self::Error>
+    where
+        F: FnMut(Result<Invoice, Self::Error>) -> Result<(), Self::Error>,
+    {
+        self.invoices.iter().try_for_each(move |row| {
+            let invoice_or_err = match row {
+                Ok((_id, ivec)) => bincode::decode_from_slice(&ivec, bincode::config::standard())
+                    .map(|v| v.0)
+                    .map_err(SledStorageError::Deserialize),
+                Err(e) => Err(SledStorageError::Database(e.into())),
+            };
+
+            f(invoice_or_err)
+        })
     }
 
     fn is_empty(&self) -> Result<bool, SledStorageError> {
         Ok(self.invoices.is_empty())
-    }
-}
-
-pub struct SledIter(sled::Iter);
-
-impl Iterator for SledIter {
-    type Item = Result<Invoice, SledStorageError>;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        match self.0.next()? {
-            Ok((_, value)) => {
-                let invoice_or_err =
-                    bincode::decode_from_slice(&value, bincode::config::standard())
-                        .map(|v| v.0)
-                        .map_err(SledStorageError::Deserialize);
-                Some(invoice_or_err)
-            }
-            Err(e) => Some(Err(SledStorageError::Database(e.into()))),
-        }
     }
 }
 

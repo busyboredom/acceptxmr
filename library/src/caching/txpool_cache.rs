@@ -2,9 +2,14 @@ use std::collections::HashMap;
 
 use log::trace;
 use monero::cryptonote::hash::Hashable;
+use thiserror::Error;
 use tokio::join;
 
-use crate::{invoice::Transfer, rpc::RpcClient, AcceptXmrError, SubIndex};
+use crate::{
+    invoice::Transfer,
+    rpc::{RpcClient, RpcError},
+    SubIndex,
+};
 
 pub(crate) struct TxpoolCache {
     rpc_client: RpcClient,
@@ -13,7 +18,7 @@ pub(crate) struct TxpoolCache {
 }
 
 impl TxpoolCache {
-    pub(crate) async fn init(rpc_client: RpcClient) -> Result<TxpoolCache, AcceptXmrError> {
+    pub(crate) async fn init(rpc_client: RpcClient) -> Result<TxpoolCache, TxpoolCacheError> {
         let txs = rpc_client.txpool().await?;
         let transactions = txs.iter().map(|tx| (tx.hash(), tx.clone())).collect();
 
@@ -26,7 +31,7 @@ impl TxpoolCache {
 
     /// Update the txpool cache with newest [tansactions](monero::Transaction)
     /// from daemon txpool. Returns transactions received.
-    pub(crate) async fn update(&mut self) -> Result<Vec<monero::Transaction>, AcceptXmrError> {
+    pub(crate) async fn update(&mut self) -> Result<Vec<monero::Transaction>, TxpoolCacheError> {
         trace!("Checking for new transactions in txpool");
 
         let txpool_hashes = self.rpc_client.txpool_hashes().await?;
@@ -70,4 +75,12 @@ impl TxpoolCache {
             self.discovered_transfers.len(),
         );
     }
+}
+
+/// Errors specific to the block cache.
+#[derive(Error, Debug)]
+pub enum TxpoolCacheError {
+    /// An error originating from a daemon RPC call.
+    #[error("RPC error: {0}")]
+    Rpc(#[from] RpcError),
 }

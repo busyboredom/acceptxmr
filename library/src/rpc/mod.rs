@@ -8,14 +8,19 @@ use std::{
 };
 
 use authentication::{AuthError, AuthInfo};
-use http::StatusCode;
+use backoff::{backoff::Backoff, ExponentialBackoffBuilder};
+use bytes::Bytes;
+use http_body_util::{BodyExt, Full};
 use hyper::{
-    body,
-    client::connect::HttpConnector,
     header::{AUTHORIZATION, WWW_AUTHENTICATE},
-    Body, Method, Request, Uri,
+    http::StatusCode,
+    Method, Request, Uri,
 };
 use hyper_rustls::{HttpsConnector, HttpsConnectorBuilder};
+use hyper_util::{
+    client::legacy::{connect::HttpConnector, Client},
+    rt::TokioExecutor,
+};
 use log::{debug, trace, warn};
 use monero::consensus::{deserialize, encode};
 use serde_json::json;
@@ -27,7 +32,7 @@ const MAX_REQUESTED_TRANSACTIONS: usize = 100;
 
 #[derive(Debug, Clone)]
 pub(crate) struct RpcClient {
-    client: hyper::Client<HttpsConnector<HttpConnector>>,
+    client: Client<HttpsConnector<HttpConnector>, Full<Bytes>>,
     url: Uri,
     timeout: Duration,
     auth_info: Arc<Mutex<Option<AuthInfo>>>,
@@ -46,13 +51,14 @@ impl RpcClient {
         let mut hyper_connector = HttpConnector::new();
         hyper_connector.set_connect_timeout(Some(connection_timeout));
         hyper_connector.enforce_http(false);
+        hyper_connector.set_keepalive(Some(Duration::from_secs(25)));
         let rustls_connector = HttpsConnectorBuilder::new()
             .with_webpki_roots()
             .https_or_http()
             .enable_http1()
             .enable_http2()
             .wrap_connector(hyper_connector);
-        let client = hyper::Client::builder().build(rustls_connector);
+        let client = Client::builder(TokioExecutor::new()).build(rustls_connector);
         let auth_info = Arc::new(Mutex::new(if username.is_some() || password.is_some() {
             Some(AuthInfo::new(
                 username.unwrap_or_default(),
@@ -236,7 +242,7 @@ impl RpcClient {
         let mut req = Request::builder()
             .method(Method::POST)
             .uri(self.url.clone().to_string() + endpoint)
-            .body(Body::from(body.to_owned()))?;
+            .body(Full::new(body.to_owned().into()))?;
         let (method, uri) = (req.method().clone(), req.uri().clone());
 
         // If configured with a username and password, try to authenticate with most
@@ -252,11 +258,17 @@ impl RpcClient {
         }
 
         // Await full response.
-        let mut response = timeout(self.timeout, self.client.request(req)).await??;
+        let mut response = timeout(self.timeout, self.client.request(req))
+            .await?
+            .map_err(|e| RpcError::Request(Box::new(e)))?;
 
         // If response has www-authenticate header and 401 status, perform digest
         // authentication.
-        if response.status() == StatusCode::UNAUTHORIZED
+        let mut exponential_backoff = ExponentialBackoffBuilder::default()
+            .with_max_elapsed_time(None)
+            .with_max_interval(Duration::from_secs(30))
+            .build();
+        while response.status() == StatusCode::UNAUTHORIZED
             && response.headers().contains_key(WWW_AUTHENTICATE)
         {
             debug!("Recieved 401 UNAUTHORIZED response. Performing digest authentication.");
@@ -271,15 +283,30 @@ impl RpcClient {
                 .method(Method::POST)
                 .uri(self.url.clone().to_string() + endpoint)
                 .header(AUTHORIZATION, auth_header)
-                .body(Body::from(body.to_owned()))?;
+                .body(Full::new(body.to_owned().into()))?;
             // Await full response.
-            response = timeout(self.timeout, self.client.request(req)).await??;
+            response = timeout(self.timeout, self.client.request(req))
+                .await?
+                .map_err(|e| RpcError::Request(Box::new(e)))?;
+
+            #[allow(clippy::expect_used)]
+            tokio::time::sleep(
+                exponential_backoff
+                    .next_backoff()
+                    .expect("RPC exponential backoff timed out. This is a bug."),
+            )
+            .await;
         }
 
         let (_parts, body) = response.into_parts();
-        let full_body = body::to_bytes(body).await?;
 
-        Ok(serde_json::from_slice(&full_body)?)
+        Ok(serde_json::from_slice(
+            &body
+                .collect()
+                .await
+                .map_err(|e| RpcError::Request(Box::new(e)))?
+                .to_bytes(),
+        )?)
     }
 
     pub(crate) fn url(&self) -> String {
@@ -290,9 +317,9 @@ impl RpcClient {
 #[derive(Error, Debug)]
 pub enum RpcError {
     #[error("HTTP request failed: {0}")]
-    Http(#[from] hyper::Error),
-    #[error("failed to build HTTP request: {0}")]
-    Request(#[from] hyper::http::Error),
+    Request(Box<dyn std::error::Error + Send + Sync>),
+    #[error("failed to build HTTP Request: {0}")]
+    InvalidRequest(#[from] hyper::http::Error),
     #[error("HTTP request timed out: {0}")]
     Timeout(#[from] error::Elapsed),
     #[error("hex decoding failed: {0}")]

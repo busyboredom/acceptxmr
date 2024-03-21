@@ -1,6 +1,5 @@
 use std::{
     cmp::Ordering,
-    string::ToString,
     sync::{
         atomic::{self, AtomicU32},
         Arc, Mutex, PoisonError,
