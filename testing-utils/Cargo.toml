@@ -1,0 +1,27 @@
+[package]
+name = "testing-utils"
+publish = false
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.70"
+license = "MIT OR Apache-2.0"
+description = "Testing utilities for AcceptXMR"
+repository = "https://github.com/busyboredom/acceptxmr"
+readme = "README.md"
+keywords = ["crypto", "gateway", "monero", "payment", "xmr"]
+categories = ["cryptography::cryptocurrencies"]
+
+[lints]
+workspace = true
+
+[lib]
+name = "testing_utils"
+path = "src/lib.rs"
+
+[dependencies]
+acceptxmr.workspace = true
+httpmock.workspace = true
+log.workspace = true
+serde_json.workspace = true
+tempfile.workspace = true
+tracing-subscriber = { workspace = true, features = ["env-filter"] }

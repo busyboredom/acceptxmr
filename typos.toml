@@ -1,0 +1,8 @@
+[files]
+extend-exclude = ["testing-utils/rpc_resources/**/*.json"]
+
+[default]
+extend-ignore-identifiers-re = [
+  "4A1WSBQdCbUCqt3DaGfmqVFchXScF43M6c5r4B6JXT3dUwuALncU9XTEnRPmUMcB3c16kVP9Y7thFLCJ5BaMW3UmSy93w3w",
+  "84pKaXBd9biTwA7wihzUvrXN2YHoJBdFC4ZxEHQqaPuMFDa8Nyg1mywMXgzvjWBiTCfim7ZRfuJhvHavJrZ4Y7z3THW2Hmf"
+]

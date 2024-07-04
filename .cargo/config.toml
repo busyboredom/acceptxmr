@@ -1,0 +1,5 @@
+[registries.crates-io]
+protocol = "sparse"
+
+[build]
+rustflags = ["--cfg", "tokio_unstable"]
