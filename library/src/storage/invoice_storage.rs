@@ -1,5 +1,3 @@
-use std::cmp::Ordering;
-
 use crate::{Invoice, InvoiceId, SubIndex};
 
 /// The [`InvoiceStorage`] trait describes the invoice storage layer for
@@ -7,10 +5,6 @@ use crate::{Invoice, InvoiceId, SubIndex};
 pub trait InvoiceStorage: Send + Sync {
     /// Error type for the storage layer.
     type Error: std::error::Error + Send + 'static;
-    /// An iterator over all invoices in storage.
-    type Iter<'a>: Iterator<Item = Result<Invoice, Self::Error>>
-    where
-        Self: 'a;
 
     /// Insert invoice into storage for tracking.
     ///
@@ -42,6 +36,13 @@ pub trait InvoiceStorage: Send + Sync {
     /// Returns an error if the invoice could not read.
     fn get(&self, invoice_id: InvoiceId) -> Result<Option<Invoice>, Self::Error>;
 
+    /// Retrieve all currently-tracked invoice ids from storage.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the invoice could not read.
+    fn get_ids(&self) -> Result<Vec<InvoiceId>, Self::Error>;
+
     /// Returns whether an invoice for the given subaddress exists in storage.
     ///
     /// # Errors
@@ -50,34 +51,16 @@ pub trait InvoiceStorage: Send + Sync {
     /// could not be determined.
     fn contains_sub_index(&self, sub_index: SubIndex) -> Result<bool, Self::Error>;
 
-    /// Returns an iterator over all invoices in storage.
+    /// Iterates over all invoices in storage, executing the supplied closure on
+    /// each.
     ///
     /// # Errors
     ///
-    /// Returns an error if the iterator could not be created due to an
-    /// underlying issue with the storage layer.
-    fn try_iter(&self) -> Result<Self::Iter<'_>, Self::Error>;
-
-    /// Recover lowest current height of an invoice in storage.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if the lowest height of an invoice could not be
-    /// determined.
-    fn lowest_height(&self) -> Result<Option<u64>, Self::Error> {
-        self.try_iter()?
-            .min_by(|invoice_1, invoice_2| {
-                match (invoice_1, invoice_2) {
-                    // If there is an error, we want to return it.
-                    (Err(_), _) => Ordering::Greater,
-                    (_, Err(_)) => Ordering::Less,
-                    // Otherwise, return the one with the lower height.
-                    (Ok(inv1), Ok(inv2)) => inv1.current_height().cmp(&inv2.current_height()),
-                }
-            })
-            .transpose()
-            .map(|maybe_invoice| maybe_invoice.map(|invoice| invoice.current_height()))
-    }
+    /// Stops iterating and returns an error if the supplied closure returns an
+    /// error.
+    fn try_for_each<F>(&self, f: F) -> Result<(), Self::Error>
+    where
+        F: FnMut(Result<Invoice, Self::Error>) -> Result<(), Self::Error>;
 
     /// Returns `true` if there are no invoices in storage.
     ///
@@ -85,8 +68,31 @@ pub trait InvoiceStorage: Send + Sync {
     ///
     /// Returns an error if there was an underlying issue with the storage
     /// layer.
-    fn is_empty(&self) -> Result<bool, Self::Error> {
-        Ok(self.try_iter()?.next().is_none())
+    fn is_empty(&self) -> Result<bool, Self::Error>;
+
+    /// Find lowest current height of an invoice in storage.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the lowest height of an invoice could not be
+    /// determined.
+    fn lowest_height(&self) -> Result<Option<u64>, Self::Error> {
+        let mut lowest = None;
+        self.try_for_each(|invoice_or_err| {
+            let current_height = invoice_or_err?.current_height();
+            match lowest {
+                Some(l) if l > current_height => {
+                    lowest = Some(current_height);
+                }
+                None => {
+                    lowest = Some(current_height);
+                }
+                Some(_) => {}
+            }
+            Ok(())
+        })?;
+
+        Ok(lowest)
     }
 }
 
@@ -95,8 +101,8 @@ pub trait InvoiceStorage: Send + Sync {
 mod test {
     use std::fmt::{Debug, Display};
 
-    use tempfile::Builder;
     use test_case::test_case;
+    use testing_utils::new_temp_dir;
 
     use crate::{
         storage::{
@@ -106,21 +112,9 @@ mod test {
         Invoice, SubIndex,
     };
 
-    fn new_temp_dir() -> String {
-        Builder::new()
-            .prefix("temp_db_")
-            .rand_bytes(16)
-            .tempdir()
-            .unwrap()
-            .path()
-            .to_str()
-            .expect("failed to get temporary directory path")
-            .to_string()
-    }
-
     fn dummy_invoice() -> Invoice {
         Invoice::new(
-            "4A1WSBQdCbUCqt3DaGfmqVFchXScF43M6c5r4B6JXT3dUwuALncU9XTEnRPmUMcB3c16kVP9Y7thFLCJ5BaMW3UmSy93w3w".to_string(),
+            "4a1wsbqdcbucqt3dagfmqvfchxscf43m6c5r4b6jxt3duwualncu9xtenrpmumcb3c16kvp9y7thflcj5bamw3umsy93w3w".to_string(),
             SubIndex::new(123, 123),
             123,
             1,
@@ -130,14 +124,25 @@ mod test {
         )
     }
 
+    fn dummy_invoice_2() -> Invoice {
+        Invoice::new(
+            "4A1WSBQdCbUCqt3DaGfmqVFchXScF43M6c5r4B6JXT3dUwuALncU9XTEnRPmUMcB3c16kVP9Y7thFLCJ5BaMW3UmSy93w3w".to_string(),
+            SubIndex::new(321, 321),
+            321,
+           2,
+            2,
+            2,
+            "description_2".to_string(),
+        )
+    }
+
     #[test_case(Sled::new(&new_temp_dir(), "invoices", "output keys", "height").unwrap(); "sled")]
     #[test_case(InMemory::new(); "in-memory")]
     #[test_case(Sqlite::new(":memory:", "invoices", "output keys", "height").unwrap(); "sqlite")]
-    fn insert_and_get<'a, S, E, I>(mut store: S)
+    fn insert_and_get<S, E>(mut store: S)
     where
-        S: InvoiceStorage<Error = E, Iter<'a> = I> + 'static,
+        S: InvoiceStorage<Error = E> + 'static,
         E: Debug + Display + Send,
-        I: Iterator,
     {
         let invoice = dummy_invoice();
         store.insert(invoice.clone()).unwrap();
@@ -147,11 +152,10 @@ mod test {
     #[test_case(Sled::new(&new_temp_dir(), "invoices", "output keys", "height").unwrap(); "sled")]
     #[test_case(InMemory::new(); "in-memory")]
     #[test_case(Sqlite::new(":memory:", "invoices", "output keys", "height").unwrap(); "sqlite")]
-    fn insert_existing<'a, S, E, I>(mut store: S)
+    fn insert_existing<S, E>(mut store: S)
     where
-        S: InvoiceStorage<Error = E, Iter<'a> = I> + 'static,
+        S: InvoiceStorage<Error = E> + 'static,
         E: Debug + Display + Send,
-        I: Iterator,
     {
         let mut invoice = dummy_invoice();
 
@@ -168,11 +172,10 @@ mod test {
     #[test_case(Sled::new(&new_temp_dir(), "invoices", "output keys", "height").unwrap(); "sled")]
     #[test_case(InMemory::new(); "in-memory")]
     #[test_case(Sqlite::new(":memory:", "invoices", "output keys", "height").unwrap(); "sqlite")]
-    fn remove<'a, S, E, I>(mut store: S)
+    fn remove<S, E>(mut store: S)
     where
-        S: InvoiceStorage<Error = E, Iter<'a> = I> + 'static,
+        S: InvoiceStorage<Error = E> + 'static,
         E: Debug + Display + Send,
-        I: Iterator,
     {
         let invoice = dummy_invoice();
         store.insert(invoice.clone()).unwrap();
@@ -185,11 +188,10 @@ mod test {
     #[test_case(Sled::new(&new_temp_dir(), "invoices", "output keys", "height").unwrap(); "sled")]
     #[test_case(InMemory::new(); "in-memory")]
     #[test_case(Sqlite::new(":memory:", "invoices", "output keys", "height").unwrap(); "sqlite")]
-    fn remove_non_existent<'a, S, E, I>(mut store: S)
+    fn remove_non_existent<S, E>(mut store: S)
     where
-        S: InvoiceStorage<Error = E, Iter<'a> = I> + 'static,
+        S: InvoiceStorage<Error = E> + 'static,
         E: Debug + Display + Send,
-        I: Iterator,
     {
         let invoice = dummy_invoice();
         assert_eq!(store.get(invoice.id()).unwrap(), None);
@@ -201,11 +203,10 @@ mod test {
     #[test_case(Sled::new(&new_temp_dir(), "invoices", "output keys", "height").unwrap(); "sled")]
     #[test_case(InMemory::new(); "in-memory")]
     #[test_case(Sqlite::new(":memory:", "invoices", "output keys", "height").unwrap(); "sqlite")]
-    fn update<'a, S, E, I>(mut store: S)
+    fn update<S, E>(mut store: S)
     where
-        S: InvoiceStorage<Error = E, Iter<'a> = I> + 'static,
+        S: InvoiceStorage<Error = E> + 'static,
         E: Debug + Display + Send,
-        I: Iterator,
     {
         let invoice = dummy_invoice();
         store.insert(invoice.clone()).unwrap();
@@ -223,11 +224,10 @@ mod test {
     #[test_case(Sled::new(&new_temp_dir(), "invoices", "output keys", "height").unwrap(); "sled")]
     #[test_case(InMemory::new(); "in-memory")]
     #[test_case(Sqlite::new(":memory:", "invoices", "output keys", "height").unwrap(); "sqlite")]
-    fn update_empty<'a, S, E, I>(mut store: S)
+    fn update_empty<S, E>(mut store: S)
     where
-        S: InvoiceStorage<Error = E, Iter<'a> = I> + 'static,
+        S: InvoiceStorage<Error = E> + 'static,
         E: Debug + Display + Send,
-        I: Iterator,
     {
         let invoice = dummy_invoice();
         assert_eq!(store.update(invoice.clone()).unwrap(), None);
@@ -237,11 +237,10 @@ mod test {
     #[test_case(&Sled::new(&new_temp_dir(), "invoices", "output keys", "height").unwrap(); "sled")]
     #[test_case(&InMemory::new(); "in-memory")]
     #[test_case(&Sqlite::new(":memory:", "invoices", "output keys", "height").unwrap(); "sqlite")]
-    fn get_non_existent<'a, S, E, I>(store: &S)
+    fn get_non_existent<S, E>(store: &S)
     where
-        S: InvoiceStorage<Error = E, Iter<'a> = I> + 'static,
+        S: InvoiceStorage<Error = E> + 'static,
         E: Debug + Display + Send,
-        I: Iterator,
     {
         let invoice = dummy_invoice();
         assert_eq!(store.get(invoice.id()).unwrap(), None);
@@ -252,11 +251,36 @@ mod test {
     #[test_case(Sled::new(&new_temp_dir(), "invoices", "output keys", "height").unwrap(); "sled")]
     #[test_case(InMemory::new(); "in-memory")]
     #[test_case(Sqlite::new(":memory:", "invoices", "output keys", "height").unwrap(); "sqlite")]
-    fn contains_subindex<'a, S, E, I>(mut store: S)
+    fn get_ids<S, E>(mut store: S)
     where
-        S: InvoiceStorage<Error = E, Iter<'a> = I> + 'static,
+        S: InvoiceStorage<Error = E> + 'static,
         E: Debug + Display + Send,
-        I: Iterator,
+    {
+        assert_eq!(store.get_ids().unwrap(), Vec::new());
+
+        let invoice_1 = dummy_invoice();
+        store.insert(invoice_1.clone()).unwrap();
+
+        assert_eq!(store.get_ids().unwrap(), vec![invoice_1.id()]);
+
+        let invoice_2 = dummy_invoice_2();
+        store.insert(invoice_2.clone()).unwrap();
+
+        let mut expected_ids = vec![invoice_1.id(), invoice_2.id()];
+        expected_ids.sort();
+        let mut actual_ids = store.get_ids().unwrap();
+        actual_ids.sort();
+
+        assert_eq!(expected_ids, actual_ids);
+    }
+
+    #[test_case(Sled::new(&new_temp_dir(), "invoices", "output keys", "height").unwrap(); "sled")]
+    #[test_case(InMemory::new(); "in-memory")]
+    #[test_case(Sqlite::new(":memory:", "invoices", "output keys", "height").unwrap(); "sqlite")]
+    fn contains_subindex<S, E>(mut store: S)
+    where
+        S: InvoiceStorage<Error = E> + 'static,
+        E: Debug + Display + Send,
     {
         let invoice = dummy_invoice();
         store.insert(invoice).unwrap();
@@ -267,11 +291,10 @@ mod test {
     #[test_case(&Sled::new(&new_temp_dir(), "invoices", "output keys", "height").unwrap(); "sled")]
     #[test_case(&InMemory::new(); "in-memory")]
     #[test_case(&Sqlite::new(":memory:", "invoices", "output keys", "height").unwrap(); "sqlite")]
-    fn doesnt_contain_subindex<'a, S, E, I>(store: &S)
+    fn doesnt_contain_subindex<S, E>(store: &S)
     where
-        S: InvoiceStorage<Error = E, Iter<'a> = I> + 'static,
+        S: InvoiceStorage<Error = E> + 'static,
         E: Debug + Display + Send,
-        I: Iterator,
     {
         assert!(!store.contains_sub_index(SubIndex::new(123, 123)).unwrap());
     }
@@ -279,30 +302,79 @@ mod test {
     #[test_case(&mut Sled::new(&new_temp_dir(), "invoices", "output keys", "height").unwrap(); "sled")]
     #[test_case(&mut InMemory::new(); "in-memory")]
     #[test_case(&mut Sqlite::new(":memory:", "invoices", "output keys", "height").unwrap(); "sqlite")]
-    fn iterate<'a, S, E, I>(store: &'a mut S)
+    fn for_each<S, E>(store: &mut S)
     where
-        S: InvoiceStorage<Error = E, Iter<'a> = I>,
+        S: InvoiceStorage<Error = E>,
         E: Debug + Display + Send,
-        I: Iterator<Item = Result<Invoice, E>>,
     {
         let invoice = dummy_invoice();
         store.insert(invoice.clone()).unwrap();
+        let mut count = 0;
 
-        let mut iter = store.try_iter().unwrap();
-        assert_eq!(iter.next().transpose().unwrap(), Some(invoice));
-        assert_eq!(iter.next().transpose().unwrap(), None);
+        store
+            .try_for_each(|invoice_or_err| {
+                assert_eq!(invoice_or_err.unwrap(), invoice);
+                count += 1;
+                Ok(())
+            })
+            .unwrap();
+
+        assert_eq!(count, 1);
     }
 
-    #[test_case(&Sled::new(&new_temp_dir(), "invoices", "output keys", "height").unwrap(); "sled")]
-    #[test_case(&InMemory::new(); "in-memory")]
-    #[test_case(&Sqlite::new(":memory:", "invoices", "output keys", "height").unwrap(); "sqlite")]
-    fn iterate_empty<'a, S, E, I>(store: &'a S)
+    #[test_case(&mut Sled::new(&new_temp_dir(), "invoices", "output keys", "height").unwrap(); "sled")]
+    #[test_case(&mut InMemory::new(); "in-memory")]
+    #[test_case(&mut Sqlite::new(":memory:", "invoices", "output keys", "height").unwrap(); "sqlite")]
+    fn for_each_empty<S, E>(store: &mut S)
     where
-        S: InvoiceStorage<Error = E, Iter<'a> = I>,
+        S: InvoiceStorage<Error = E>,
         E: Debug + Display + Send,
-        I: Iterator<Item = Result<Invoice, E>>,
     {
-        let mut iter = store.try_iter().unwrap();
-        assert_eq!(iter.next().transpose().unwrap(), None);
+        let invoice = dummy_invoice();
+        let mut count = 0;
+
+        store
+            .try_for_each(|invoice_or_err| {
+                assert_eq!(invoice_or_err.unwrap(), invoice);
+                count += 1;
+                Ok(())
+            })
+            .unwrap();
+
+        assert_eq!(count, 0);
+    }
+
+    #[test_case(&mut Sled::new(&new_temp_dir(), "invoices", "output keys", "height").unwrap(); "sled")]
+    #[test_case(&mut InMemory::new(); "in-memory")]
+    #[test_case(&mut Sqlite::new(":memory:", "invoices", "output keys", "height").unwrap(); "sqlite")]
+    fn is_empty<S, E>(store: &mut S)
+    where
+        S: InvoiceStorage<Error = E>,
+        E: Debug + Display + Send,
+    {
+        assert!(store.is_empty().unwrap());
+
+        let invoice = dummy_invoice();
+        store.insert(invoice.clone()).unwrap();
+        assert!(!store.is_empty().unwrap());
+
+        store.remove(invoice.id()).unwrap();
+        assert!(store.is_empty().unwrap());
+    }
+
+    #[test_case(&mut Sled::new(&new_temp_dir(), "invoices", "output keys", "height").unwrap(); "sled")]
+    #[test_case(&mut InMemory::new(); "in-memory")]
+    #[test_case(&mut Sqlite::new(":memory:", "invoices", "output keys", "height").unwrap(); "sqlite")]
+    fn lowest_height<S, E>(store: &mut S)
+    where
+        S: InvoiceStorage<Error = E>,
+        E: Debug + Display + Send,
+    {
+        assert_eq!(store.lowest_height().unwrap(), None);
+
+        let invoice = dummy_invoice();
+        store.insert(invoice.clone()).unwrap();
+
+        assert_eq!(store.lowest_height().unwrap(), Some(0));
     }
 }

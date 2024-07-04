@@ -1,9 +1,6 @@
-#![warn(clippy::pedantic)]
+//! Use a custom storage layer.
 
-use std::collections::{
-    btree_map::{self, Entry},
-    BTreeMap,
-};
+use std::collections::{btree_map::Entry, BTreeMap};
 
 use acceptxmr::{
     storage::{HeightStorage, InvoiceStorage, OutputId, OutputKeyStorage, OutputPubKey, Storage},
@@ -33,6 +30,7 @@ async fn main() {
     )
     .daemon_url("http://node.sethforprivacy.com:18089".to_string())
     .build()
+    .await
     .unwrap();
 
     info!("Payment gateway created.");
@@ -41,9 +39,11 @@ async fn main() {
     // custom storage layer.
     let invoice_id = payment_gateway
         .new_invoice(1000, 2, 5, "Demo invoice".to_string())
+        .await
         .unwrap();
     let invoice = payment_gateway
         .get_invoice(invoice_id)
+        .await
         .unwrap()
         .expect("invoice not found");
 
@@ -53,9 +53,9 @@ async fn main() {
     );
 }
 
-// This example uses a BTreeMap for simplicity, but you can implement this trait
-// on virtually any storage layer you choose. Postgres or MySQL, CSV files,
-// whatever works best for your application.
+/// This example storage layer uses a `BTreeMap` for simplicity, but you can
+/// implement this trait on virtually any storage layer you choose. `Postgres`
+/// or `MySQL`, CSV files, whatever works best for your application.
 pub struct MyCustomStorage {
     invoices: BTreeMap<InvoiceId, Invoice>,
     output_keys: BTreeMap<OutputPubKey, OutputId>,
@@ -82,7 +82,6 @@ impl Default for MyCustomStorage {
 
 impl InvoiceStorage for MyCustomStorage {
     type Error = MyCustomStorageError;
-    type Iter<'a> = MyCustomStorageIter<'a>;
 
     fn insert(&mut self, invoice: Invoice) -> Result<(), Self::Error> {
         if self.invoices.contains_key(&invoice.id()) {
@@ -107,6 +106,10 @@ impl InvoiceStorage for MyCustomStorage {
         Ok(self.invoices.get(&invoice_id).cloned())
     }
 
+    fn get_ids(&self) -> Result<Vec<InvoiceId>, Self::Error> {
+        Ok(self.invoices.keys().copied().collect())
+    }
+
     fn contains_sub_index(&self, sub_index: SubIndex) -> Result<bool, Self::Error> {
         Ok(self
             .invoices
@@ -115,19 +118,17 @@ impl InvoiceStorage for MyCustomStorage {
             .is_some())
     }
 
-    fn try_iter(&self) -> Result<Self::Iter<'_>, Self::Error> {
-        let iter = self.invoices.values();
-        Ok(MyCustomStorageIter(iter))
+    fn try_for_each<F>(&self, mut f: F) -> Result<(), Self::Error>
+    where
+        F: FnMut(Result<Invoice, Self::Error>) -> Result<(), Self::Error>,
+    {
+        self.invoices
+            .iter()
+            .try_for_each(|(_, invoice)| f(Ok(invoice.clone())))
     }
-}
 
-pub struct MyCustomStorageIter<'a>(btree_map::Values<'a, InvoiceId, Invoice>);
-
-impl<'a> Iterator for MyCustomStorageIter<'a> {
-    type Item = Result<Invoice, MyCustomStorageError>;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        self.0.next().map(|v| Ok(v.clone()))
+    fn is_empty(&self) -> Result<bool, Self::Error> {
+        Ok(self.invoices.is_empty())
     }
 }
 

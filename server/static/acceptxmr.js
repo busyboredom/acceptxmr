@@ -1,47 +1,15 @@
 // Try to load existing invoice on page load.
 async function init() {
-    let response = await fetch("/update");
-    if (response.status !== 410 ) {
+    const urlParams = new URLSearchParams(window.location.search);
+    const id = urlParams.get('id');
+    let response = await fetch("/invoice?id=" + id);
+    if (response.status !== 410 && response.status !== 404 ) {
         let invoiceUpdate = await response.json();
         displayInvoiceUpdate(invoiceUpdate);
-        await next(true);
-    }
-}
-init()
-
-async function next(hasAddress) {
-    // Hide prep stuff, show payment stuff.
-    document.getElementById("preperation-content").style.display = "None";
-    document.getElementById("payment-content").style.display = "inherit";
-
-    // Create invoice.
-    if (!hasAddress) {
-        document.getElementById("instruction").innerHTML = "Loading...";
-        await newAddress();
-    } else {
         newWebsocket();
     }
 }
-
-async function newAddress() {
-    const message = document.getElementById("message").value;
-    const checkOutInfo = {
-        method: "POST",
-        body: JSON.stringify({
-            "message": message
-        }),
-        headers: {
-            'content-type': 'application/json'
-        }
-    };
-
-    await fetch("/checkout", checkOutInfo);
-    newWebsocket();
-
-    let response = await fetch("/update");
-    let invoiceUpdate = await response.json();
-    displayInvoiceUpdate(invoiceUpdate);
-}
+init()
 
 function displayInvoiceUpdate(invoiceUpdate) {
     console.log(invoiceUpdate);
@@ -50,39 +18,31 @@ function displayInvoiceUpdate(invoiceUpdate) {
     document.getElementById("paid").innerHTML = picoToXMR(invoiceUpdate.amount_paid);
     document.getElementById("due").innerHTML = picoToXMR(invoiceUpdate.amount_requested);
 
-    // Show confirmations/required.
-    var confirmations = invoiceUpdate.confirmations;
-    document.getElementById("confirmations").innerHTML = Math.max(0, confirmations);
-    document.getElementById("confirmations-required").innerHTML = invoiceUpdate.confirmations_required;
-
     // Show instructive text depending on invoice state.
     var instructionString = "Loading...";
-    var instructionClass = "acceptxmr-instruction";
-    var newAddressBtnHidden = true;
+    var instructionClass = "";
+    var addressCopyButtonDisabled = false;
     var closeReason = null;
-    if (confirmations !== null && confirmations >= invoiceUpdate.confirmations_required) {
-        instructionString = "Paid! Thank you"
-        closeReason = "Confirmed";
-    } else if (invoiceUpdate.amount_paid >= invoiceUpdate.amount_requested) {
-        instructionString = "Paid! Waiting for Confirmation..."
+    if (invoiceUpdate.amount_paid >= invoiceUpdate.amount_requested) {
+        instructionString = "Paid! Thank you";
+        closeReason = "Paid";
     } else if (invoiceUpdate.expiration_in > 2) {
-        instructionString = "Send Monero to Address Below"
+        instructionString = "Send Monero to Address Below";
     } else if (invoiceUpdate.expiration_in > 0) {
         instructionString = "Address Expiring Soon";
         instructionClass += " warning";
-        newAddressBtnHidden = false;
+        addressCopyButtonDisabled = true;
     } else {
         instructionString = "Address Expired!";
-        newAddressBtnHidden = false;
         closeReason = "Expired";
+        addressCopyButtonDisabled = true;
     }
-    document.getElementById("instruction").innerHTML = instructionString;
-    document.getElementById("instruction").classList = instructionClass;
+    document.getElementById("state-message").innerHTML = instructionString;
+    document.getElementById("state-message").classList = instructionClass;
 
     // Hide address if nearing expiration.
-    document.getElementById("new-address-btn").hidden = newAddressBtnHidden;
-    document.getElementById("address-copy-btn").disabled = !newAddressBtnHidden;
-    if (newAddressBtnHidden) {
+    document.getElementById("address-copy-btn").disabled = addressCopyButtonDisabled;
+    if (!addressCopyButtonDisabled) {
         document.getElementById("address").innerHTML = invoiceUpdate.address;
 
         const qr = qrcode(0, "M");
@@ -104,7 +64,9 @@ function newWebsocket() {
     }
 
     // Open websocket.
-    window.acceptxmrSocket = new WebSocket("ws://localhost:8080/ws/");
+    const urlParams = new URLSearchParams(window.location.search);
+    const id = urlParams.get('id');
+    window.acceptxmrSocket = new WebSocket("ws://localhost:8080/invoice/ws?id=" + id);
 
     window.acceptxmrSocket.onmessage = function (event) {
         let closeReason = displayInvoiceUpdate(JSON.parse(event.data));

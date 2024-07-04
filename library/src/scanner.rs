@@ -2,9 +2,8 @@ use std::{
     collections::HashMap,
     sync::{
         atomic::{AtomicU64, Ordering},
-        Arc, PoisonError, RwLock,
+        Arc, Mutex, PoisonError,
     },
-    thread::{self, JoinHandle},
 };
 
 use log::{debug, error, info, trace};
@@ -13,44 +12,54 @@ use monero::{
     cryptonote::{hash::Hashable, onetime_key::SubKeyChecker},
     Amount, OwnedTxOut, Transaction, VarInt,
 };
-use tokio::{join, sync::Mutex};
-
-use crate::{
-    caching::{BlockCache, TxpoolCache},
-    invoice::Transfer,
-    pubsub::Publisher,
-    rpc::RpcClient,
-    storage::{HeightStorage, OutputId, OutputKeyStorage, OutputPubKey, Storage},
-    AcceptXmrError, Invoice, SubIndex,
+use rayon::prelude::*;
+use thiserror::Error;
+use tokio::{
+    join,
+    sync::Mutex as AsyncMutex,
+    task::{JoinError, JoinHandle},
 };
 
-pub(crate) struct Scanner<S: Storage> {
-    store: Arc<RwLock<S>>,
+use crate::{
+    caching::{BlockCache, BlockCacheError, TxpoolCache, TxpoolCacheError},
+    invoice::Transfer,
+    monerod_client::{
+        Client as MonerodClient, RpcClient as MonerodRpcClient, RpcError as MonerodRpcError,
+    },
+    pubsub::Publisher,
+    storage::{Client as StorageClient, OutputId, OutputPubKey, Storage, StorageError},
+    Invoice, SubIndex,
+};
+
+pub(crate) struct Scanner<S: Storage, M: MonerodClient = MonerodRpcClient> {
+    store: StorageClient<S>,
     // Block cache and txpool cache are mutexed to allow concurrent block &
     // txpool scanning. This is necessary even though txpool scanning doesn't
     // use the block cache, and vice versa, because rust doesn't allow mutably
     // borrowing only part of "self".
-    block_cache: Mutex<BlockCache>,
-    txpool_cache: Mutex<TxpoolCache>,
+    block_cache: AsyncMutex<BlockCache<M>>,
+    txpool_cache: AsyncMutex<TxpoolCache<M>>,
     publisher: Arc<Publisher>,
     first_scan: bool,
 }
 
-impl<S: Storage> Scanner<S> {
+impl<S: Storage + 'static, M: MonerodClient> Scanner<S, M> {
     pub(crate) async fn new(
-        rpc_client: RpcClient,
-        store: Arc<RwLock<S>>,
+        monerod_client: M,
+        store: StorageClient<S>,
         block_cache_size: usize,
         atomic_cache_height: Arc<AtomicU64>,
         atomic_daemon_height: Arc<AtomicU64>,
         // Optionally specify the height to start scanning from.
         initial_height: Option<u64>,
         publisher: Arc<Publisher>,
-    ) -> Result<Scanner<S>, AcceptXmrError> {
-        trace!("Retrieving daemon hight for scanner setup.");
-        let daemon_height = rpc_client.daemon_height().await?;
+    ) -> Result<Scanner<S, M>, ScannerError> {
+        trace!("Retrieving daemon height for scanner setup.");
 
-        let cache_height = last_height(&store)?
+        let daemon_height = monerod_client.daemon_height().await?;
+
+        let cache_height = last_height(&store)
+            .await?
             .or(initial_height)
             .unwrap_or(daemon_height)
             .min(daemon_height)
@@ -65,18 +74,25 @@ impl<S: Storage> Scanner<S> {
         // Initialize block cache and txpool cache.
         let (block_cache, txpool_cache) = join!(
             BlockCache::init(
-                rpc_client.clone(),
+                monerod_client.clone(),
                 block_cache_size,
                 atomic_cache_height,
                 atomic_daemon_height
             ),
-            TxpoolCache::init(rpc_client.clone())
+            TxpoolCache::init(monerod_client.clone())
         );
+
+        // Initialize the publisher with all currently-tracked invoices.
+        store
+            .get_invoice_ids()
+            .await?
+            .iter()
+            .for_each(|&id| publisher.insert_invoice(id));
 
         Ok(Scanner {
             store,
-            block_cache: Mutex::new(block_cache?),
-            txpool_cache: Mutex::new(txpool_cache?),
+            block_cache: AsyncMutex::new(block_cache?),
+            txpool_cache: AsyncMutex::new(txpool_cache?),
             publisher,
             first_scan: true,
         })
@@ -86,7 +102,7 @@ impl<S: Storage> Scanner<S> {
     pub(crate) async fn scan(
         &mut self,
         sub_key_checker: &SubKeyChecker<'_>,
-    ) -> Result<(), AcceptXmrError> {
+    ) -> Result<(), ScannerError> {
         // Update block and txpool caches.
         let (blocks_updated, new_transactions) = self.update_caches().await?;
 
@@ -129,11 +145,7 @@ impl<S: Storage> Scanner<S> {
                 invoice.index(),
                 invoice
             );
-            let result = self
-                .store
-                .write()
-                .unwrap_or_else(PoisonError::into_inner)
-                .update(invoice.clone());
+            let result = self.store.update_invoice(invoice.clone()).await;
             if let Err(e) = result {
                 error!(
                     "Failed to save update to invoice for index {} to database: {}",
@@ -141,23 +153,22 @@ impl<S: Storage> Scanner<S> {
                     e
                 );
             } else {
-                // If the update was successful, send an update that down the subscriber
-                // channel.
+                // If the update was successful, send an update down the
+                // subscriber channel.
                 self.publisher.send_updates(&invoice).await;
+                debug!(
+                    "Published invoice update for subaddress index {}",
+                    invoice.index()
+                );
             }
         }
 
         // Update last scanned height in the database.
         let cache_height = self.block_cache.lock().await.height();
-        self.store
-            .write()
-            .unwrap_or_else(PoisonError::into_inner)
-            .upsert(cache_height)
-            .map_err(|e| AcceptXmrError::Storage(Box::new(e)))?;
+        self.store.upsert_height(cache_height).await?;
 
         // Flush changes to the database.
-        Storage::flush(&*self.store.read().unwrap_or_else(PoisonError::into_inner))
-            .map_err(|e| AcceptXmrError::Storage(Box::new(e)))?;
+        self.store.flush().await?;
 
         Ok(())
     }
@@ -166,18 +177,14 @@ impl<S: Storage> Scanner<S> {
         &self,
         transfers: Vec<(SubIndex, Transfer)>,
         blocks_updated: usize,
-    ) -> Result<Vec<Invoice>, AcceptXmrError> {
+    ) -> Result<Vec<Invoice>, ScannerError> {
         let block_cache_height = self.block_cache.lock().await.height();
         let deepest_update = block_cache_height - blocks_updated as u64 + 1;
 
-        let mut updated_invoices = Vec::new();
-        for invoice_or_err in self
-            .store
-            .read()
-            .unwrap_or_else(PoisonError::into_inner)
-            .try_iter()
-            .map_err(|e| AcceptXmrError::Storage(Box::new(e)))?
-        {
+        let updated_invoices = Arc::new(Mutex::new(Vec::new()));
+        let cloned_invoices = updated_invoices.clone();
+        // TODO: Find a way to parallelize this.
+        self.store.try_for_each_invoice(move |invoice_or_err| {
             // Retrieve old invoice object.
             let old_invoice = match invoice_or_err {
                 Ok(p) => p,
@@ -185,7 +192,8 @@ impl<S: Storage> Scanner<S> {
                     error!(
                         "Failed to retrieve old invoice object from database while iterating through database: {}", e
                     );
-                    continue;
+                    // Return OK here because we still want to process the others.
+                    return Ok(());
                 }
             };
             let mut invoice = old_invoice.clone();
@@ -232,13 +240,19 @@ impl<S: Storage> Scanner<S> {
 
                 // This invoice has been updated. We can now add it in with the other
                 // updated_invoices.
-                updated_invoices.push(invoice);
+                cloned_invoices.lock().unwrap_or_else(PoisonError::into_inner).push(invoice);
             }
-        }
+
+            Ok(())
+        }).await?;
+        let updated_invoices = updated_invoices
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .to_vec();
         Ok(updated_invoices)
     }
 
-    async fn update_caches(&self) -> Result<(usize, Vec<Transaction>), AcceptXmrError> {
+    async fn update_caches(&self) -> Result<(usize, Vec<Transaction>), ScannerError> {
         // Update block cache.
         let mut block_cache = self.block_cache.lock().await;
         let blocks_updated = block_cache.update().await?;
@@ -258,7 +272,7 @@ impl<S: Storage> Scanner<S> {
         &self,
         sub_key_checker: &SubKeyChecker<'_>,
         mut blocks_updated: usize,
-    ) -> Result<Vec<(SubIndex, Transfer)>, AcceptXmrError> {
+    ) -> Result<Vec<(SubIndex, Transfer)>, ScannerError> {
         let block_cache = self.block_cache.lock().await;
 
         // If this is the first scan, we want to scan all the blocks in the cache.
@@ -271,12 +285,14 @@ impl<S: Storage> Scanner<S> {
         // Scan updated blocks.
         for i in (0..blocks_updated).rev() {
             let transactions = &block_cache.blocks()[i].transactions;
-            let amounts_received = self.scan_transactions(transactions, sub_key_checker)?;
+            let amounts_received = self
+                .scan_transactions(transactions, sub_key_checker)
+                .await?;
             trace!(
                 "Scanned {} transactions from block {}, and found {} transactions to tracked invoices",
                 transactions.len(),
                 block_cache.blocks()[i].height,
-                amounts_received.len()
+                amounts_received.len(),
             );
 
             let block_cache_height: u64 = block_cache.height() - i as u64;
@@ -306,7 +322,7 @@ impl<S: Storage> Scanner<S> {
         &self,
         sub_key_checker: &SubKeyChecker<'_>,
         new_transactions: &[Transaction],
-    ) -> Result<Vec<(SubIndex, Transfer)>, AcceptXmrError> {
+    ) -> Result<Vec<(SubIndex, Transfer)>, ScannerError> {
         let mut txpool_cache = self.txpool_cache.lock().await;
 
         // Transfers previously discovered in the txpool (no reason to scan the same
@@ -314,7 +330,9 @@ impl<S: Storage> Scanner<S> {
         let discovered_transfers = txpool_cache.discovered_transfers();
 
         // Scan txpool.
-        let amounts_received = self.scan_transactions(new_transactions, sub_key_checker)?;
+        let amounts_received = self
+            .scan_transactions(new_transactions, sub_key_checker)
+            .await?;
         trace!(
             "Scanned {} transactions from txpool, and found {} transfers for tracked invoices",
             new_transactions.len(),
@@ -349,28 +367,41 @@ impl<S: Storage> Scanner<S> {
             .collect())
     }
 
-    fn scan_transactions(
+    async fn scan_transactions(
         &self,
         transactions: &[monero::Transaction],
         sub_key_checker: &SubKeyChecker<'_>,
-    ) -> Result<HashMap<monero::Hash, Vec<OwnedAmount>>, AcceptXmrError> {
+    ) -> Result<HashMap<monero::Hash, Vec<OwnedAmount>>, ScannerError> {
         let mut amounts_received = HashMap::new();
-        for tx in transactions {
-            // Ensure the time lock is zero.
-            if tx.prefix().unlock_time != VarInt(0) {
-                debug!("Saw time locked transaction with hash {}", tx.hash());
-                continue;
-            }
 
-            // Scan transaction for owned outputs.
-            let owned_outputs = tx.check_outputs_with(sub_key_checker)?;
+        let owned_outputs_per_tx: Vec<(monero::Hash, Vec<OwnedTxOut<'_>>)> = transactions
+            .par_iter()
+            .filter(|tx| {
+                // Ensure the time lock is zero.
+                if tx.prefix().unlock_time == VarInt(0) {
+                    true
+                } else {
+                    debug!("Saw time locked transaction with hash {}", tx.hash());
+                    false
+                }
+            })
+            .try_fold(Vec::new, |mut outputs_per_tx, tx| {
+                let outputs = tx.check_outputs_with(sub_key_checker)?;
+                outputs_per_tx.push((tx.hash(), outputs));
+                Ok::<Vec<(monero::Hash, Vec<OwnedTxOut<'_>>)>, ScannerError>(outputs_per_tx)
+            })
+            .try_reduce(Vec::new, |mut outputs, mut other_outputs| {
+                outputs.append(&mut other_outputs);
+                Ok(outputs)
+            })?;
 
+        for (tx_hash, owned_outputs) in owned_outputs_per_tx {
             for output in &owned_outputs {
-                if !self.output_key_is_unique(output, tx.hash())? {
+                if !self.output_key_is_unique(output, tx_hash).await? {
                     debug!(
                         "Owned output #{} in transaction {} has duplicate public key.",
                         output.index(),
-                        tx.hash()
+                        tx_hash
                     );
                     continue;
                 }
@@ -379,19 +410,13 @@ impl<S: Storage> Scanner<S> {
 
                 // If this invoice is being tracked, add the amount and subindex to the result
                 // set.
-                if self
-                    .store
-                    .read()
-                    .unwrap_or_else(PoisonError::into_inner)
-                    .contains_sub_index(sub_index)
-                    .map_err(|e| AcceptXmrError::Storage(Box::new(e)))?
-                {
+                if self.store.contains_sub_index(sub_index).await? {
                     let amount = OwnedAmount {
                         sub_index,
-                        amount: output.amount().ok_or(AcceptXmrError::Unblind(sub_index))?,
+                        amount: output.amount().ok_or(ScannerError::Unblind(sub_index))?,
                     };
                     amounts_received
-                        .entry(tx.hash())
+                        .entry(tx_hash)
                         .or_insert_with(Vec::new)
                         .push(amount);
                 }
@@ -404,47 +429,49 @@ impl<S: Storage> Scanner<S> {
     /// Returns `true` if the output key is unique to this output, or false if
     /// the key has been used by a previous output (indicating an instance of
     /// the burning bug).
-    fn output_key_is_unique(
+    async fn output_key_is_unique(
         &self,
-        output: &OwnedTxOut,
+        output: &OwnedTxOut<'_>,
         tx_hash: monero::Hash,
-    ) -> Result<bool, AcceptXmrError> {
+    ) -> Result<bool, ScannerError> {
         let key = match output.out().target {
             TxOutTarget::ToKey { key } | TxOutTarget::ToTaggedKey { key, view_tag: _ } => key,
-            TxOutTarget::ToScript { .. } | TxOutTarget::ToScriptHash { .. } => {
-                return Err(AcceptXmrError::OutputTarget)
-            }
         };
         let output_id = OutputId {
             tx_hash: tx_hash.to_bytes(),
-            index: u8::try_from(output.index()).map_err(|_| AcceptXmrError::OutputIndex)?,
+            index: u8::try_from(output.index()).map_err(|_| ScannerError::OutputIndex)?,
         };
-        let maybe_stored_output_id = OutputKeyStorage::get(
-            &*self.store.read().unwrap_or_else(PoisonError::into_inner),
-            OutputPubKey(key),
-        )
-        .map_err(|e| AcceptXmrError::Storage(Box::new(e)))?;
+        let maybe_stored_output_id = self.store.get_output_key_id(OutputPubKey(key)).await?;
         if let Some(stored_output_id) = maybe_stored_output_id {
             if stored_output_id != output_id {
                 return Ok(false);
             }
         } else {
-            OutputKeyStorage::insert(
-                &mut *self.store.write().unwrap_or_else(PoisonError::into_inner),
-                OutputPubKey(key),
-                output_id,
-            )
-            .map_err(|e| AcceptXmrError::Storage(Box::new(e)))?;
+            self.store
+                .insert_output_key(OutputPubKey(key), output_id)
+                .await?;
         }
         Ok(true)
     }
+
+    pub(crate) async fn is_synchronized(&self) -> bool {
+        self.block_cache.lock().await.is_synchronized()
+    }
+
+    pub(crate) async fn cache_height(&self) -> u64 {
+        self.block_cache.lock().await.height()
+    }
+
+    pub(crate) async fn daemon_height(&self) -> u64 {
+        self.block_cache.lock().await.daemon_height()
+    }
 }
 
-pub(crate) struct ScannerHandle(JoinHandle<Result<(), AcceptXmrError>>);
+pub(crate) struct ScannerHandle(JoinHandle<Result<(), ScannerError>>);
 
 impl ScannerHandle {
-    pub(crate) fn join(self) -> thread::Result<Result<(), AcceptXmrError>> {
-        self.0.join()
+    pub(crate) async fn join(self) -> Result<(), ScannerError> {
+        self.0.await?
     }
 
     pub(crate) fn is_finished(&self) -> bool {
@@ -452,8 +479,8 @@ impl ScannerHandle {
     }
 }
 
-impl From<JoinHandle<Result<(), AcceptXmrError>>> for ScannerHandle {
-    fn from(inner: JoinHandle<Result<(), AcceptXmrError>>) -> Self {
+impl From<JoinHandle<Result<(), ScannerError>>> for ScannerHandle {
+    fn from(inner: JoinHandle<Result<(), ScannerError>>) -> Self {
         ScannerHandle(inner)
     }
 }
@@ -463,31 +490,57 @@ struct OwnedAmount {
     amount: Amount,
 }
 
-fn last_height<S: Storage>(store: &Arc<RwLock<S>>) -> Result<Option<u64>, AcceptXmrError> {
-    match HeightStorage::get(&*store.read().unwrap_or_else(PoisonError::into_inner)) {
-        Ok(Some(h)) => {
-            info!("Last block scanned: {}", h);
-            return Ok(Some(h));
-        }
-        Ok(None) => {}
-        Err(e) => return Err(AcceptXmrError::Storage(Box::new(e))),
+async fn last_height<S: Storage + 'static>(
+    store: &StorageClient<S>,
+) -> Result<Option<u64>, ScannerError> {
+    if let Some(h) = store.get_height().await? {
+        info!("Last block scanned: {}", h);
+        return Ok(Some(h));
     }
 
-    match store
-        .read()
-        .unwrap_or_else(PoisonError::into_inner)
-        .lowest_height()
-    {
-        Ok(Some(h)) => {
-            info!(
-                "Pending invoices found in AcceptXMR database. Height of lowest invoice: {}",
-                h
-            );
-            return Ok(Some(h));
-        }
-        Ok(None) => {}
-        Err(e) => return Err(AcceptXmrError::Storage(Box::new(e))),
+    // Fall back on this for compatibility in case the user's height table
+    // wasn't populated yet.
+    if let Some(h) = store.lowest_invoice_height().await? {
+        info!(
+            "Pending invoices found in AcceptXMR database. Height of lowest invoice: {}",
+            h
+        );
+        return Ok(Some(h));
     };
 
     Ok(None)
+}
+
+/// Errors specific to the blockchain scanner.
+#[derive(Error, Debug)]
+pub enum ScannerError {
+    /// Failure to unblind the amount of an owned output.
+    #[error("unable to unblind amount of owned output sent to subaddress index {0}")]
+    Unblind(SubIndex),
+    /// An error storing/retrieving data from the storage layer.
+    #[error("storage error: {0}")]
+    Storage(#[from] StorageError),
+    /// Payment gateway encountered an error while trying to join the scanning
+    /// thread.
+    #[error("payment gateway encountered an error while trying to join the scanning thread: {0}")]
+    Threading(#[from] JoinError),
+    /// Failure to check if output is owned.
+    #[error("failed to check if output is owned: {0}")]
+    OwnedOutputCheck(#[from] monero::blockdata::transaction::Error),
+    /// Output has unsupported target. This could mean that `AcceptXMR` is
+    /// connected to an outdated daemon.
+    #[error("unsupported output target")]
+    OutputTarget,
+    /// Output index was too large.
+    #[error("output index too large")]
+    OutputIndex,
+    /// An error originating from a daemon RPC call.
+    #[error("RPC error: {0}")]
+    Rpc(#[from] MonerodRpcError),
+    /// An error with the block cache.
+    #[error("Block cache error: {0}")]
+    BlockCache(#[from] BlockCacheError),
+    /// An error with the txpool cache.
+    #[error("Txpool cache error: {0}")]
+    TxpoolCache(#[from] TxpoolCacheError),
 }

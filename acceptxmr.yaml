@@ -45,6 +45,20 @@ internal-api:
   # Specify where static HTML/CSS/JS files can be found.
   static_dir: server/static/
 
+# When a connection fails to be made to a callback recipient or the recipient
+# returns an error, the callback will be placed back into the queue and retried.
+# If the queue fills up, the payment gateway will stop processing invoices until
+# the queue begins to clear.
+#
+# Note that the queue is held in memory. When the server is stopped, the queue
+# is lost and the queued callbacks will not be delivered.
+# 
+# Retries are delayed according to an exponential decay schedule starting at 1s
+# and increasing by 1.5x each retry up to a maximum interval of 1 hour.
+callback:
+  queue-size: 1000
+  max-retries: 50
+
 # Remember to change the address below to your own. You will also need to set
 # your private viewkey using the PRIVATE_VIEWKEY environment variable.
 #
@@ -62,9 +76,15 @@ wallet:
 daemon:
   url: http://xmr-node.cakewallet.com:18081/
   login: null
+  # Timeout in seconds for RPC calls to the daemon. Defaults to 30s.
+  rpc-timeout: 30
+  # Timeout in seconds for making an RPC connection to the daemon. Defaults to 20s.
+  connection-timeout: 20
 
 database:
   path: AcceptXMR_DB/
+  # Delete expired invoices if they aren't pending confirmation. Defaults to true.
+  delete-expired: true
 
 logging:
   verbosity: DEBUG

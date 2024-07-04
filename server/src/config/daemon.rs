@@ -1,14 +1,16 @@
-use std::{env, env::VarError};
+use std::{env, env::VarError, time::Duration};
 
-use actix_web::http::Uri;
-use anyhow::Result;
+use hyper::Uri;
 use log::warn;
 use secrecy::{ExposeSecret, Secret};
 use serde::{Deserialize, Serialize};
-use serde_with::{serde_as, DisplayFromStr};
+use serde_with::{serde_as, DisplayFromStr, DurationSeconds};
+
+use super::ConfigError;
 
 #[serde_as]
 #[derive(Deserialize, PartialEq, Debug, Serialize)]
+#[serde(rename_all = "kebab-case")]
 pub struct DaemonConfig {
     /// URL of monero daemon.
     #[serde_as(as = "DisplayFromStr")]
@@ -16,10 +18,16 @@ pub struct DaemonConfig {
     /// Monero daemon login credentials, if applicable.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub login: Option<DaemonLoginConfig>,
+    /// Timeout in seconds for RPC calls to the daemon.
+    #[serde_as(as = "DurationSeconds")]
+    pub rpc_timeout: Duration,
+    /// Timeout in seconds for making an RPC connection to the daemon.
+    #[serde_as(as = "DurationSeconds")]
+    pub connection_timeout: Duration,
 }
 
 impl DaemonConfig {
-    pub(super) fn apply_env_overrides(mut self) -> Result<Self> {
+    pub(super) fn apply_env_overrides(mut self) -> Result<Self, ConfigError> {
         match env::var("DAEMON_PASSWORD") {
             Ok(password) => {
                 if let Some(login) = self.login.as_mut() {
@@ -49,6 +57,8 @@ impl Default for DaemonConfig {
         Self {
             url: Uri::from_static("https://xmr-node.cakewallet.com:18081"),
             login: None,
+            rpc_timeout: Duration::from_secs(30),
+            connection_timeout: Duration::from_secs(20),
         }
     }
 }
@@ -82,7 +92,7 @@ impl PartialEq for DaemonLoginConfig {
 mod test {
     use std::{env, panic::catch_unwind};
 
-    use actix_web::http::Uri;
+    use hyper::Uri;
     use secrecy::{ExposeSecret, Secret};
     use test_case::test_case;
 
@@ -113,13 +123,15 @@ mod test {
     #[test_case(
         &DaemonConfig {
             url: Uri::from_static("http://example.com"), 
-            login: Some(DaemonLoginConfig {username: "jsmith".to_string(), password: None})
+            login: Some(DaemonLoginConfig {username: "jsmith".to_string(), password: None}),
+            ..Default::default()
         } => false; "missing password"
     )]
     #[test_case(
         &DaemonConfig {
             url: Uri::from_static("http://example.com"), 
-            login: Some(DaemonLoginConfig {username: "jsmith".to_string(), password: Some(Secret::new("p455w0rd".to_string()))})
+            login: Some(DaemonLoginConfig {username: "jsmith".to_string(), password: Some(Secret::new("p455w0rd".to_string()))}),
+            ..Default::default()
         }
         => true; "with password"
     )]

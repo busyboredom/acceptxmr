@@ -1,6 +1,5 @@
 use std::{
     cmp::Ordering,
-    string::ToString,
     sync::{
         atomic::{self, AtomicU32},
         Arc, Mutex, PoisonError,
@@ -291,7 +290,7 @@ pub enum AuthError {
     Unauthorized,
     #[error("invalid WWW-AUTHENTICATE header: {0}")]
     InvalidHeader(String),
-    #[error("failed to constuct AUTHORIZATION header")]
+    #[error("failed to construct AUTHORIZATION header")]
     HeaderConstruction(#[from] hyper::header::InvalidHeaderValue),
     #[error("no supported authentication method")]
     Unsupported,

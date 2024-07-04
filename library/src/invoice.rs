@@ -102,12 +102,19 @@ impl Invoice {
         })
     }
 
+    /// Returns `true` if the `Invoice` has been paid in full (regadless of
+    /// whether all required confirmations have been received).
+    #[must_use]
+    pub fn is_paid(&self) -> bool {
+        self.amount_paid >= self.amount_requested
+    }
+
     /// Returns `true` if the `Invoice`'s current block is greater than or equal
     /// to its expiration block.
     #[must_use]
     pub fn is_expired(&self) -> bool {
-        // At or passed the expiration block, AND not paid in full.
-        (self.current_height >= self.expiration_height) && self.paid_height.is_none()
+        // At or passed the expiration block.
+        self.current_height >= self.expiration_height
     }
 
     /// Returns the base 58 encoded subaddress of this `Invoice`.
@@ -162,6 +169,8 @@ impl Invoice {
     /// # #[tokio::main]
     /// # async fn main() -> Result<(), Box<dyn std::error::Error>> {
     /// #
+    /// # use std::time::Duration;
+    /// #
     /// # use acceptxmr::{PaymentGatewayBuilder, storage::stores::InMemory};
     /// #
     /// # let store = InMemory::new();
@@ -170,20 +179,22 @@ impl Invoice {
     /// # let primary_address = "4613YiHLM6JMH4zejMB2zJY5TwQCxL8p65ufw8kBP5yxX9itmuGLqp1dS4tkVoTxjyH3aYhYNrtGHbQzJQP5bFus3KHVdmf";
     /// #
     /// # let payment_gateway = PaymentGatewayBuilder::new(private_view_key.to_string(), primary_address.to_string(), store)
-    /// #   .build()?;
+    /// #   .build()
+    /// #   .await?;
+    /// #
     /// // Create a new `Invoice` for 1 millinero.
-    /// let invoice_id = payment_gateway.new_invoice(1_000_000_000, 3, 5, "for pizza".to_string())?;
-    /// let small_invoice = payment_gateway.get_invoice(invoice_id)?.expect("invoice ID not found");
+    /// let invoice_id = payment_gateway.new_invoice(1_000_000_000, 3, 5, "for pizza".to_string()).await?;
+    /// let small_invoice = payment_gateway.get_invoice(invoice_id).await?.expect("invoice ID not found");
     ///
     /// // One millinero, as expected.
     /// assert_eq!(small_invoice.xmr_requested(), 0.001);
     ///
     /// // Create a new `Invoice` for 18446744.073709551615 XMR.
-    /// let invoice_id = payment_gateway.new_invoice(18_446_744_073_709_551_615, 3, 5, "for lambo".to_string())?;
-    /// let large_invoice = payment_gateway.get_invoice(invoice_id)?.expect("invoice ID not found");
+    /// let invoice_id = payment_gateway.new_invoice(18_446_744_073_709_551_615, 3, 5, "for lambo".to_string()).await?;
+    /// let large_invoice = payment_gateway.get_invoice(invoice_id).await?.expect("invoice ID not found");
     ///
     /// // The large value has been rounded slightly due to f64 precision limitations.
-    /// assert_eq!(large_invoice.xmr_requested(), 18446744.073709551245);
+    /// assert_eq!(large_invoice.xmr_requested(), 18446744.07370955);
     /// #   Ok(())
     /// # }
     /// ```
@@ -265,12 +276,13 @@ impl Invoice {
     /// # let store = InMemory::new();
     /// #
     /// # let payment_gateway = PaymentGatewayBuilder::new(private_view_key.to_string(), primary_address.to_string(), store)
-    /// #    .build()?;
+    /// #    .build()
+    /// #    .await?;
     /// #
     /// # payment_gateway.run().await?;
     /// #
     /// // Create a new `Invoice` requiring 3 confirmations, and expiring in 5 blocks.
-    /// let invoice_id = payment_gateway.new_invoice(10000, 3, 5, "for pizza".to_string())?;
+    /// let invoice_id = payment_gateway.new_invoice(10000, 3, 5, "for pizza".to_string()).await?;
     /// let mut subscriber = payment_gateway.subscribe(invoice_id).expect("invoice ID not found");
     /// let invoice = subscriber.recv().await.expect("invoice update not received");
     ///
@@ -499,22 +511,46 @@ impl Transfer {
     }
 }
 
+impl From<InvoiceId> for u128 {
+    fn from(value: InvoiceId) -> Self {
+        let SubIndex { major, minor } = value.sub_index;
+        let height = value.creation_height;
+        let mut bytes = [0u8; 16];
+        bytes[..4].copy_from_slice(&major.to_be_bytes());
+        bytes[4..8].copy_from_slice(&minor.to_be_bytes());
+        bytes[8..16].copy_from_slice(&height.to_be_bytes());
+        u128::from_be_bytes(bytes)
+    }
+}
+
+impl From<u128> for InvoiceId {
+    fn from(value: u128) -> Self {
+        let bytes = value.to_be_bytes();
+        let mut major_index_bytes = [0u8; 4];
+        let mut minor_index_bytes = [0u8; 4];
+        let mut height_bytes = [0u8; 8];
+        major_index_bytes.copy_from_slice(&bytes[..4]);
+        minor_index_bytes.copy_from_slice(&bytes[4..8]);
+        height_bytes.copy_from_slice(&bytes[8..16]);
+        let sub_index = SubIndex {
+            major: u32::from_be_bytes(major_index_bytes),
+            minor: u32::from_be_bytes(minor_index_bytes),
+        };
+        InvoiceId {
+            sub_index,
+            creation_height: u64::from_be_bytes(height_bytes),
+        }
+    }
+}
+
 #[cfg(test)]
 #[allow(clippy::expect_used)]
+#[allow(clippy::panic)]
 mod tests {
-    use log::LevelFilter;
     use test_case::test_case;
+    use testing_utils::init_logger;
 
-    use crate::{Invoice, SubIndex};
-
-    fn init_logger() {
-        env_logger::builder()
-            .filter_level(LevelFilter::Warn)
-            .filter_module("acceptxmr", log::LevelFilter::Debug)
-            .is_test(true)
-            .try_init()
-            .ok();
-    }
+    use crate::{Invoice, InvoiceId, SubIndex};
 
     #[test_case(1, 0 => "0.000000000001".to_string(); "small")]
     #[test_case(u64::MAX, 0 => "18446744.073709551615".to_string(); "big")]
@@ -543,6 +579,25 @@ mod tests {
         amount.to_string()
     }
 
+    #[test_case(1 => "0.000000000001".to_string(); "small")]
+    #[test_case(u64::MAX => "18446744.07370955".to_string(); "big")]
+    #[test_case(0 => "0".to_string(); "zero")]
+    fn xmr_requested(requested: u64) -> String {
+        // Setup.
+        init_logger();
+
+        let invoice = Invoice::new(
+            "testAddress".to_string(),
+            SubIndex::new(0, 1),
+            0,
+            requested,
+            5,
+            10,
+            "test_description".to_string(),
+        );
+        invoice.xmr_requested().to_string()
+    }
+
     #[test]
     fn expires_in() {
         init_logger();
@@ -558,5 +613,14 @@ mod tests {
         );
 
         assert_eq!(invoice.expiration_in(), 10);
+    }
+
+    #[test_case(InvoiceId::new(SubIndex::new(0, 0), 0), 0)]
+    fn invoice_id_integer_roundtrip(invoice_id: InvoiceId, expected_int: u128) {
+        let actual_int: u128 = invoice_id.into();
+        assert_eq!(actual_int, expected_int);
+
+        let rebuilt_invoice_id: InvoiceId = actual_int.into();
+        assert_eq!(rebuilt_invoice_id, invoice_id);
     }
 }

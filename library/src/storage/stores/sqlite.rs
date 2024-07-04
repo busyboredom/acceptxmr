@@ -1,7 +1,7 @@
 use std::fmt::Display;
 
 use log::{debug, trace, warn};
-use sqlite::{version, Connection, ConnectionWithFullMutex, CursorWithOwnership, State, Value};
+use sqlite::{version, Connection, ConnectionThreadSafe, Row, State, Value};
 use thiserror::Error;
 
 use crate::{
@@ -11,7 +11,7 @@ use crate::{
 
 /// `SQLite` database.
 pub struct Sqlite {
-    db: ConnectionWithFullMutex,
+    db: ConnectionThreadSafe,
     invoices: TableName,
     output_keys: TableName,
     height: TableName,
@@ -31,7 +31,7 @@ impl Sqlite {
         output_key_table: &str,
         height_table: &str,
     ) -> Result<Sqlite, SqliteStorageError> {
-        let db = Connection::open_with_full_mutex(path)?;
+        let db = Connection::open_thread_safe(path)?;
         debug!("Connection to SQLite v{} database established", version());
 
         let invoices = TableName::new(invoice_table);
@@ -75,7 +75,6 @@ impl Sqlite {
 
 impl InvoiceStorage for Sqlite {
     type Error = SqliteStorageError;
-    type Iter<'a> = SqliteIter<'a>;
 
     fn insert(&mut self, invoice: Invoice) -> Result<(), SqliteStorageError> {
         let invoice_id = invoice.id();
@@ -116,12 +115,12 @@ impl InvoiceStorage for Sqlite {
 
     fn remove(&mut self, invoice_id: InvoiceId) -> Result<Option<Invoice>, SqliteStorageError> {
         let mut statement = self.db.prepare(
-            format!(
-                "DELETE FROM {}
-                WHERE major_subindex = :major AND minor_subindex = :minor AND creation_height = :height RETURNING invoice",
-                self.invoices
-            )
-        )?;
+                format!(
+                    "DELETE FROM {}
+                    WHERE major_subindex = :major AND minor_subindex = :minor AND creation_height = :height RETURNING invoice",
+                    self.invoices
+                )
+            )?;
         statement.bind::<&[(_, Value)]>(
             &[
                 // Cast to i64 is needed because `Value` doesn't support u32.
@@ -240,6 +239,22 @@ impl InvoiceStorage for Sqlite {
         ))
     }
 
+    fn get_ids(&self) -> Result<Vec<InvoiceId>, SqliteStorageError> {
+        // Check get the existing value.
+        let select_stmt = self.db.prepare(format!(
+            "SELECT major_subindex, minor_subindex, creation_height FROM {}",
+            self.invoices
+        ))?;
+
+        let invoice_ids = select_stmt
+            .into_iter()
+            .map(|row| row.map_err(SqliteStorageError::Database))
+            .flat_map(|row| row.map(|r| StoredInvoiceId::try_from(r).map(Into::into)))
+            .collect::<Result<Vec<InvoiceId>, SqliteStorageError>>()?;
+
+        Ok(invoice_ids)
+    }
+
     fn contains_sub_index(&self, sub_index: SubIndex) -> Result<bool, SqliteStorageError> {
         // Get the existing value.
         let mut select_stmt = self.db.prepare(format!(
@@ -260,41 +275,55 @@ impl InvoiceStorage for Sqlite {
         let count = select_stmt.read::<i64, _>(0)?;
         if select_stmt.next()? != State::Done {
             warn!(
-                "Invoice query returned more than one row: {:?}",
-                select_stmt.read::<Value, _>("invoice")?
+                "Subaddress index query returned more than one row: {:?}",
+                select_stmt.read::<Value, _>(0)?
             );
         }
 
         Ok(count > 0)
     }
 
-    fn try_iter(&self) -> Result<Self::Iter<'_>, SqliteStorageError> {
+    fn try_for_each<F>(&self, mut f: F) -> Result<(), Self::Error>
+    where
+        F: FnMut(Result<Invoice, Self::Error>) -> Result<(), Self::Error>,
+    {
         let statement = self
             .db
             .prepare(format!("SELECT invoice FROM {}", self.invoices))?;
-        Ok(SqliteIter(statement.into_iter()))
+
+        statement.into_iter().try_for_each(move |item| {
+            let invoice_or_err = match item {
+                Ok(row) => match row.try_read("invoice") {
+                    Ok(value) => bincode::decode_from_slice(value, bincode::config::standard())
+                        .map(|v| v.0)
+                        .map_err(SqliteStorageError::Deserialize),
+                    Err(e) => Err(SqliteStorageError::from(e)),
+                },
+                Err(e) => Err(SqliteStorageError::Database(e)),
+            };
+
+            f(invoice_or_err)
+        })
     }
-}
 
-pub struct SqliteIter<'a>(CursorWithOwnership<'a>);
+    fn is_empty(&self) -> Result<bool, Self::Error> {
+        let mut statement = self
+            .db
+            .prepare(format!("SELECT EXISTS (SELECT 1 FROM {})", self.invoices))?;
 
-impl<'stmt> Iterator for SqliteIter<'stmt> {
-    type Item = Result<Invoice, SqliteStorageError>;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        match self.0.next()? {
-            Ok(row) => {
-                let value = match row.try_read("invoice") {
-                    Ok(v) => v,
-                    Err(e) => return Some(Err(SqliteStorageError::from(e))),
-                };
-                let invoice_or_err = bincode::decode_from_slice(value, bincode::config::standard())
-                    .map(|v| v.0)
-                    .map_err(SqliteStorageError::Deserialize);
-                Some(invoice_or_err)
-            }
-            Err(e) => Some(Err(SqliteStorageError::Database(e))),
+        if statement.next()? == State::Done {
+            debug!("Query determining if DB is empty returned no results.");
+            return Ok(true);
         }
+
+        let is_empty = statement.read::<i64, _>(0)?;
+        if statement.next()? != State::Done {
+            warn!(
+                "Invoice query returned more than one row: {:?}",
+                statement.read::<Value, _>(0)?
+            );
+        }
+        Ok(is_empty == 0)
     }
 }
 
@@ -442,6 +471,38 @@ impl Display for TableName {
     }
 }
 
+/// A newtype around `InvoiceId` to help with deserializing from row.
+struct StoredInvoiceId(InvoiceId);
+
+impl TryFrom<Row> for StoredInvoiceId {
+    type Error = SqliteStorageError;
+
+    fn try_from(value: Row) -> Result<Self, Self::Error> {
+        let major_subindex = value.try_read::<i64, _>("major_subindex")?;
+        let minor_subindex = value.try_read::<i64, _>("minor_subindex")?;
+        let creation_height_slice = value.try_read::<&[u8], _>("creation_height")?;
+
+        let mut creation_height_bytes: [u8; 8] = [0; 8];
+        creation_height_bytes.copy_from_slice(creation_height_slice);
+
+        Ok(StoredInvoiceId(InvoiceId::new(
+            SubIndex::new(
+                u32::try_from(major_subindex)
+                    .map_err(|_| SqliteStorageError::InvalidSubIndex(major_subindex))?,
+                u32::try_from(minor_subindex)
+                    .map_err(|_| SqliteStorageError::InvalidSubIndex(major_subindex))?,
+            ),
+            u64::from_be_bytes(creation_height_bytes),
+        )))
+    }
+}
+
+impl From<StoredInvoiceId> for InvoiceId {
+    fn from(value: StoredInvoiceId) -> Self {
+        value.0
+    }
+}
+
 /// An error occurring while storing or retrieving values from a
 /// `sqlite` database.
 #[derive(Error, Debug)]
@@ -456,11 +517,14 @@ pub enum SqliteStorageError {
     #[error("attempted to insert an output public key which already exists")]
     DuplicateOutputKey,
     /// Failed to serialize an [`Invoice`] or [`OutputPubKey`].
-    #[error("Serialization error: {0}")]
+    #[error("serialization error: {0}")]
     Serialize(#[from] bincode::error::EncodeError),
     /// Failed to deserialize an [`Invoice`] or [`OutputPubKey`].
-    #[error("Deserialization error: {0}")]
+    #[error("deserialization error: {0}")]
     Deserialize(#[from] bincode::error::DecodeError),
+    /// Invalid subaddress index in DB.
+    #[error("invalid subaddress index in database: {0}")]
+    InvalidSubIndex(i64),
 }
 
 #[cfg(test)]

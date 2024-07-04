@@ -1,0 +1,29 @@
+<!DOCTYPE html>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AcceptXMR</title>
+
+<div class="acceptxmr">
+    <div class="state-message-container">
+        <p id="state-message">Loading...</p>
+    </div>
+    <hr/>
+    <div id="payment-content" class="content">
+        <div class="qrcode-container" id="qrcode-container">
+            <svg viewBox="0 0 100 100" id="qrcode" src=""></svg>
+        </div>
+        <div class="details">
+            <label>Address</label>
+            <div id="address-container">
+                <p id="address">{{address}}</p>
+                <button id="address-copy-btn" onclick="copyInvoiceAddress()">Copy</button>
+            </div>
+            <label>Status</label>
+            <p class="status">
+                Paid: <span id="paid">{{amount_paid}}</span> / <span id="due">{{ amount_requested - amount_paid }}</span> XMR<br />
+            </p>
+        </div>
+    </div>
+</div>
+<script type="text/javascript" src="vendor/qrcode.js"></script>
+<script type="text/javascript" src="acceptxmr.js"></script>
+<link rel="stylesheet" href="acceptxmr.css">

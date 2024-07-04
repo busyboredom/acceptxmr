@@ -1,7 +1,7 @@
 [![BuildStatus](https://github.com/busyboredom/acceptxmr/workflows/CI/badge.svg)](https://img.shields.io/github/actions/workflow/status/busyboredom/acceptxmr/ci.yml?branch=main)
 [![Crates.io](https://img.shields.io/crates/v/acceptxmr.svg)](https://crates.io/crates/acceptxmr)
 [![Documentation](https://docs.rs/acceptxmr/badge.svg)](https://docs.rs/acceptxmr)
-[![MSRV](https://img.shields.io/badge/MSRV-1.70.0-blue)](https://blog.rust-lang.org/2023/06/01/Rust-1.70.0.html)
+[![MSRV](https://img.shields.io/badge/MSRV-1.76.0-blue)](https://blog.rust-lang.org/2024/02/08/Rust-1.76.0.html)
 
 # `AcceptXMR`: Accept Monero in Your Application
 `AcceptXMR` is a library for building payment gateways. 
@@ -50,7 +50,7 @@ let invoice_id = payment_gateway.new_invoice(
   0,                                // require 0 confirmations,
   10,                               // expire in 10 blocks,
   "Large Cheese Pizza".to_string()  // and get the order right.
-)?;
+).await?;
 
 // We can now subscribe to updates to the pizza invoice.
 let subscriber = payment_gateway.subscribe(invoice_id)?
@@ -62,7 +62,7 @@ let update = subscriber.recv().await.expect("channel closed");
 if update.is_confirmed() {
   // Great, ship the pizza and stop tracking the invoice.
   println!("Invoice for \"{}\" paid", update.description());
-  payment_gateway.remove_invoice(invoice_id)?;
+  payment_gateway.remove_invoice(invoice_id).await?;
 }   
 ```
 For more detailed documentation, see [docs.rs](https://docs.rs/acceptxmr) or the

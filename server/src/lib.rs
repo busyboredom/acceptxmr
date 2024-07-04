@@ -5,41 +5,45 @@
 //! This library is intended for use by the AcceptXMR-Server binary, and is not
 //! intended to be used on its own.
 
-#![warn(clippy::pedantic)]
-#![warn(missing_docs)]
-#![warn(clippy::cargo)]
-#![allow(clippy::module_name_repetitions)]
-
+mod callbacks;
 mod config;
 pub mod logging;
 mod server;
 
+use std::{io::Error as IoError, net::SocketAddr, path::PathBuf, time::Duration};
+
 use acceptxmr::{storage::stores::Sqlite, PaymentGateway, PaymentGatewayBuilder};
-use futures::try_join;
-use log::{debug, error, info, warn};
+use log::{debug, error, info};
 use secrecy::ExposeSecret;
+use server::Server;
+use tokio::{join, try_join};
 
 use crate::{
-    config::Config,
+    callbacks::{CallbackClient, CallbackCommand, CallbackQueue},
     logging::{init_logger, set_verbosity},
     server::{
         api::{external, internal},
         new_server,
     },
 };
+pub use crate::{config::Config, server::api};
 
 /// Start a standalone payment gateway.
 pub async fn entrypoint() {
     init_logger();
-    let config = load_config();
+
+    let config_path = Config::get_path();
+    let config = load_config(&config_path);
     set_verbosity(config.logging);
 
-    let payment_gateway = build_gateway(&config);
+    let payment_gateway = build_gateway(&config).await;
     info!("Payment gateway created.");
 
-    let gateway_clone = spawn_gateway(payment_gateway).await;
+    let gateway_clone = spawn_gateway(payment_gateway, &config).await;
 
-    run_server(config, gateway_clone).await;
+    let server = build_server(&config, gateway_clone).await;
+    debug!("Built AcceptXMR-Server");
+    run_server(server).await;
 }
 
 /// Loads config.
@@ -48,8 +52,8 @@ pub async fn entrypoint() {
 ///
 /// Panics if the config could not be read or validated.
 #[must_use]
-pub fn load_config() -> Config {
-    let config = Config::read().expect("failed to read config");
+pub fn load_config(path: &PathBuf) -> Config {
+    let config = Config::read(path).expect("failed to read config");
     config.validate();
 
     config
@@ -60,7 +64,7 @@ pub fn load_config() -> Config {
 /// # Panics
 ///
 /// Panics if the payment gateway could not be built.
-pub fn build_gateway(config: &Config) -> PaymentGateway<Sqlite> {
+pub async fn build_gateway(config: &Config) -> PaymentGateway<Sqlite> {
     std::fs::create_dir_all(&config.database.path).expect("failed to create DB dir");
     let db_path = config
         .database
@@ -96,7 +100,7 @@ pub fn build_gateway(config: &Config) -> PaymentGateway<Sqlite> {
             login.username.clone(),
             login
                 .password
-                .as_ref()
+                .clone()
                 .map(|pass| pass.expose_secret().clone())
                 .unwrap_or_default(),
         );
@@ -109,6 +113,7 @@ pub fn build_gateway(config: &Config) -> PaymentGateway<Sqlite> {
 
     payment_gateway_builder
         .build()
+        .await
         .expect("failed to build payment gateway")
 }
 
@@ -118,7 +123,10 @@ pub fn build_gateway(config: &Config) -> PaymentGateway<Sqlite> {
 /// # Panics
 ///
 /// Panics if the payment gateway could not be run.
-pub async fn spawn_gateway(payment_gateway: PaymentGateway<Sqlite>) -> PaymentGateway<Sqlite> {
+pub async fn spawn_gateway(
+    payment_gateway: PaymentGateway<Sqlite>,
+    config: &Config,
+) -> PaymentGateway<Sqlite> {
     payment_gateway
         .run()
         .await
@@ -126,27 +134,54 @@ pub async fn spawn_gateway(payment_gateway: PaymentGateway<Sqlite>) -> PaymentGa
     info!("Payment gateway running.");
 
     let gateway_clone = payment_gateway.clone();
+    let callback_queue_size = config.callback.queue_size;
+    let callback_max_retries = config.callback.max_retries;
+    let delete_expired = config.database.delete_expired;
 
     // Watch for invoice updates and deal with them accordingly.
-    std::thread::spawn(move || {
+    tokio::spawn(async move {
         // Watch all invoice updates.
         let mut subscriber = payment_gateway.subscribe_all();
+        info!("Subscribed to all invoice updates.");
+
+        // Build http client for callbacks.
+        let callback_queue = CallbackQueue::init(
+            CallbackClient::default(),
+            callback_queue_size,
+            callback_max_retries,
+        );
+
         loop {
-            let Some(invoice) = subscriber.blocking_recv() else {
+            let Some(invoice) = subscriber.recv().await else {
                 // TODO: Should this attempt to restart instead?
                 panic!("Blockchain scanner crashed!")
             };
-            // If it's confirmed or expired, we probably shouldn't bother tracking it
-            // anymore.
-            if (invoice.is_confirmed() && invoice.creation_height() < invoice.current_height())
-                || invoice.is_expired()
+            debug!("Update for invoice with ID {}:\n{}", invoice.id(), &invoice);
+
+            // Call the callback, if applicable.
+            if let Err(e) = callback_queue
+                .send(CallbackCommand::Call {
+                    invoice: invoice.clone(),
+                    delay: Duration::ZERO,
+                    retry_count: 0,
+                })
+                .await
+            {
+                panic!("Callback queue closed unexpectedly before processing callback for invoice with ID {}. Cause: {}.", invoice.id(), e);
+            };
+
+            // If it's expired and not pending confirmation then we probably
+            // shouldn't bother tracking it anymore. But only if configured to do so.
+            if invoice.is_expired()
+                && (invoice.is_confirmed() || !invoice.is_paid())
+                && delete_expired
             {
                 debug!(
-                    "Invoice to index {} is either confirmed or expired. Removing invoice now",
+                    "Invoice to index {} is expired. Removing invoice now",
                     invoice.index()
                 );
-                if let Err(e) = payment_gateway.remove_invoice(invoice.id()) {
-                    error!("Failed to remove fully confirmed invoice: {}", e);
+                if let Err(e) = payment_gateway.remove_invoice(invoice.id()).await {
+                    error!("Failed to remove expired invoice: {}", e);
                 };
             }
         }
@@ -155,16 +190,69 @@ pub async fn spawn_gateway(payment_gateway: PaymentGateway<Sqlite>) -> PaymentGa
     gateway_clone
 }
 
+/// Build an instance of `AcceptXmrServer`.
+///
+/// # Panics
+///
+/// Panics if the external or internal API servers could not be created (for
+/// example, if the specified port could not be bound).
+pub async fn build_server(
+    config: &Config,
+    payment_gateway: PaymentGateway<Sqlite>,
+) -> AcceptXmrServer {
+    let (external_server, internal_server) = try_join!(
+        new_server(
+            config.external_api.clone(),
+            external,
+            payment_gateway.clone(),
+        ),
+        new_server(config.internal_api.clone(), internal, payment_gateway)
+    )
+    .expect("failed to start internal or external API server");
+
+    debug!("Built API servers");
+
+    AcceptXmrServer {
+        external: external_server,
+        internal: internal_server,
+    }
+}
+
+/// An instance of AcceptXmr-Server.
+pub struct AcceptXmrServer {
+    external: Server,
+    internal: Server,
+}
+
+impl AcceptXmrServer {
+    /// Return the ipv4 address of the internal API server.
+    ///
+    /// # Errors
+    ///
+    /// Returns an IO error if there was an issue getting the address.
+    pub fn internal_ipv4_address(&self) -> Result<SocketAddr, IoError> {
+        self.internal.ipv4_address()
+    }
+
+    /// Return the ipv4 address of the external API server.
+    ///
+    /// # Errors
+    ///
+    /// Returns an IO error if there was an issue getting the address.
+    pub fn external_ipv4_address(&self) -> Result<SocketAddr, IoError> {
+        self.external.ipv4_address()
+    }
+}
+
 /// Start the internal and external HTTP servers.
 ///
 /// # Panics
 ///
 /// Panics if one of the servers could not be run, or if they encounter an
 /// unrecoverable error while running.
-pub async fn run_server(config: Config, payment_gateway: PaymentGateway<Sqlite>) {
-    let external_server = new_server(&config.external_api, external, payment_gateway.clone())
-        .expect("failed to start external API server");
-    let internal_server = new_server(&config.internal_api, internal, payment_gateway)
-        .expect("failed to start internal API server");
-    try_join! {external_server, internal_server}.unwrap();
+pub async fn run_server(server: AcceptXmrServer) {
+    let AcceptXmrServer { external, internal } = server;
+    let external_handle = tokio::spawn(external.serve());
+    let internal_handle = tokio::spawn(internal.serve());
+    let _ = join! {external_handle, internal_handle};
 }

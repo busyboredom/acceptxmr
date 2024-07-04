@@ -15,7 +15,7 @@ services:
       - "8080:8080"
       - "8081:8081"
     volumes:
-      - db:/AcceptXMR_DB
+      - ./AcceptXMR_DB:/AcceptXMR_DB
       - ./server/tests/testdata/cert:/server/tests/testdata/cert/
       - ./acceptxmr.yaml:/acceptxmr.yaml
     env_file: .env

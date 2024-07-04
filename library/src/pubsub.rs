@@ -217,14 +217,14 @@ impl Publisher {
 
             invoice_subs
                 .get_mut(&id)
-                .and_then(|map| map.remove(&sender_id));
+                .and_then(|map| map.swap_remove(&sender_id));
         } else {
             let mut global_subs = self
                 .global_subs
                 .lock()
                 .unwrap_or_else(PoisonError::into_inner);
 
-            global_subs.remove(&sender_id);
+            global_subs.swap_remove(&sender_id);
         }
     }
 }

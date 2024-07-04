@@ -29,15 +29,6 @@ body {
     background-color: #979797;
 }
 
-.acceptxmr #message-container {
-    margin: 1em;
-    flex: 2 1 20em;
-}
-
-.acceptxmr #payment-content {
-    display: none;
-}
-
 .acceptxmr .content button {
     margin: 1em;
     flex: 1 2 10ch;
@@ -45,30 +36,19 @@ body {
     align-self: flex-end;
 }
 
-.acceptxmr textarea {
-    border-radius: 0.5em;
-    border: 0;
-    padding: 0.5em;
-    width: 100%;
-    margin: 0;
-    background-color: #4d4d4d;
-    color: #ffffff;
-    resize: vertical;
-}
-
-.acceptxmr .instruction-container {
+.acceptxmr .state-message-container {
     display: flex;
     flex-flow: row wrap;
     align-items: center;
     justify-content: center;
 }
 
-.acceptxmr .instruction-container p {
+.acceptxmr .state-message-container p {
     margin: 0.1em;
     font-size: large;
 }
 
-.acceptxmr .instruction-container button {
+.acceptxmr .state-message-container button {
     margin: 0.5em;
     padding: 0.25em 0.5em;
 }

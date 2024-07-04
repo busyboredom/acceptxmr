@@ -14,7 +14,7 @@ env:
   RELEASE: |
     ${{
       github.event.pull_request.merged == true ||
-      github.ref_name =='main' ||
+      github.ref_name == 'main' ||
       github.ref_type == 'tag'
     }}
 

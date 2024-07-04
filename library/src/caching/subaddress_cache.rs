@@ -2,7 +2,7 @@ use std::{
     cmp,
     sync::{
         atomic::{AtomicU32, Ordering},
-        Arc, PoisonError, RwLock,
+        Arc, Mutex, PoisonError,
     },
 };
 
@@ -12,7 +12,10 @@ use monero::{cryptonote::subaddress, ViewPair};
 use rand::{Rng, SeedableRng};
 use rand_chacha::ChaCha12Rng;
 
-use crate::{storage::InvoiceStorage, SubIndex};
+use crate::{
+    storage::{Client as StorageClient, Storage, StorageError},
+    SubIndex,
+};
 
 const MIN_AVAILABLE_SUBADDRESSES: u32 = 100;
 
@@ -25,27 +28,35 @@ pub(crate) struct SubaddressCache {
 }
 
 impl SubaddressCache {
-    pub(crate) fn init<S: InvoiceStorage>(
-        storage: &Arc<RwLock<S>>,
+    pub(crate) async fn init<S: Storage + 'static>(
+        storage: &StorageClient<S>,
         viewpair: monero::ViewPair,
         major_index: u32,
         highest_minor_index: Arc<AtomicU32>,
         seed: Option<u64>,
-    ) -> Result<SubaddressCache, S::Error> {
+    ) -> Result<SubaddressCache, StorageError> {
         // Get currently used subindexes from database, so they won't be put in the list
         // of available subindexes.
-        let used_sub_indexes = storage
-            .read()
-            .unwrap_or_else(PoisonError::into_inner)
-            .try_iter()?
-            .map(|invoice_or_err| match invoice_or_err {
-                Ok(invoice) => Ok(invoice.index()),
-                Err(e) => Err(e),
+        let used_sub_indexes = Arc::new(Mutex::new(IndexSet::new()));
+        let cloned_sub_indexes = used_sub_indexes.clone();
+        storage
+            .try_for_each_invoice(move |invoice_or_err| {
+                let sub_index = invoice_or_err?.index();
+                cloned_sub_indexes
+                    .lock()
+                    .unwrap_or_else(PoisonError::into_inner)
+                    .insert(sub_index);
+                Ok(())
             })
-            .collect::<Result<IndexSet<SubIndex>, S::Error>>()?;
+            .await?;
 
         // Get highest index from list of used subindexes.
-        let max_used = if let Some(max_sub_index) = used_sub_indexes.iter().max() {
+        let max_used = if let Some(max_sub_index) = used_sub_indexes
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .iter()
+            .max()
+        {
             debug!(
                 "Highest subaddress index in the database: {}",
                 SubIndex::new(major_index, max_sub_index.minor)
@@ -70,7 +81,12 @@ impl SubaddressCache {
         .collect();
 
         // Remove subaddresses that are present in the database.
-        available_subaddresses.retain(|sub_index, _| !used_sub_indexes.contains(sub_index));
+        available_subaddresses.retain(|sub_index, _| {
+            !used_sub_indexes
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .contains(sub_index)
+        });
 
         // If a seed is supplied, seed the random number generator with it.
         let mut rng = ChaCha12Rng::from_entropy();
