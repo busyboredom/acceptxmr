@@ -1,4 +1,4 @@
-FROM --platform=$BUILDPLATFORM rust:1.76-slim-bookworm as build
+FROM --platform=$BUILDPLATFORM rust:1.76-slim-bookworm AS build
 
 # Create a new empty shell project.
 RUN USER=root cargo new --bin acceptxmr-server

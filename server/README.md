@@ -14,7 +14,7 @@ please see the [`AcceptXMR`](../library/) library instead.
 2. Clone this repository:
   ```bash
   $ git clone https://github.com/busyboredom/acceptxmr.git 
-  $ cd acceptxmr && 
+  $ cd acceptxmr
   ```
 3. Run it:
   ```bash
@@ -32,8 +32,7 @@ please see the [`AcceptXMR`](../library/) library instead.
   $ docker run -d \
     --name acceptxmr \
     --restart=always \
-    -p <external API port>:8080 \
-    -p <internal API port>:8081 \
+    --network host \
     --mount type=bind,source=<database dir>,target=/AcceptXMR_DB \
     --mount type=bind,source=<TLS cert dir>,target=/cert \
     --mount type=bind,source=<config file path>,target=/acceptxmr.yaml \
@@ -43,23 +42,20 @@ please see the [`AcceptXMR`](../library/) library instead.
 Note that the `acceptxmr.yaml` configuration file (described
 [here](#Configuration)) applies directly to the bare `AcceptXMR-Server` service
 running inside docker. The command in step (3) above will need to be adapted
-appropriately if ports or paths in `acceptxmr.yaml` are changed.
+appropriately if paths in `acceptxmr.yaml` are changed.
 
-Click [here](../docker.sh) for an example command with paths and ports filled
-out.
+Click [here](../docker.sh) for an example command with paths filled out.
 
 ### Run with Docker Compose
 1. Install Docker: https://docs.docker.com/get-docker/
 2. Create a file called `docker-compose.yml` with the following contents,
-   setting ports and paths to whatever you desire:
+   setting paths to whatever you desire:
   ```yaml
   name: acceptxmr
   services:
     server:
       image: busyboredom/acceptxmr:latest
-      ports:
-        - "<external API port>:8080"
-        - "<internal API port>:8081"
+      network_mode: "host"
       volumes:
         - db:/AcceptXMR_DB
         - <path to config file>:/acceptxmr.yaml
@@ -108,6 +104,9 @@ Please click [here](../.env) for an example of how to configure secrets in a
 used server-side (i.e. not exposed to the internet). The second API is an
 "external" API, which is safe to expose to the end-user (i.e. it may be exposed
 to the internet).
+
+Interactive API documentation is available for each API at `<host>:<port>/
+swagger-ui/` when running `AcceptXMR-Server`.
 
 #### Internal API
 

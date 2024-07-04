@@ -14,8 +14,7 @@
 
 docker run \
     --name acceptxmr \
-    -p 8080:8080 \
-    -p 8081:8081 \
+    --network host \
     --mount type=bind,source=${PWD}/AcceptXMR_DB,target=/AcceptXMR_DB \
     --mount type=bind,source=${PWD}/server/tests/testdata/cert,target=/server/tests/testdata/cert \
     --mount type=bind,source=${PWD}/acceptxmr.yaml,target=/acceptxmr.yaml \

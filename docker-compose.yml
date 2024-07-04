@@ -11,9 +11,7 @@
 services:
   server:
     build: .
-    ports:
-      - "8080:8080"
-      - "8081:8081"
+    network_mode: "host"
     volumes:
       - ./AcceptXMR_DB:/AcceptXMR_DB
       - ./server/tests/testdata/cert:/server/tests/testdata/cert/
