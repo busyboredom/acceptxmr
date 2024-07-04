@@ -9,6 +9,8 @@ Book](https://doc.rust-lang.org/cargo/reference/manifest.html#the-version-field)
 
 ## [Unreleased]
 
+## [0.14.0] - 2024-07-04
+
 ### Added
 - A batteries-included payment gateway built around the core library.
 - `get_ids()` method to invoice stores.
@@ -22,7 +24,7 @@ Book](https://doc.rust-lang.org/cargo/reference/manifest.html#the-version-field)
 - Replace invoice store `try_iter()` method with `try_for_each()`.
 
 ### Fixed
-- `is_expired` returning false when invoice is awaiting configrmation despite it
+- `is_expired()` returning false when invoice is awaiting configrmation despite it
   being expired.
 
 ## [0.13.0] - 2023-07-23
@@ -148,7 +150,8 @@ Book](https://doc.rust-lang.org/cargo/reference/manifest.html#the-version-field)
 
 - Initial release of the library
 
-[Unreleased]: https://github.com/busyboredom/acceptxmr/compare/v0.13.0...HEAD
+[Unreleased]: https://github.com/busyboredom/acceptxmr/compare/v0.14.0...HEAD
+[0.14.0]: https://github.com/busyboredom/acceptxmr/compare/v0.13.0...v0.14.0
 [0.13.0]: https://github.com/busyboredom/acceptxmr/compare/v0.12.1...v0.13.0
 [0.12.1]: https://github.com/busyboredom/acceptxmr/compare/v0.12.0...v0.12.1
 [0.12.0]: https://github.com/busyboredom/acceptxmr/compare/v0.11.1...v0.12.0
