@@ -27,7 +27,7 @@ use crate::{
 };
 
 const DEFAULT_SCAN_INTERVAL: Duration = Duration::from_millis(1000);
-const DEFAULT_DAEMON: &str = "http://node.moneroworld.com:18089";
+const DEFAULT_DAEMON: &str = "http://xmr-node.cakewallet.com:18081";
 /// Timeout for RPC connection formation.
 const DEFAULT_RPC_CONNECTION_TIMEOUT: Duration = Duration::from_secs(5);
 /// Timeout for total call completion.

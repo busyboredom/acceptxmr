@@ -71,16 +71,16 @@ impl<S: Storage + 'static, M: MonerodClient> Scanner<S, M> {
         atomic_cache_height.store(cache_height, Ordering::Relaxed);
         atomic_daemon_height.store(daemon_height, Ordering::Relaxed);
 
-        // Initialize block cache and txpool cache.
-        let (block_cache, txpool_cache) = join!(
-            BlockCache::init(
-                monerod_client.clone(),
-                block_cache_size,
-                atomic_cache_height,
-                atomic_daemon_height
-            ),
-            TxpoolCache::init(monerod_client.clone())
-        );
+        // Initialize block cache and txpool cache. This is done serially
+        // because otherwise it can cause races with digest authentication.
+        let block_cache = BlockCache::init(
+            monerod_client.clone(),
+            block_cache_size,
+            atomic_cache_height,
+            atomic_daemon_height,
+        )
+        .await?;
+        let txpool_cache = TxpoolCache::init(monerod_client.clone()).await?;
 
         // Initialize the publisher with all currently-tracked invoices.
         store
@@ -91,8 +91,8 @@ impl<S: Storage + 'static, M: MonerodClient> Scanner<S, M> {
 
         Ok(Scanner {
             store,
-            block_cache: AsyncMutex::new(block_cache?),
-            txpool_cache: AsyncMutex::new(txpool_cache?),
+            block_cache: AsyncMutex::new(block_cache),
+            txpool_cache: AsyncMutex::new(txpool_cache),
             publisher,
             first_scan: true,
         })

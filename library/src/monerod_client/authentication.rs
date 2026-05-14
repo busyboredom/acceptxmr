@@ -4,6 +4,7 @@ use std::{
         atomic::{self, AtomicU32},
         Arc, Mutex, PoisonError,
     },
+    time::{Duration, Instant},
 };
 
 use hyper::{
@@ -54,20 +55,26 @@ impl AuthInfo {
         uri: &Uri,
         method: &Method,
     ) -> Result<Option<HeaderValue>, AuthError> {
-        let maybe_auth_params = &*self
-            .last_auth_params
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner);
+        let maybe_auth_params = {
+            let lock = self
+                .last_auth_params
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner);
+            lock.as_ref().cloned()
+        };
+
         let Some(auth_params) = maybe_auth_params else {
             return Ok(None);
         };
         let mut cnonce_bytes: [u8; 16] = [0; 16]; // 128 bits
         self.rng.fill(&mut cnonce_bytes[..]);
 
+        let current_nc = self.counter.fetch_add(1, atomic::Ordering::Relaxed);
+        let nc = format!("{:08x}", current_nc);
+
         let path_and_query = uri
             .path_and_query()
             .map_or(uri.path(), PathAndQuery::as_str);
-        let nc = format!("{:08x}", self.counter.load(atomic::Ordering::Relaxed));
         let qop = auth_params.qop.iter().max().ok_or(AuthError::Unsupported)?;
         let nonce = &auth_params.nonce;
         let realm = &auth_params.realm;
@@ -109,7 +116,6 @@ impl AuthInfo {
             auth_header.push_str(&opaque_str);
         }
 
-        self.counter.fetch_add(1, atomic::Ordering::Relaxed);
         Ok(Some(HeaderValue::from_str(&auth_header)?))
     }
 
@@ -142,11 +148,24 @@ impl AuthInfo {
         auth_choices.sort_unstable();
         let auth_params = auth_choices.last().ok_or(AuthError::Unsupported)?;
 
-        *self
+        let mut lock = self
             .last_auth_params
             .lock()
-            .unwrap_or_else(PoisonError::into_inner) = Some(auth_params.clone());
-        self.counter.store(1, atomic::Ordering::Relaxed);
+            .unwrap_or_else(PoisonError::into_inner);
+
+        // Only rotate the nonce and reset the sequence if the nonce has changed.
+        let should_update = match lock.as_ref() {
+            Some(old_params) => old_params.nonce != auth_params.nonce,
+            None => true,
+        };
+
+        if should_update {
+            *lock = Some(auth_params.clone());
+            self.counter.store(1, atomic::Ordering::Relaxed);
+        }
+
+        drop(lock);
+
         self.authenticate(uri, method)
             .transpose()
             .ok_or(AuthError::Unsupported)?
@@ -228,12 +247,14 @@ fn find_string_value(parts: &Vec<&str>, field: &'static str) -> Option<String> {
     None
 }
 
-fn md5_str(input: String) -> String {
+fn md5(input: &[u8]) -> [u8; 16] {
     let mut digest = Md5::new();
-    let input_bytes = input.into_bytes();
-    digest.update(&input_bytes);
+    digest.update(input);
+    digest.finalize().into()
+}
 
-    hex::encode(digest.finalize())
+fn md5_str(input: String) -> String {
+    hex::encode(md5(input.as_bytes()))
 }
 
 /// Parameters that may appear in WWW-AUTHENTICATE header.

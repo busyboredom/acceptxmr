@@ -81,74 +81,104 @@ impl RpcClient {
     }
 
     async fn request(&self, body: &str, endpoint: &str) -> Result<serde_json::Value, RpcError> {
-        let mut req = Request::builder()
-            .method(Method::POST)
-            .uri(self.url.clone().to_string() + endpoint)
-            .body(Full::new(body.to_owned().into()))?;
-        let (method, uri) = (req.method().clone(), req.uri().clone());
-
-        // If configured with a username and password, try to authenticate with most
-        // recent nonce.
-        if let Some(auth_info) = &mut *self
-            .auth_info
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-        {
-            if let Some(auth_header) = auth_info.authenticate(&uri, &method)? {
-                req.headers_mut().insert(AUTHORIZATION, auth_header);
-            }
-        }
-
-        // Await full response.
-        let mut response = timeout(self.timeout, self.client.request(req))
-            .await?
-            .map_err(|e| RpcError::Request(Box::new(e)))?;
-
-        // If response has www-authenticate header and 401 status, perform digest
-        // authentication.
         let mut exponential_backoff = ExponentialBackoffBuilder::default()
             .with_max_elapsed_time(None)
             .with_max_interval(Duration::from_secs(30))
             .build();
-        while response.status() == StatusCode::UNAUTHORIZED
-            && response.headers().contains_key(WWW_AUTHENTICATE)
-        {
-            debug!("Received 401 UNAUTHORIZED response. Performing digest authentication.");
-            let auth_header = self
+
+        loop {
+            let mut req = Request::builder()
+                .method(Method::POST)
+                .uri(self.url.clone().to_string() + endpoint)
+                .body(Full::new(body.to_owned().into()))?;
+            let (method, uri) = (req.method().clone(), req.uri().clone());
+
+            // If configured with a username and password, try to authenticate with most
+            // recent nonce.
+            if let Some(auth_info) = &mut *self
                 .auth_info
                 .lock()
                 .unwrap_or_else(PoisonError::into_inner)
-                .as_mut()
-                .ok_or(AuthError::Unauthorized)?
-                .authenticate_with_resp(&response, &uri, &method)?;
-            let req = Request::builder()
-                .method(Method::POST)
-                .uri(self.url.clone().to_string() + endpoint)
-                .header(AUTHORIZATION, auth_header)
-                .body(Full::new(body.to_owned().into()))?;
+            {
+                if let Some(auth_header) = auth_info.authenticate(&uri, &method)? {
+                    req.headers_mut().insert(AUTHORIZATION, auth_header);
+                }
+            }
+
             // Await full response.
-            response = timeout(self.timeout, self.client.request(req))
-                .await?
-                .map_err(|e| RpcError::Request(Box::new(e)))?;
+            let response_result = timeout(self.timeout, self.client.request(req)).await;
 
-            #[allow(clippy::expect_used)]
-            tokio::time::sleep(
-                exponential_backoff
-                    .next_backoff()
-                    .expect("RPC exponential backoff timed out. This is a bug."),
-            )
-            .await;
+            let mut response = match response_result {
+                Ok(Ok(resp)) => resp,
+                Ok(Err(e)) => {
+                    warn!("Network error during RPC request: {}", e);
+                    #[allow(clippy::expect_used)]
+                    tokio::time::sleep(
+                        exponential_backoff
+                            .next_backoff()
+                            .expect("RPC exponential backoff timed out. This is a bug."),
+                    )
+                    .await;
+                    continue;
+                }
+                Err(e) => {
+                    warn!("Timeout during RPC request: {}", e);
+                    #[allow(clippy::expect_used)]
+                    tokio::time::sleep(
+                        exponential_backoff
+                            .next_backoff()
+                            .expect("RPC exponential backoff timed out. This is a bug."),
+                    )
+                    .await;
+                    continue;
+                }
+            };
+
+            // If response has www-authenticate header and 401 status, perform digest
+            // authentication.
+            let mut auth_retries = 0;
+            while response.status() == StatusCode::UNAUTHORIZED
+                && response.headers().contains_key(WWW_AUTHENTICATE)
+            {
+                if auth_retries >= 3 {
+                    return Err(RpcError::Auth(AuthError::Unauthorized));
+                }
+                auth_retries += 1;
+
+                debug!("Received 401 UNAUTHORIZED response. Performing digest authentication (Attempt {}).", auth_retries);
+                let auth_header = self
+                    .auth_info
+                    .lock()
+                    .unwrap_or_else(PoisonError::into_inner)
+                    .as_mut()
+                    .ok_or(AuthError::Unauthorized)?
+                    .authenticate_with_resp(&response, &uri, &method)?;
+                let req = Request::builder()
+                    .method(Method::POST)
+                    .uri(self.url.clone().to_string() + endpoint)
+                    .header(AUTHORIZATION, auth_header)
+                    .body(Full::new(body.to_owned().into()))?;
+
+                // Await full response.
+                let auth_response_result = timeout(self.timeout, self.client.request(req)).await;
+                response = match auth_response_result {
+                    Ok(Ok(resp)) => resp,
+                    Ok(Err(e)) => return Err(RpcError::Request(Box::new(e))),
+                    Err(e) => return Err(RpcError::Timeout(e)),
+                };
+            }
+
+            // We got a successful response (not 401 or network error).
+            let (_parts, body) = response.into_parts();
+
+            return Ok(serde_json::from_slice(
+                &body
+                    .collect()
+                    .await
+                    .map_err(|e| RpcError::Request(Box::new(e)))?
+                    .to_bytes(),
+            )?);
         }
-
-        let (_parts, body) = response.into_parts();
-
-        Ok(serde_json::from_slice(
-            &body
-                .collect()
-                .await
-                .map_err(|e| RpcError::Request(Box::new(e)))?
-                .to_bytes(),
-        )?)
     }
 }
 

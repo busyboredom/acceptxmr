@@ -7,7 +7,6 @@ rust-version = "1.70"
 license = "MIT OR Apache-2.0"
 description = "Testing utilities for AcceptXMR"
 repository = "https://github.com/busyboredom/acceptxmr"
-readme = "README.md"
 keywords = ["crypto", "gateway", "monero", "payment", "xmr"]
 categories = ["cryptography::cryptocurrencies"]
 
